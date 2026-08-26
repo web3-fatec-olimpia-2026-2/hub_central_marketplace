@@ -17,7 +17,7 @@ trocar o projeto pois a segunda ideia possuia três escopos de desenvolvimento, 
 
 ## Consequência
 
-A semiindependencia dos escopos nos permitirá entregar o projeto por escopos, poderemos focar na primeira
+A semi-independencia dos escopos nos permitirá entregar o projeto por escopos, poderemos focar na primeira
 parte até que esteja completa e entregarmos o projeto com a parte de cadastro de produtos e disparos via API
 para as plataformas de marketplace.
 
