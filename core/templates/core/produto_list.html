@@ -91,20 +91,30 @@
 
 <!-- TABELA DE PRODUTOS -->
 <div class="card shadow-sm border-0 mb-4">
-    <!-- BARRA DE AÇÕES EM LOTE (RF-05) -->
+    <!-- BARRA DE AÇÕES EM LOTE (RF-05 / RF-08) -->
     {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor %}
         <div class="card-header bg-white py-2 d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom">
             <div class="d-flex align-items-center gap-2">
                 <span class="text-muted small fw-semibold">Ações em Lote:</span>
                 <span id="selectedCountBadge" class="badge bg-secondary">0 selecionado(s)</span>
             </div>
-            <form id="formSyncLote" method="post" action="{% url 'produto_sincronizar_lote_meli' %}" class="d-inline">
-                {% csrf_token %}
-                <input type="hidden" name="produtos_ids" id="hiddenProdutosIds" value="">
-                <button type="submit" id="btnSyncLote" class="btn btn-sm btn-outline-warning text-dark fw-semibold" disabled>
-                    <i class="bi bi-arrow-repeat"></i> Sincronizar Preços Selecionados (Mercado Livre)
-                </button>
-            </form>
+            <div class="d-flex gap-2">
+                <form id="formBroadcastLote" method="post" action="{% url 'produto_broadcast_estoque_lote' %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="produtos_ids" class="hidden-produtos-ids" value="">
+                    <button type="submit" id="btnBroadcastLote" class="btn btn-sm btn-primary fw-semibold shadow-sm" disabled title="Propaga o saldo para todos os marketplaces conectados">
+                        <i class="bi bi-broadcast"></i> Broadcast de Estoque (Multi-Canal)
+                    </button>
+                </form>
+
+                <form id="formSyncLote" method="post" action="{% url 'produto_sincronizar_lote_meli' %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="produtos_ids" class="hidden-produtos-ids" value="">
+                    <button type="submit" id="btnSyncLote" class="btn btn-sm btn-outline-warning text-dark fw-semibold" disabled>
+                        <i class="bi bi-arrow-repeat"></i> Sincronizar Preços (ML)
+                    </button>
+                </form>
+            </div>
         </div>
     {% endif %}
 
@@ -278,7 +288,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
     const rowCheckboxes = document.querySelectorAll('.row-checkbox');
     const btnSyncLote = document.getElementById('btnSyncLote');
-    const hiddenProdutosIds = document.getElementById('hiddenProdutosIds');
+    const btnBroadcastLote = document.getElementById('btnBroadcastLote');
+    const hiddenInputs = document.querySelectorAll('.hidden-produtos-ids');
     const selectedCountBadge = document.getElementById('selectedCountBadge');
 
     function updateSelection() {
@@ -295,12 +306,17 @@ document.addEventListener('DOMContentLoaded', function() {
             selectedCountBadge.className = count > 0 ? 'badge bg-primary' : 'badge bg-secondary';
         }
 
-        if (hiddenProdutosIds) {
-            hiddenProdutosIds.value = selectedValues.join(',');
-        }
+        const idsStr = selectedValues.join(',');
+        hiddenInputs.forEach(input => {
+            input.value = idsStr;
+        });
 
         if (btnSyncLote) {
             btnSyncLote.disabled = count === 0;
+        }
+
+        if (btnBroadcastLote) {
+            btnBroadcastLote.disabled = count === 0;
         }
 
         if (selectAllCheckbox) {
@@ -324,4 +340,5 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock %}
+
 

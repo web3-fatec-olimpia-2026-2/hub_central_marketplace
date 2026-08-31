@@ -68,6 +68,19 @@ class Loja(models.Model):
         blank=True, null=True, verbose_name="Mercado Livre Refresh Token"
     )
 
+    # Configurações de Broadcast Multi-Canal (RF-08)
+    sincronizar_canal_origem_venda = models.BooleanField(
+        default=False,
+        verbose_name="Disparar Broadcast Também para o Canal de Origem da Venda",
+        help_text="Por padrão (desmarcado), assume-se que o marketplace onde a venda ocorreu já abateu o estoque em seu checkout, transmitindo o saldo apenas para os demais canais. Marque esta opção caso o marketplace não controle o estoque diretamente."
+    )
+    shopee_ativo = models.BooleanField(
+        default=False, verbose_name="Integração Shopee Ativa"
+    )
+    magalu_ativo = models.BooleanField(
+        default=False, verbose_name="Integração Magalu Ativa"
+    )
+
     # Auditoria e Rastreabilidade
     criado_em = models.DateTimeField(auto_now_add=True, verbose_name="Criado em")
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name="Atualizado em")

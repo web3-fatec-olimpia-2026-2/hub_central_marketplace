@@ -19,7 +19,7 @@ from .enums import (
 from .forms import (
     LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
     CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm,
-    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm
+    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm, ProdutoBroadcastLoteForm
 )
 from .permissions import (
     pode_visualizar_usuarios, pode_gerenciar_usuarios, pode_criar_usuario,
@@ -27,7 +27,7 @@ from .permissions import (
     pode_ajustar_estoque_geral, pode_excluir_catalogo, pode_dar_baixa_avaria,
     pode_acessar_objeto_loja, pode_configurar_integracao, pode_disparar_sincronizacao
 )
-from .services import MercadoLivreService
+from .services import MercadoLivreService, BroadcastEstoqueService
 
 
 class LojaModelTestCase(TestCase):
@@ -1218,6 +1218,202 @@ class PedidoVendaViewsTestCase(TestCase):
         # Admin A tentando ver pedido da Loja B
         res = self.client.get(reverse('pedido_detail', kwargs={'pk': self.ped_b.pk}))
         self.assertEqual(res.status_code, 403)
+
+
+class BroadcastEstoqueServiceTestCase(TestCase):
+    """
+    Testes unitários para o BroadcastEstoqueService e adaptadores multi-canal (RF-08).
+    """
+    def setUp(self):
+        self.loja = Loja.objects.create(
+            nome='Loja MultiCanal Test',
+            cnpj='33.444.555/0001-66',
+            meli_client_id='12345',
+            meli_access_token='APP_USR-token-meli',
+            shopee_ativo=True,
+            magalu_ativo=True,
+            sincronizar_canal_origem_venda=False,
+            ativo=True
+        )
+        self.categoria = Categoria.objects.create(loja=self.loja, nome='Informática', slug='info')
+        self.produto = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            nome='Monitor Gamer 144Hz',
+            sku='MON-144-GAMER',
+            preco=Decimal('1200.00'),
+            estoque=15,
+            meli_item_id='MLB999888777',
+            status_sincronizacao=StatusSincronizacaoEnum.SINCRONIZADO
+        )
+        self.user = User.objects.create_user(username='admin_multicanal', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user, papel=PapelUsuarioEnum.ADMIN, loja=self.loja)
+
+    @patch('core.services.MercadoLivreService.sincronizar_estoque_produto')
+    def test_broadcast_multi_canal_com_saldo_positivo(self, mock_meli_stock):
+        mock_meli_stock.return_value = (True, "Estoque sincronizado no ML: 15 un.", None)
+
+        resultado = BroadcastEstoqueService.disparar_broadcast_produto(self.produto, usuario=self.user)
+
+        self.assertEqual(resultado['estoque_hub'], 15)
+        self.assertEqual(resultado['estoque_transmitido'], 15)
+        self.assertEqual(resultado['canais_tentados'], 3)
+        self.assertEqual(resultado['sucessos'], 3)
+        self.assertEqual(resultado['falhas'], 0)
+
+        # Verifica criação do LogAuditoria consolidado
+        log_auditoria = LogAuditoria.objects.filter(
+            loja=self.loja, evento=EventoAuditoriaEnum.BROADCAST_ESTOQUE
+        ).first()
+        self.assertIsNotNone(log_auditoria)
+        self.assertIn('Broadcast de estoque disparado', log_auditoria.detalhes)
+        self.assertIn('15 un', log_auditoria.detalhes)
+
+    @patch('core.services.MercadoLivreService.sincronizar_estoque_produto')
+    def test_broadcast_multi_canal_com_saldo_negativo_clamping_zero(self, mock_meli_stock):
+        mock_meli_stock.return_value = (True, "Estoque sincronizado no ML: 0 un.", None)
+
+        # Produto em ruptura (estoque = -5)
+        self.produto.estoque = -5
+        self.produto.save(update_fields=['estoque'])
+
+        resultado = BroadcastEstoqueService.disparar_broadcast_produto(self.produto, usuario=self.user)
+
+        # Clamping mandatório: transmitido DEVE ser 0
+        self.assertEqual(resultado['estoque_hub'], -5)
+        self.assertEqual(resultado['estoque_transmitido'], 0)
+        self.assertEqual(resultado['sucessos'], 3)
+
+        # Telemetria dos canais Shopee e Magalu deve ter registrado estoque 0
+        log_shopee = LogSincronizacao.objects.filter(
+            loja=self.loja, marketplace=MarketplaceEnum.SHOPEE, produto=self.produto
+        ).first()
+        self.assertIsNotNone(log_shopee)
+        self.assertEqual(log_shopee.payload_enviado.get('stock'), 0)
+
+        log_magalu = LogSincronizacao.objects.filter(
+            loja=self.loja, marketplace=MarketplaceEnum.MAGALU, produto=self.produto
+        ).first()
+        self.assertIsNotNone(log_magalu)
+        self.assertEqual(log_magalu.payload_enviado.get('quantity'), 0)
+
+    @patch('core.services.MercadoLivreService.sincronizar_estoque_produto')
+    def test_venda_webhook_pula_canal_origem_quando_sincronizar_canal_origem_false(self, mock_meli_stock):
+        self.loja.sincronizar_canal_origem_venda = False
+        self.loja.save()
+
+        # Venda veio do Mercado Livre (canal_origem = MERCADO_LIVRE)
+        resultado = BroadcastEstoqueService.disparar_broadcast_produto(
+            self.produto, canal_origem=MarketplaceEnum.MERCADO_LIVRE, usuario=self.user
+        )
+
+        # Deve disparar apenas para Shopee e Magalu (2 canais), pulando Mercado Livre
+        self.assertEqual(resultado['canais_tentados'], 2)
+        mock_meli_stock.assert_not_called()
+
+        canais_notificados = [d['marketplace'] for d in resultado['detalhes']]
+        self.assertIn('Shopee', str(canais_notificados))
+        self.assertIn('Magazine Luiza', str(canais_notificados))
+        self.assertNotIn('Mercado Livre', str(canais_notificados))
+
+    @patch('core.services.MercadoLivreService.sincronizar_estoque_produto')
+    def test_venda_webhook_forca_canal_origem_quando_sincronizar_canal_origem_true(self, mock_meli_stock):
+        mock_meli_stock.return_value = (True, "Estoque sincronizado no ML: 15 un.", None)
+        self.loja.sincronizar_canal_origem_venda = True
+        self.loja.save()
+
+        # Venda veio do Mercado Livre, mas a loja configurou para enviar ao canal de origem também
+        resultado = BroadcastEstoqueService.disparar_broadcast_produto(
+            self.produto, canal_origem=MarketplaceEnum.MERCADO_LIVRE, usuario=self.user
+        )
+
+        # Deve disparar para TODOS os 3 canais, incluindo Mercado Livre
+        self.assertEqual(resultado['canais_tentados'], 3)
+        mock_meli_stock.assert_called_once()
+
+
+class BroadcastEstoqueViewsTestCase(TestCase):
+    """
+    Testes de integração das Views de disparo manual e em lote de Broadcast (RF-08).
+    """
+    def setUp(self):
+        self.client = Client()
+        self.loja_a = Loja.objects.create(
+            nome='Loja Alfa Broadcast', cnpj='11.111.111/0001-11',
+            meli_access_token='APP_USR-token-a', shopee_ativo=True, ativo=True
+        )
+        self.loja_b = Loja.objects.create(
+            nome='Loja Beta Broadcast', cnpj='22.222.222/0001-22',
+            meli_access_token='APP_USR-token-b', ativo=True
+        )
+        self.cat_a = Categoria.objects.create(loja=self.loja_a, nome='Hardware')
+        self.cat_b = Categoria.objects.create(loja=self.loja_b, nome='Hardware')
+
+        self.prod_a = Produto.objects.create(
+            loja=self.loja_a, categoria=self.cat_a, sku='SSD-500GB',
+            nome='SSD 500GB NVMe', preco=Decimal('300.00'), estoque=20, meli_item_id='MLB111'
+        )
+        self.prod_b = Produto.objects.create(
+            loja=self.loja_b, categoria=self.cat_b, sku='SSD-1TB',
+            nome='SSD 1TB NVMe', preco=Decimal('550.00'), estoque=10, meli_item_id='MLB222'
+        )
+
+        # Usuários
+        self.admin_a = User.objects.create_user(username='admin_a_broad', password='password123')
+        PerfilUsuario.objects.create(usuario=self.admin_a, papel=PapelUsuarioEnum.ADMIN, loja=self.loja_a)
+
+        self.supervisor_a = User.objects.create_user(username='sup_a_broad', password='password123')
+        PerfilUsuario.objects.create(usuario=self.supervisor_a, papel=PapelUsuarioEnum.SUPERVISOR, loja=self.loja_a)
+
+        self.usuario_a = User.objects.create_user(username='usr_a_broad', password='password123')
+        PerfilUsuario.objects.create(usuario=self.usuario_a, papel=PapelUsuarioEnum.USUARIO, loja=self.loja_a)
+
+    @patch('core.services.MercadoLivreService.sincronizar_estoque_produto')
+    def test_admin_dispara_broadcast_unitario(self, mock_meli):
+        mock_meli.return_value = (True, "OK", None)
+        self.client.login(username='admin_a_broad', password='password123')
+        res = self.client.post(
+            reverse('produto_broadcast_estoque', kwargs={'pk': self.prod_a.pk}),
+            follow=True
+        )
+        self.assertEqual(res.status_code, 200)
+
+    @patch('core.services.MercadoLivreService.sincronizar_estoque_produto')
+    def test_supervisor_dispara_broadcast_unitario(self, mock_meli):
+        mock_meli.return_value = (True, "OK", None)
+        self.client.login(username='sup_a_broad', password='password123')
+        res = self.client.post(
+            reverse('produto_broadcast_estoque', kwargs={'pk': self.prod_a.pk}),
+            follow=True
+        )
+        self.assertEqual(res.status_code, 200)
+
+    def test_usuario_padrao_bloqueado_de_disparar_broadcast(self):
+        self.client.login(username='usr_a_broad', password='password123')
+        res = self.client.post(
+            reverse('produto_broadcast_estoque', kwargs={'pk': self.prod_a.pk})
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_cross_tenant_broadcast_bloqueado(self):
+        self.client.login(username='admin_a_broad', password='password123')
+        # Admin A tenta disparar broadcast no produto da Loja B
+        res = self.client.post(
+            reverse('produto_broadcast_estoque', kwargs={'pk': self.prod_b.pk})
+        )
+        self.assertEqual(res.status_code, 403)
+
+    @patch('core.services.MercadoLivreService.sincronizar_estoque_produto')
+    def test_broadcast_em_lote(self, mock_meli):
+        mock_meli.return_value = (True, "OK", None)
+        self.client.login(username='admin_a_broad', password='password123')
+        res = self.client.post(
+            reverse('produto_broadcast_estoque_lote'),
+            data={'produtos_ids': f"{self.prod_a.id}"},
+            follow=True
+        )
+        self.assertEqual(res.status_code, 200)
+
 
 
 

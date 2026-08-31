@@ -684,12 +684,16 @@ class ProdutoAjusteEstoqueForm(forms.Form):
 
 class LojaIntegracaoMeliForm(forms.ModelForm):
     """
-    Formulário para configuração das credenciais de integração com a API do Mercado Livre (RF-05).
+    Formulário para configuração das credenciais de integração com a API do Mercado Livre (RF-05)
+    e políticas de Broadcast Multi-Canal (RF-08).
     Acessível por DEV (qualquer loja) e ADMIN (sua própria loja).
     """
     class Meta:
         model = Loja
-        fields = ['meli_client_id', 'meli_client_secret', 'meli_access_token', 'meli_refresh_token']
+        fields = [
+            'meli_client_id', 'meli_client_secret', 'meli_access_token', 'meli_refresh_token',
+            'sincronizar_canal_origem_venda', 'shopee_ativo', 'magalu_ativo'
+        ]
         widgets = {
             'meli_client_id': forms.TextInput(attrs={
                 'class': 'form-control font-monospace',
@@ -711,12 +715,24 @@ class LojaIntegracaoMeliForm(forms.ModelForm):
                 'placeholder': 'TG-...',
                 'autocomplete': 'off',
             }),
+            'sincronizar_canal_origem_venda': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'shopee_ativo': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'magalu_ativo': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
         }
         help_texts = {
             'meli_client_id': 'App ID gerado no portal de desenvolvedores do Mercado Livre.',
             'meli_client_secret': 'Chave secreta correspondente ao seu App ID.',
             'meli_access_token': 'Token de acesso OAuth 2.0 ativo.',
             'meli_refresh_token': 'Token utilizado para renovação automática do Access Token quando expirado.',
+            'sincronizar_canal_origem_venda': 'Por padrão (desmarcado), assume-se que o canal onde a venda ocorreu já abateu o estoque internamente. Marque caso o marketplace espere atualização explícita.',
+            'shopee_ativo': 'Habilita o broadcast automático de estoque para o canal Shopee.',
+            'magalu_ativo': 'Habilita o broadcast automático de estoque para o canal Magazine Luiza.',
         }
 
 
@@ -737,6 +753,26 @@ class ProdutoSincronizacaoLoteForm(forms.Form):
         if not ids:
             raise ValidationError("Nenhum produto válido selecionado.")
         return ids
+
+
+class ProdutoBroadcastLoteForm(forms.Form):
+    """
+    Formulário para validação de IDs de produtos selecionados para broadcast multi-canal em lote (RF-08).
+    """
+    produtos_ids = forms.CharField(widget=forms.HiddenInput())
+
+    def clean_produtos_ids(self):
+        raw_ids = self.cleaned_data.get('produtos_ids', '').strip()
+        if not raw_ids:
+            raise ValidationError("Nenhum produto foi selecionado para broadcast.")
+        try:
+            ids = [int(x.strip()) for x in raw_ids.split(',') if x.strip()]
+        except ValueError:
+            raise ValidationError("Lista de identificadores de produtos inválida.")
+        if not ids:
+            raise ValidationError("Nenhum produto válido selecionado.")
+        return ids
+
 
 
 

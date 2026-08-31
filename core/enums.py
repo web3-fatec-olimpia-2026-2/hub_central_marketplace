@@ -87,7 +87,7 @@ class EventoAuditoriaEnum(models.TextChoices):
     EDICAO_CATEGORIA = 'EDICAO_CATEGORIA', 'Edição de Categoria'
     EXCLUSAO_CATEGORIA = 'EXCLUSAO_CATEGORIA', 'Exclusão de Categoria'
 
-    # Integração Marketplaces (RF-05 / RF-06 / RF-07)
+    # Integração Marketplaces (RF-05 / RF-06 / RF-07 / RF-08)
     SYNC_PRECO_MELI = 'SYNC_PRECO_MELI', 'Sincronização de Preço (Mercado Livre)'
     SYNC_PRECO_LOTE_MELI = 'SYNC_PRECO_LOTE_MELI', 'Sincronização em Lote de Preços (Mercado Livre)'
     REFRESH_TOKEN_MELI = 'REFRESH_TOKEN_MELI', 'Renovação de Token OAuth (Mercado Livre)'
@@ -96,6 +96,13 @@ class EventoAuditoriaEnum(models.TextChoices):
     WEBHOOK_VENDA_MELI = 'WEBHOOK_VENDA_MELI', 'Processamento de Webhook de Venda'
     BAIXA_ESTOQUE_VENDA = 'BAIXA_ESTOQUE_VENDA', 'Baixa Automática de Estoque por Venda'
     ALERTA_ESTOQUE_NEGATIVO_VENDA = 'ALERTA_ESTOQUE_NEGATIVO_VENDA', 'Alerta de Ruptura / Estoque Negativo'
+
+    # Broadcast Multi-Canal (RF-08)
+    BROADCAST_ESTOQUE = 'BROADCAST_ESTOQUE', 'Broadcast Multi-Canal de Estoque'
+    SYNC_ESTOQUE_MELI = 'SYNC_ESTOQUE_MELI', 'Sincronização de Estoque (Mercado Livre)'
+    SYNC_ESTOQUE_SHOPEE = 'SYNC_ESTOQUE_SHOPEE', 'Sincronização de Estoque (Shopee)'
+    SYNC_ESTOQUE_MAGALU = 'SYNC_ESTOQUE_MAGALU', 'Sincronização de Estoque (Magalu)'
+
 
 
 

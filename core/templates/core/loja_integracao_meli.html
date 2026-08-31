@@ -160,6 +160,54 @@
                                 <div class="text-danger small mt-1">{{ form.meli_refresh_token.errors.0 }}</div>
                             {% endif %}
                         </div>
+
+                        <!-- SEÇÃO DE BROADCAST MULTI-CANAL (RF-08) -->
+                        <div class="col-12 mt-4">
+                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">
+                                <i class="bi bi-broadcast text-primary me-1"></i>Política de Broadcast Multi-Canal de Estoque (RF-08)
+                            </h6>
+                        </div>
+
+                        <div class="col-12">
+                            <div class="card border bg-light p-3">
+                                <div class="form-check form-switch mb-2">
+                                    {{ form.sincronizar_canal_origem_venda }}
+                                    <label class="form-check-label fw-bold text-dark" for="{{ form.sincronizar_canal_origem_venda.id_for_label }}">
+                                        Disparar Broadcast Também para o Canal de Origem da Venda
+                                    </label>
+                                </div>
+                                <div class="small text-muted ps-4">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    <strong>Padrão (Desmarcado):</strong> O Hub assume que o marketplace onde a venda ocorreu (ex.: Mercado Livre) já abateu o estoque em seu checkout, transmitindo o novo saldo apenas para os <em>demais</em> canais conectados.
+                                    <br>
+                                    <strong>Marque esta opção:</strong> Apenas se o canal não deduzir o estoque automaticamente na venda e esperar que o Hub transmita o saldo de volta.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card border p-3">
+                                <div class="form-check form-switch">
+                                    {{ form.shopee_ativo }}
+                                    <label class="form-check-label fw-semibold" for="{{ form.shopee_ativo.id_for_label }}">
+                                        Habilitar Canal Shopee (Broadcast Ativo)
+                                    </label>
+                                </div>
+                                <small class="text-muted d-block mt-1">Propaga o saldo para anúncios sincronizados na Shopee.</small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card border p-3">
+                                <div class="form-check form-switch">
+                                    {{ form.magalu_ativo }}
+                                    <label class="form-check-label fw-semibold" for="{{ form.magalu_ativo.id_for_label }}">
+                                        Habilitar Canal Magazine Luiza (Broadcast Ativo)
+                                    </label>
+                                </div>
+                                <small class="text-muted d-block mt-1">Propaga o saldo para anúncios sincronizados no Magalu.</small>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

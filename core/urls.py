@@ -49,6 +49,10 @@ urlpatterns = [
     # Gestão de Pedidos de Venda
     path('pedidos/', views.PedidoVendaListView.as_view(), name='pedido_list'),
     path('pedidos/<int:pk>/', views.PedidoVendaDetailView.as_view(), name='pedido_detail'),
+
+    # Broadcast Multi-Canal de Estoque (RF-08)
+    path('produtos/<int:pk>/broadcast-estoque/', views.ProdutoBroadcastEstoqueView.as_view(), name='produto_broadcast_estoque'),
+    path('produtos/broadcast-estoque-lote/', views.ProdutoBroadcastEstoqueLoteView.as_view(), name='produto_broadcast_estoque_lote'),
 ]
 
 

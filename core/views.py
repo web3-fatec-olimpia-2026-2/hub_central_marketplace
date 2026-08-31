@@ -26,7 +26,7 @@ from .enums import (
 from .forms import (
     LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
     CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm,
-    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm
+    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm, ProdutoBroadcastLoteForm
 )
 from .permissions import (
     DevRequiredMixin, UserListAccessMixin, UserWriteAccessMixin, UserOwnershipCheckMixin,
@@ -37,7 +37,7 @@ from .permissions import (
     pode_excluir_catalogo, pode_dar_baixa_avaria, pode_acessar_objeto_loja,
     pode_configurar_integracao, pode_disparar_sincronizacao
 )
-from .services import MercadoLivreService
+from .services import MercadoLivreService, BroadcastEstoqueService
 
 
 class DashboardHomeView(LoginRequiredMixin, TemplateView):
@@ -892,6 +892,11 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, FormView):
                 ip_origem=self.request.META.get('REMOTE_ADDR')
             )
 
+            # RF-08: Dispara Broadcast Multi-Canal após baixa de avaria
+            BroadcastEstoqueService.disparar_broadcast_produto(
+                self.produto, usuario=self.request.user
+            )
+
         messages.success(
             self.request,
             f"Baixa de {quantidade} unidade(s) registrada com sucesso para o produto '{self.produto.sku}'!"
@@ -945,6 +950,11 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, FormView):
                     f"Tipo: {tipo_ajuste_nome}. Justificativa: '{justificativa}'."
                 ),
                 ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+
+            # RF-08: Dispara Broadcast Multi-Canal após ajuste manual / reposição
+            BroadcastEstoqueService.disparar_broadcast_produto(
+                self.produto, usuario=self.request.user
             )
 
         messages.success(
@@ -1186,7 +1196,7 @@ class LogSincronizacaoListView(LoginRequiredMixin, ListView):
 
         context['marketplaces_disponiveis'] = MarketplaceEnum.choices
         context['eventos_disponiveis'] = [
-            (e.value, e.label) for e in EventoAuditoriaEnum if 'MELI' in e.value or 'SYNC' in e.value
+            (e.value, e.label) for e in EventoAuditoriaEnum if 'MELI' in e.value or 'SYNC' in e.value or 'BROADCAST' in e.value
         ]
 
         if context['is_dev']:
@@ -1329,6 +1339,85 @@ class PedidoVendaDetailView(LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context['itens'] = self.object.itens.select_related('produto').all()
         return context
+
+
+# ==============================================================================
+# DISPARO MANUAL DE BROADCAST MULTI-CANAL DE ESTOQUE (RF-08)
+# ==============================================================================
+
+class ProdutoBroadcastEstoqueView(LoginRequiredMixin, SyncPermissionMixin, View):
+    """
+    Ação para disparo manual de broadcast de estoque de um produto para todos os canais integrados.
+    """
+    def post(self, request, pk, *args, **kwargs):
+        produto = get_object_or_404(
+            Produto.objects.select_related('loja'), pk=pk
+        )
+        if not pode_acessar_objeto_loja(request.user, produto):
+            raise PermissionDenied("Acesso negado: este produto pertence a outra loja.")
+
+        resultado = BroadcastEstoqueService.disparar_broadcast_produto(
+            produto, usuario=request.user
+        )
+
+        if resultado['falhas'] == 0 and resultado['sucessos'] > 0:
+            messages.success(
+                request,
+                f"Broadcast de estoque disparado com sucesso para '{produto.sku}'! {resultado['sucessos']} canal(is) atualizado(s)."
+            )
+        elif resultado['sucessos'] > 0 and resultado['falhas'] > 0:
+            messages.warning(
+                request,
+                f"Broadcast parcial para '{produto.sku}': {resultado['sucessos']} sucesso(s) e {resultado['falhas']} falha(s)."
+            )
+        elif resultado['canais_tentados'] == 0:
+            messages.info(
+                request,
+                f"Nenhum canal externo ativo configurado na loja '{produto.loja.nome}' para broadcast."
+            )
+        else:
+            messages.error(
+                request,
+                f"Falha no broadcast de estoque para '{produto.sku}' em todos os canais tentados."
+            )
+
+        return redirect(reverse('produto_detail', kwargs={'pk': produto.pk}))
+
+
+class ProdutoBroadcastEstoqueLoteView(LoginRequiredMixin, SyncPermissionMixin, View):
+    """
+    Ação para disparo de broadcast de estoque em lote para múltiplos produtos selecionados.
+    """
+    def post(self, request, *args, **kwargs):
+        form = ProdutoBroadcastLoteForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Seleção inválida de produtos para broadcast.")
+            return redirect(reverse('produto_list'))
+
+        produtos_ids = form.cleaned_data['produtos_ids']
+        user = request.user
+
+        if usuario_is_dev(user):
+            produtos = Produto.objects.filter(id__in=produtos_ids).select_related('loja')
+        else:
+            perfil = getattr(user, 'perfil', None)
+            if not perfil or not perfil.loja:
+                raise PermissionDenied("Usuário sem loja vinculada.")
+            produtos = Produto.objects.filter(id__in=produtos_ids, loja=perfil.loja).select_related('loja')
+
+        if not produtos.exists():
+            messages.warning(request, "Nenhum produto válido encontrado para o disparo de broadcast.")
+            return redirect(reverse('produto_list'))
+
+        resumo = BroadcastEstoqueService.disparar_broadcast_lote(produtos, usuario=user)
+
+        messages.success(
+            request,
+            f"Broadcast em lote concluído para {resumo['total_produtos']} produto(s): "
+            f"{resumo['sucessos']} com sucesso total, {resumo['falhas']} com pendências."
+        )
+        return redirect(reverse('produto_list'))
+
 
 
 

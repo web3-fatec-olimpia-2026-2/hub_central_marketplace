@@ -91,20 +91,29 @@
                 </div>
 
                 <div class="mt-3">
+                    {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor %}
+                        <form method="post" action="{% url 'produto_broadcast_estoque' produto.id %}" class="mb-2">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-primary w-100 fw-semibold shadow-sm" title="Dispara o saldo de estoque atualizado para todos os marketplaces conectados">
+                                <i class="bi bi-broadcast"></i> Disparar Broadcast de Estoque
+                            </button>
+                        </form>
+                    {% endif %}
+
                     {% if produto.meli_item_id %}
                         {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor %}
                             <form method="post" action="{% url 'produto_sincronizar_preco_meli' produto.id %}" class="d-inline">
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-sm btn-outline-warning text-dark w-100 fw-semibold shadow-sm mb-1">
-                                    <i class="bi bi-arrow-repeat"></i> Sincronizar Preço Agora
+                                    <i class="bi bi-arrow-repeat"></i> Sincronizar Preço (ML)
                                 </button>
                             </form>
                         {% endif %}
-                        <a href="{% url 'log_sincronizacao_list' %}?q={{ produto.sku }}" class="small text-muted text-decoration-none d-block">
+                        <a href="{% url 'log_sincronizacao_list' %}?q={{ produto.sku }}" class="small text-muted text-decoration-none d-block mt-1">
                             <i class="bi bi-journal-text"></i> Ver logs deste produto
                         </a>
                     {% else %}
-                        <small class="text-muted fst-italic">Informe o MLB ID na edição para sincronizar.</small>
+                        <small class="text-muted fst-italic">Informe o MLB ID na edição para sincronizar com ML.</small>
                     {% endif %}
                 </div>
             </div>
