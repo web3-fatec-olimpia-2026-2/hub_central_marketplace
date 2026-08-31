@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}{{ produto.nome }} ({{ produto.sku }}) — Hub Marketplaces{% endblock %}
+
+{% block page_title %}
+    <i class="bi bi-box-seam-fill text-primary me-2"></i>{{ produto.nome }}
+{% endblock %}
+
+{% block page_subtitle %}
+    <span class="badge bg-light text-dark font-monospace border me-2">SKU: {{ produto.sku }}</span>
+    Loja: <strong>{{ produto.loja.nome }}</strong> &bull; Categoria: <strong>{{ produto.categoria.nome }}</strong>
+{% endblock %}
+
+{% block toolbar_actions %}
+    <div class="d-flex gap-2">
+        <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Catálogo
+        </a>
+        <a href="{% url 'produto_update' produto.id %}" class="btn btn-secondary">
+            <i class="bi bi-pencil"></i> Editar
+        </a>
+        <a href="{% url 'produto_baixa_estoque' produto.id %}" class="btn btn-warning text-dark">
+            <i class="bi bi-arrow-down-circle"></i> Baixa por Avaria
+        </a>
+        {% if pode_ajustar_estoque_geral %}
+            <a href="{% url 'produto_ajuste_estoque' produto.id %}" class="btn btn-primary">
+                <i class="bi bi-sliders"></i> Ajustar Estoque
+            </a>
+        {% endif %}
+        {% if pode_excluir %}
+            <a href="{% url 'produto_delete' produto.id %}" class="btn btn-outline-danger">
+                <i class="bi bi-trash"></i>
+            </a>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- CARDS DE MÉTRICAS PRINCIPAIS -->
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body p-4 text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Preço de Venda</div>
+                <div class="display-6 fw-bold text-success mb-2">R$ {{ produto.preco|floatformat:2 }}</div>
+                <small class="text-muted">Fonte Única da Verdade no Hub</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body p-4 text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Saldo de Estoque Físico</div>
+                {% if produto.estoque > 0 %}
+                    <div class="display-6 fw-bold text-primary mb-2">{{ produto.estoque }} un.</div>
+                    <span class="badge bg-success">Disponível para venda</span>
+                {% else %}
+                    <div class="display-6 fw-bold text-danger mb-2">0 un.</div>
+                    <span class="badge bg-danger">Produto Esgotado</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body p-4 text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Integração Mercado Livre</div>
+                {% if produto.meli_item_id %}
+                    <div class="h5 fw-bold text-dark font-monospace mt-2 mb-1">{{ produto.meli_item_id }}</div>
+                    <span class="badge bg-info bg-opacity-25 text-info border border-info">{{ produto.get_status_sincronizacao_display }}</span>
+                {% else %}
+                    <div class="text-muted my-2"><i class="bi bi-link-45deg fs-4"></i></div>
+                    <span class="badge bg-light text-muted border">Não Vinculado</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- DETALHES CADASTRAIS E DESCRIÇÃO -->
+    <div class="col-lg-7">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3 d-flex align-items-center gap-2">
+                <i class="bi bi-file-text-fill text-primary"></i>
+                <span class="fw-bold">Descrição e Especificações</span>
+            </div>
+            <div class="card-body p-4">
+                {% if produto.descricao %}
+                    <div class="text-secondary" style="white-space: pre-line;">{{ produto.descricao }}</div>
+                {% else %}
+                    <p class="text-muted fst-italic mb-0">Nenhuma descrição detalhada informada para este produto.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3 d-flex align-items-center gap-2">
+                <i class="bi bi-card-checklist text-primary"></i>
+                <span class="fw-bold">Metadados e Rastreabilidade</span>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-borderless mb-0">
+                    <tbody>
+                        <tr class="border-bottom">
+                            <th class="ps-4 py-2 text-muted w-25">Status Comercial:</th>
+                            <td class="py-2">
+                                {% if produto.status == 'ATIVO' %}
+                                    <span class="badge bg-success">Ativo</span>
+                                {% elif produto.status == 'INATIVO' %}
+                                    <span class="badge bg-secondary">Inativo</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark">Rascunho</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr class="border-bottom">
+                            <th class="ps-4 py-2 text-muted">Loja / Tenant:</th>
+                            <td class="py-2 fw-semibold">{{ produto.loja.nome }} ({{ produto.loja.cnpj }})</td>
+                        </tr>
+                        <tr class="border-bottom">
+                            <th class="ps-4 py-2 text-muted">Categoria:</th>
+                            <td class="py-2">{{ produto.categoria.nome }}</td>
+                        </tr>
+                        <tr class="border-bottom">
+                            <th class="ps-4 py-2 text-muted">Data de Cadastro:</th>
+                            <td class="py-2">{{ produto.criado_em|date:"d/m/Y H:i:s" }}</td>
+                        </tr>
+                        <tr>
+                            <th class="ps-4 py-2 text-muted">Última Atualização:</th>
+                            <td class="py-2">{{ produto.atualizado_em|date:"d/m/Y H:i:s" }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTÓRICO DE PREÇOS (RN-04 / RF-05) -->
+    <div class="col-lg-5">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-clock-history text-primary"></i>
+                    <span class="fw-bold">Histórico de Alterações de Preço</span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                {% if historicos_preco %}
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-hover table-sm align-middle mb-0">
+                            <thead class="table-light small text-muted text-uppercase">
+                                <tr>
+                                    <th class="ps-3">Data</th>
+                                    <th>Preço</th>
+                                    <th>Responsável</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for h in historicos_preco %}
+                                    <tr>
+                                        <td class="ps-3">
+                                            <small class="text-muted">{{ h.criado_em|date:"d/m/Y H:i" }}</small>
+                                        </td>
+                                        <td>
+                                            <span class="text-muted text-decoration-line-through small me-1">R$ {{ h.preco_anterior|floatformat:2 }}</span>
+                                            <span class="fw-bold text-success">R$ {{ h.preco_novo|floatformat:2 }}</span>
+                                            {% if h.motivo %}
+                                                <div><small class="text-muted fst-italic">{{ h.motivo }}</small></div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <small class="badge bg-light text-dark border font-monospace">
+                                                {{ h.usuario.username|default:"Sistema" }}
+                                            </small>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <i class="bi bi-clock-history fs-3 d-block mb-1"></i>
+                        <small>Nenhuma alteração de preço registrada após o cadastro.</small>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

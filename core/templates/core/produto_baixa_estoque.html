@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Baixa de Estoque por Avaria: {{ produto.sku }} — Hub Marketplaces{% endblock %}
+
+{% block page_title %}
+    <i class="bi bi-arrow-down-circle-fill text-warning me-2"></i>Baixa de Estoque por Avaria / Perda
+{% endblock %}
+
+{% block page_subtitle %}
+    Abatimento pontual de saldo físico com justificativa obrigatória e rastreabilidade (RN-09)
+{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'produto_detail' produto.id %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar ao Produto
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+
+        {% if form.errors %}
+            <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+                <h6 class="alert-heading fw-bold mb-1">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Erros no preenchimento:
+                </h6>
+                <ul class="mb-0 ps-3 small">
+                    {% for field in form %}
+                        {% for error in field.errors %}
+                            <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+                        {% endfor %}
+                    {% endfor %}
+                    {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endif %}
+
+        <!-- CARD INFORMATIVO DO PRODUTO -->
+        <div class="card shadow-sm mb-4 bg-light border-0">
+            <div class="card-body p-3 d-flex align-items-center justify-content-between">
+                <div>
+                    <div class="fw-bold fs-6">{{ produto.nome }}</div>
+                    <small class="text-muted font-monospace">SKU: {{ produto.sku }} &bull; {{ produto.loja.nome }}</small>
+                </div>
+                <div class="text-end">
+                    <div class="small text-muted">Saldo Atual</div>
+                    <span class="badge bg-primary fs-6">{{ produto.estoque }} un.</span>
+                </div>
+            </div>
+        </div>
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white py-3">
+                    <span class="fw-bold"><i class="bi bi-clipboard-x text-warning me-2"></i>Dados da Baixa de Estoque</span>
+                </div>
+                <div class="card-body p-4">
+                    <div class="mb-3">
+                        <label for="{{ form.quantidade.id_for_label }}" class="form-label">
+                            {{ form.quantidade.label }} <span class="text-danger">*</span>
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light text-muted"><i class="bi bi-boxes"></i></span>
+                            {{ form.quantidade }}
+                        </div>
+                        <div class="form-text small">Quantidade de itens físicos danificados ou extraviados a serem deduzidos.</div>
+                        {% if form.quantidade.errors %}
+                            <div class="text-danger small mt-1">{{ form.quantidade.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ form.tipo_baixa.id_for_label }}" class="form-label">
+                            {{ form.tipo_baixa.label }} <span class="text-danger">*</span>
+                        </label>
+                        {{ form.tipo_baixa }}
+                        {% if form.tipo_baixa.errors %}
+                            <div class="text-danger small mt-1">{{ form.tipo_baixa.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="{{ form.justificativa.id_for_label }}" class="form-label">
+                            {{ form.justificativa.label }} <span class="text-danger">*</span>
+                        </label>
+                        {{ form.justificativa }}
+                        <div class="form-text small">Descreva detalhadamente o motivo para auditoria interna.</div>
+                        {% if form.justificativa.errors %}
+                            <div class="text-danger small mt-1">{{ form.justificativa.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-footer bg-light p-3 d-flex justify-content-between">
+                    <a href="{% url 'produto_detail' produto.id %}" class="btn btn-danger">
+                        <i class="bi bi-x-circle"></i> Cancelar
+                    </a>
+                    <button type="submit" class="btn btn-warning text-dark px-4 fw-semibold">
+                        <i class="bi bi-check-circle-fill"></i> Confirmar Baixa de Estoque
+                    </button>
+                </div>
+            </div>
+        </form>
+
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if modo_edicao %}Editar Produto: {{ form.instance.nome }} — Hub Marketplaces{% else %}Novo Produto — Hub Marketplaces{% endif %}
+{% endblock %}
+
+{% block page_title %}
+    {% if modo_edicao %}
+        <i class="bi bi-box-seam-fill text-primary me-2"></i>Editar Produto: {{ form.instance.nome }}
+    {% else %}
+        <i class="bi bi-plus-circle-fill text-primary me-2"></i>Cadastro de Novo Produto
+    {% endif %}
+{% endblock %}
+
+{% block page_subtitle %}
+    Definição de SKU, categorização, precificação de venda e saldo de estoque físico
+{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar para o Catálogo
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-9 col-xl-8">
+
+        {% if form.errors %}
+            <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+                <h6 class="alert-heading fw-bold mb-1">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Erros de validação encontrados:
+                </h6>
+                <ul class="mb-0 ps-3 small">
+                    {% for field in form %}
+                        {% for error in field.errors %}
+                            <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+                        {% endfor %}
+                    {% endfor %}
+                    {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endif %}
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+
+            <!-- SEÇÃO 1: IDENTIFICAÇÃO E CLASSIFICAÇÃO -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light d-flex align-items-center gap-2 py-3">
+                    <i class="bi bi-info-circle-fill text-primary fs-5"></i>
+                    <span class="fw-bold">1. Identificação e Classificação</span>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        {% if form.loja %}
+                            <div class="col-md-6">
+                                <label for="{{ form.loja.id_for_label }}" class="form-label">
+                                    {{ form.loja.label }} <span class="text-danger">*</span>
+                                </label>
+                                {{ form.loja }}
+                                {% if form.loja.errors %}
+                                    <div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+
+                        <div class="col-md-{% if form.loja %}6{% else %}12{% endif %}">
+                            <label for="{{ form.categoria.id_for_label }}" class="form-label">
+                                {{ form.categoria.label }} <span class="text-danger">*</span>
+                            </label>
+                            {{ form.categoria }}
+                            {% if form.categoria.errors %}
+                                <div class="text-danger small mt-1">{{ form.categoria.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="{{ form.sku.id_for_label }}" class="form-label">
+                                {{ form.sku.label }} <span class="text-danger">*</span>
+                            </label>
+                            {{ form.sku }}
+                            <div class="form-text small">Identificador único dentro da sua loja (RN-02).</div>
+                            {% if form.sku.errors %}
+                                <div class="text-danger small mt-1">{{ form.sku.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-md-8">
+                            <label for="{{ form.nome.id_for_label }}" class="form-label">
+                                {{ form.nome.label }} <span class="text-danger">*</span>
+                            </label>
+                            {{ form.nome }}
+                            {% if form.nome.errors %}
+                                <div class="text-danger small mt-1">{{ form.nome.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-md-12">
+                            <label for="{{ form.descricao.id_for_label }}" class="form-label">
+                                {{ form.descricao.label }}
+                            </label>
+                            {{ form.descricao }}
+                            {% if form.descricao.errors %}
+                                <div class="text-danger small mt-1">{{ form.descricao.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SEÇÃO 2: PRECIFICAÇÃO E ESTOQUE -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light d-flex align-items-center gap-2 py-3">
+                    <i class="bi bi-cash-stack text-primary fs-5"></i>
+                    <span class="fw-bold">2. Precificação e Estoque Físico</span>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="{{ form.preco.id_for_label }}" class="form-label">
+                                {{ form.preco.label }} <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light fw-bold text-muted">R$</span>
+                                {{ form.preco }}
+                            </div>
+                            {% if form.preco.help_text %}
+                                <div class="form-text small text-muted">{{ form.preco.help_text }}</div>
+                            {% endif %}
+                            {% if form.preco.errors %}
+                                <div class="text-danger small mt-1">{{ form.preco.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="{{ form.estoque.id_for_label }}" class="form-label">
+                                {{ form.estoque.label }} <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted"><i class="bi bi-boxes"></i></span>
+                                {{ form.estoque }}
+                            </div>
+                            {% if form.estoque.help_text %}
+                                <div class="form-text small text-muted">{{ form.estoque.help_text }}</div>
+                            {% endif %}
+                            {% if form.estoque.errors %}
+                                <div class="text-danger small mt-1">{{ form.estoque.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SEÇÃO 3: STATUS E INTEGRAÇÃO -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light d-flex align-items-center gap-2 py-3">
+                    <i class="bi bi-diagram-2 text-primary fs-5"></i>
+                    <span class="fw-bold">3. Status e Integração com Marketplace</span>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="{{ form.status.id_for_label }}" class="form-label">
+                                {{ form.status.label }} <span class="text-danger">*</span>
+                            </label>
+                            {{ form.status }}
+                            {% if form.status.errors %}
+                                <div class="text-danger small mt-1">{{ form.status.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="{{ form.meli_item_id.id_for_label }}" class="form-label">
+                                {{ form.meli_item_id.label }}
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted"><i class="bi bi-link-45deg"></i></span>
+                                {{ form.meli_item_id }}
+                            </div>
+                            <div class="form-text small">Preenchido automaticamente ao sincronizar com Mercado Livre.</div>
+                            {% if form.meli_item_id.errors %}
+                                <div class="text-danger small mt-1">{{ form.meli_item_id.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BOTÕES DE AÇÃO -->
+            <div class="card shadow-sm border-0 mb-5">
+                <div class="card-body p-3 d-flex justify-content-between align-items-center bg-light rounded">
+                    <a href="{% url 'produto_list' %}" class="btn btn-danger">
+                        <i class="bi bi-x-circle"></i> Cancelar
+                    </a>
+                    <button type="submit" class="btn btn-success px-4 py-2">
+                        <i class="bi bi-check-circle-fill"></i>
+                        {% if modo_edicao %}Salvar Alterações do Produto{% else %}Cadastrar Produto no Catálogo{% endif %}
+                    </button>
+                </div>
+            </div>
+
+        </form>
+    </div>
+</div>
+{% endblock %}

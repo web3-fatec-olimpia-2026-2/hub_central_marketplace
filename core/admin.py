@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
-from .models import Loja, PerfilUsuario, LogAuditoria
+from .models import Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco
 
 
 class PerfilUsuarioInline(admin.StackedInline):
@@ -74,8 +74,38 @@ class LogAuditoriaAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(Categoria)
+class CategoriaAdmin(admin.ModelAdmin):
+    list_display = ('nome', 'slug', 'loja', 'ativo', 'criado_em')
+    list_filter = ('loja', 'ativo', 'criado_em')
+    search_fields = ('nome', 'slug', 'loja__nome')
+    prepopulated_fields = {'slug': ('nome',)}
+
+
+@admin.register(Produto)
+class ProdutoAdmin(admin.ModelAdmin):
+    list_display = ('sku', 'nome', 'categoria', 'loja', 'preco', 'estoque', 'status', 'status_sincronizacao')
+    list_filter = ('status', 'status_sincronizacao', 'loja', 'categoria')
+    search_fields = ('sku', 'nome', 'meli_item_id', 'loja__nome')
+
+
+@admin.register(HistoricoPreco)
+class HistoricoPrecoAdmin(admin.ModelAdmin):
+    list_display = ('produto', 'loja', 'preco_anterior', 'preco_novo', 'usuario', 'criado_em')
+    list_filter = ('loja', 'criado_em')
+    search_fields = ('produto__sku', 'produto__nome', 'usuario__username')
+    readonly_fields = ('produto', 'loja', 'preco_anterior', 'preco_novo', 'usuario', 'motivo', 'criado_em')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 # Re-registra o modelo User com o inline de Perfil
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
+
 
 

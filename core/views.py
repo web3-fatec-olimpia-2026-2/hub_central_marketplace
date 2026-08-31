@@ -1,20 +1,31 @@
+from decimal import Decimal
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy, reverse
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DetailView, FormView, View
+from django.views.generic import (
+    TemplateView, ListView, CreateView, UpdateView, DetailView, FormView, View, DeleteView
+)
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Sum
 from django.core.exceptions import PermissionDenied
 
-from .models import Loja, PerfilUsuario, LogAuditoria
-from .enums import PapelUsuarioEnum, EventoAuditoriaEnum
-from .forms import LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm
+from .models import Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco
+from .enums import (
+    PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum
+)
+from .forms import (
+    LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
+    CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm
+)
 from .permissions import (
     DevRequiredMixin, UserListAccessMixin, UserWriteAccessMixin, UserOwnershipCheckMixin,
+    CatalogOwnershipCheckMixin, CatalogDeletePermissionMixin,
     usuario_is_dev, usuario_is_admin, pode_visualizar_usuarios, pode_gerenciar_usuarios,
-    pode_editar_usuario
+    pode_editar_usuario, pode_alterar_preco, pode_ajustar_estoque_geral,
+    pode_excluir_catalogo, pode_dar_baixa_avaria, pode_acessar_objeto_loja
 )
 
 
@@ -34,12 +45,17 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
             context['lojas_ativas'] = Loja.objects.filter(ativo=True).count()
             context['ultimas_lojas'] = Loja.objects.order_by('-criado_em')[:5]
             context['total_usuarios'] = User.objects.count()
+            context['total_produtos'] = Produto.objects.count()
+            context['total_categorias'] = Categoria.objects.count()
         else:
             perfil = getattr(user, 'perfil', None)
             context['perfil'] = perfil
             context['minha_loja'] = perfil.loja if perfil else None
             if perfil and perfil.loja:
                 context['total_usuarios_loja'] = User.objects.filter(perfil__loja=perfil.loja).count()
+                context['total_produtos_loja'] = Produto.objects.filter(loja=perfil.loja).count()
+                context['total_categorias_loja'] = Categoria.objects.filter(loja=perfil.loja).count()
+                context['produtos_sem_estoque'] = Produto.objects.filter(loja=perfil.loja, estoque=0).count()
 
         return context
 
@@ -184,7 +200,6 @@ class UsuarioListView(UserListAccessMixin, ListView):
         user = self.request.user
         queryset = User.objects.select_related('perfil', 'perfil__loja').order_by('-date_joined')
 
-        # Isolamento Multi-Tenant compulsório no Backend
         if usuario_is_dev(user):
             loja_id = self.request.GET.get('loja', '').strip()
             if loja_id:
@@ -195,7 +210,6 @@ class UsuarioListView(UserListAccessMixin, ListView):
                 return User.objects.none()
             queryset = queryset.filter(perfil__loja=perfil.loja)
 
-        # Filtros adicionais (Papel, Status e Busca Textual)
         papel_filtro = self.request.GET.get('papel', '').strip()
         if papel_filtro:
             queryset = queryset.filter(perfil__papel=papel_filtro)
@@ -225,7 +239,6 @@ class UsuarioListView(UserListAccessMixin, ListView):
         context['is_supervisor'] = getattr(user, 'perfil', None) and user.perfil.is_supervisor
         context['pode_gerenciar'] = pode_gerenciar_usuarios(user)
         
-        # Filtros contextuais
         context['termo_busca'] = self.request.GET.get('q', '').strip()
         context['papel_filtro'] = self.request.GET.get('papel', '').strip()
         context['status_filtro'] = self.request.GET.get('status', '').strip()
@@ -243,10 +256,6 @@ class UsuarioListView(UserListAccessMixin, ListView):
 class UsuarioCreateView(UserWriteAccessMixin, FormView):
     """
     Cadastro de novo usuário no Hub.
-    - DEV: Cria qualquer papel para qualquer loja (ou global).
-    - ADMIN: Cria apenas SUPERVISOR e USUARIO para a sua própria loja.
-    - SUPERVISOR: Bloqueado (Read-Only).
-    - USUARIO: Bloqueado (No-Access).
     """
     form_class = UsuarioCreateForm
     template_name = 'core/usuario_form.html'
@@ -262,7 +271,6 @@ class UsuarioCreateView(UserWriteAccessMixin, FormView):
             novo_usuario = form.save()
             loja_nome = novo_usuario.perfil.loja.nome if novo_usuario.perfil.loja else "Global"
             
-            # Registro compulsório em LogAuditoria
             LogAuditoria.objects.create(
                 loja=novo_usuario.perfil.loja,
                 autor=self.request.user,
@@ -309,7 +317,6 @@ class UsuarioUpdateView(UserWriteAccessMixin, UserOwnershipCheckMixin, UpdateVie
             usuario_atualizado = form.save()
             perfil_novo_papel = usuario_atualizado.perfil.papel if hasattr(usuario_atualizado, 'perfil') else None
 
-            # Detecta se houve troca de papel
             if perfil_antigo_papel != perfil_novo_papel:
                 evento = EventoAuditoriaEnum.TROCA_PAPEL
                 detalhes = (
@@ -349,7 +356,6 @@ class UsuarioToggleStatusView(UserWriteAccessMixin, View):
     def post(self, request, pk, *args, **kwargs):
         usuario_alvo = get_object_or_404(User.objects.select_related('perfil', 'perfil__loja'), pk=pk)
 
-        # Validação de Ownership e Hierarquia
         if not pode_editar_usuario(request.user, usuario_alvo):
             raise PermissionDenied("Acesso negado: você não possui permissão para alterar o status deste usuário.")
 
@@ -414,5 +420,517 @@ class UsuarioPasswordResetAdminView(UserWriteAccessMixin, FormView):
         context = super().get_context_data(**kwargs)
         context['usuario_alvo'] = self.usuario_alvo
         return context
+
+
+# ==============================================================================
+# GESTÃO DE CATEGORIAS (RF-03 / RN-01)
+# ==============================================================================
+
+class CategoriaListView(LoginRequiredMixin, ListView):
+    """
+    Listagem de Categorias com isolamento multi-tenant.
+    """
+    model = Categoria
+    template_name = 'core/categoria_list.html'
+    context_object_name = 'categorias'
+    paginate_by = 20
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Categoria.objects.select_related('loja').annotate(total_produtos=Count('produtos')).order_by('nome')
+
+        if usuario_is_dev(user):
+            loja_id = self.request.GET.get('loja', '').strip()
+            if loja_id:
+                queryset = queryset.filter(loja_id=loja_id)
+        else:
+            perfil = getattr(user, 'perfil', None)
+            if not perfil or not perfil.loja:
+                return Categoria.objects.none()
+            queryset = queryset.filter(loja=perfil.loja)
+
+        status_filtro = self.request.GET.get('status', '').strip()
+        if status_filtro == 'ativo':
+            queryset = queryset.filter(ativo=True)
+        elif status_filtro == 'inativo':
+            queryset = queryset.filter(ativo=False)
+
+        busca = self.request.GET.get('q', '').strip()
+        if busca:
+            queryset = queryset.filter(Q(nome__icontains=busca) | Q(slug__icontains=busca))
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        context['is_dev'] = usuario_is_dev(user)
+        context['pode_excluir'] = pode_excluir_catalogo(user)
+        context['termo_busca'] = self.request.GET.get('q', '').strip()
+        context['status_filtro'] = self.request.GET.get('status', '').strip()
+        context['loja_filtro'] = self.request.GET.get('loja', '').strip()
+
+        if context['is_dev']:
+            context['lojas_disponiveis'] = Loja.objects.filter(ativo=True).order_by('nome')
+        else:
+            context['minha_loja'] = getattr(user.perfil, 'loja', None)
+
+        return context
+
+
+class CategoriaCreateView(LoginRequiredMixin, CreateView):
+    """
+    Cadastro de nova Categoria com isolamento multi-tenant.
+    """
+    model = Categoria
+    form_class = CategoriaForm
+    template_name = 'core/categoria_form.html'
+    success_url = reverse_lazy('categoria_list')
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['autor'] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            response = super().form_valid(form)
+            LogAuditoria.objects.create(
+                loja=self.object.loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.CRIACAO_CATEGORIA,
+                detalhes=f"Categoria '{self.object.nome}' cadastrada na loja '{self.object.loja.nome}'.",
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+        messages.success(self.request, f"Categoria '{self.object.nome}' cadastrada com sucesso!")
+        return response
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['modo_edicao'] = False
+        return context
+
+
+class CategoriaUpdateView(LoginRequiredMixin, CatalogOwnershipCheckMixin, UpdateView):
+    """
+    Edição de Categoria com Ownership Check.
+    """
+    model = Categoria
+    form_class = CategoriaForm
+    template_name = 'core/categoria_form.html'
+    success_url = reverse_lazy('categoria_list')
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['autor'] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            response = super().form_valid(form)
+            LogAuditoria.objects.create(
+                loja=self.object.loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.EDICAO_CATEGORIA,
+                detalhes=f"Categoria '{self.object.nome}' atualizada.",
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+        messages.success(self.request, f"Categoria '{self.object.nome}' atualizada com sucesso!")
+        return response
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['modo_edicao'] = True
+        return context
+
+
+class CategoriaDeleteView(LoginRequiredMixin, CatalogOwnershipCheckMixin, CatalogDeletePermissionMixin, DeleteView):
+    """
+    Exclusão de Categoria protegida (RN-09).
+    """
+    model = Categoria
+    template_name = 'core/categoria_confirm_delete.html'
+    success_url = reverse_lazy('categoria_list')
+
+    def form_valid(self, form):
+        if self.object.produtos.exists():
+            messages.error(
+                self.request,
+                f"Não é possível excluir a categoria '{self.object.nome}', pois existem produtos associados a ela."
+            )
+            return redirect('categoria_list')
+
+        with transaction.atomic():
+            cat_nome = self.object.nome
+            loja = self.object.loja
+            LogAuditoria.objects.create(
+                loja=loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.EXCLUSAO_CATEGORIA,
+                detalhes=f"Categoria '{cat_nome}' excluída da loja '{loja.nome}'.",
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+            messages.success(self.request, f"Categoria '{cat_nome}' excluída com sucesso.")
+            return super().form_valid(form)
+
+
+# ==============================================================================
+# GESTÃO DE PRODUTOS E CATÁLOGO (RF-03 / RN-01 / RN-02 / RN-06 / RN-09)
+# ==============================================================================
+
+class ProdutoListView(LoginRequiredMixin, ListView):
+    """
+    Catálogo de Produtos com isolamento multi-tenant, filtros e badges contextuais.
+    """
+    model = Produto
+    template_name = 'core/produto_list.html'
+    context_object_name = 'produtos'
+    paginate_by = 20
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Produto.objects.select_related('loja', 'categoria').order_by('-criado_em')
+
+        if usuario_is_dev(user):
+            loja_id = self.request.GET.get('loja', '').strip()
+            if loja_id:
+                queryset = queryset.filter(loja_id=loja_id)
+        else:
+            perfil = getattr(user, 'perfil', None)
+            if not perfil or not perfil.loja:
+                return Produto.objects.none()
+            queryset = queryset.filter(loja=perfil.loja)
+
+        # Filtros adicionais
+        categoria_id = self.request.GET.get('categoria', '').strip()
+        if categoria_id:
+            queryset = queryset.filter(categoria_id=categoria_id)
+
+        status_filtro = self.request.GET.get('status', '').strip()
+        if status_filtro:
+            queryset = queryset.filter(status=status_filtro)
+
+        sync_filtro = self.request.GET.get('sync', '').strip()
+        if sync_filtro:
+            queryset = queryset.filter(status_sincronizacao=sync_filtro)
+
+        estoque_filtro = self.request.GET.get('estoque', '').strip()
+        if estoque_filtro == 'zerado':
+            queryset = queryset.filter(estoque=0)
+        elif estoque_filtro == 'disponivel':
+            queryset = queryset.filter(estoque__gt=0)
+
+        busca = self.request.GET.get('q', '').strip()
+        if busca:
+            queryset = queryset.filter(
+                Q(sku__icontains=busca) |
+                Q(nome__icontains=busca) |
+                Q(meli_item_id__icontains=busca)
+            )
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        context['is_dev'] = usuario_is_dev(user)
+        context['pode_alterar_preco'] = pode_alterar_preco(user)
+        context['pode_ajustar_estoque_geral'] = pode_ajustar_estoque_geral(user)
+        context['pode_excluir'] = pode_excluir_catalogo(user)
+        context['pode_dar_baixa_avaria'] = pode_dar_baixa_avaria(user)
+
+        # Filtros
+        context['termo_busca'] = self.request.GET.get('q', '').strip()
+        context['categoria_filtro'] = self.request.GET.get('categoria', '').strip()
+        context['status_filtro'] = self.request.GET.get('status', '').strip()
+        context['sync_filtro'] = self.request.GET.get('sync', '').strip()
+        context['estoque_filtro'] = self.request.GET.get('estoque', '').strip()
+        context['loja_filtro'] = self.request.GET.get('loja', '').strip()
+
+        context['status_choices'] = StatusProdutoEnum.choices
+        context['sync_choices'] = StatusSincronizacaoEnum.choices
+
+        if context['is_dev']:
+            context['lojas_disponiveis'] = Loja.objects.filter(ativo=True).order_by('nome')
+            context['categorias_disponiveis'] = Categoria.objects.filter(ativo=True).order_by('nome')
+        else:
+            loja = getattr(user.perfil, 'loja', None)
+            context['minha_loja'] = loja
+            context['categorias_disponiveis'] = Categoria.objects.filter(loja=loja, ativo=True).order_by('nome') if loja else []
+
+        return context
+
+
+class ProdutoCreateView(LoginRequiredMixin, CreateView):
+    """
+    Cadastro de novo Produto com controle de preço por perfil e registro em HistoricoPreco.
+    """
+    model = Produto
+    form_class = ProdutoForm
+    template_name = 'core/produto_form.html'
+    success_url = reverse_lazy('produto_list')
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['autor'] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            self.object = form.save()
+            
+            # Se cadastrado com preço > 0, cria o primeiro registro de HistoricoPreco
+            if self.object.preco > Decimal('0.00'):
+                HistoricoPreco.objects.create(
+                    produto=self.object,
+                    loja=self.object.loja,
+                    preco_anterior=Decimal('0.00'),
+                    preco_novo=self.object.preco,
+                    usuario=self.request.user,
+                    motivo="Preço de lançamento / Cadastro inicial"
+                )
+
+            LogAuditoria.objects.create(
+                loja=self.object.loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.CRIACAO_PRODUTO,
+                detalhes=(
+                    f"Produto '{self.object.nome}' (SKU: {self.object.sku}) cadastrado "
+                    f"com preço R$ {self.object.preco} e estoque {self.object.estoque} na loja '{self.object.loja.nome}'."
+                ),
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+
+        messages.success(self.request, f"Produto '{self.object.nome}' (SKU: {self.object.sku}) cadastrado com sucesso!")
+        return redirect(self.success_url)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['modo_edicao'] = False
+        return context
+
+
+class ProdutoUpdateView(LoginRequiredMixin, CatalogOwnershipCheckMixin, UpdateView):
+    """
+    Edição de Produto com Ownership Check, detecção de alteração de preço e gravação em HistoricoPreco.
+    """
+    model = Produto
+    form_class = ProdutoForm
+    template_name = 'core/produto_form.html'
+    success_url = reverse_lazy('produto_list')
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['autor'] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        produto_antigo = Produto.objects.get(pk=self.object.pk)
+        preco_anterior = produto_antigo.preco
+        estoque_anterior = produto_antigo.estoque
+
+        with transaction.atomic():
+            self.object = form.save()
+            
+            # Se o preço foi alterado, registra em HistoricoPreco
+            if preco_anterior != self.object.preco:
+                HistoricoPreco.objects.create(
+                    produto=self.object,
+                    loja=self.object.loja,
+                    preco_anterior=preco_anterior,
+                    preco_novo=self.object.preco,
+                    usuario=self.request.user,
+                    motivo="Alteração de preço manual pelo painel administrativo"
+                )
+                LogAuditoria.objects.create(
+                    loja=self.object.loja,
+                    autor=self.request.user,
+                    evento=EventoAuditoriaEnum.ALTERACAO_PRECO,
+                    detalhes=f"Preço do produto '{self.object.sku}' alterado de R$ {preco_anterior} para R$ {self.object.preco}.",
+                    ip_origem=self.request.META.get('REMOTE_ADDR')
+                )
+
+            # Se estoque foi alterado diretamente na edição geral
+            if estoque_anterior != self.object.estoque:
+                LogAuditoria.objects.create(
+                    loja=self.object.loja,
+                    autor=self.request.user,
+                    evento=EventoAuditoriaEnum.AJUSTE_ESTOQUE,
+                    detalhes=f"Estoque do produto '{self.object.sku}' alterado de {estoque_anterior} para {self.object.estoque}.",
+                    ip_origem=self.request.META.get('REMOTE_ADDR')
+                )
+
+            LogAuditoria.objects.create(
+                loja=self.object.loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.EDICAO_PRODUTO,
+                detalhes=f"Dados cadastrais do produto '{self.object.nome}' (SKU: {self.object.sku}) atualizados.",
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+
+        messages.success(self.request, f"Produto '{self.object.nome}' atualizado com sucesso!")
+        return redirect(self.success_url)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['modo_edicao'] = True
+        context['produto'] = self.object
+        return context
+
+
+class ProdutoDetailView(LoginRequiredMixin, CatalogOwnershipCheckMixin, DetailView):
+    """
+    Visualização detalhada do Produto, com histórico de preços e registros de movimentações.
+    """
+    model = Produto
+    template_name = 'core/produto_detail.html'
+    context_object_name = 'produto'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        context['pode_alterar_preco'] = pode_alterar_preco(user)
+        context['pode_ajustar_estoque_geral'] = pode_ajustar_estoque_geral(user)
+        context['pode_excluir'] = pode_excluir_catalogo(user)
+        context['pode_dar_baixa_avaria'] = pode_dar_baixa_avaria(user)
+        context['historicos_preco'] = self.object.historico_precos.select_related('usuario').order_by('-criado_em')
+        return context
+
+
+class ProdutoDeleteView(LoginRequiredMixin, CatalogOwnershipCheckMixin, CatalogDeletePermissionMixin, DeleteView):
+    """
+    Exclusão de Produto (RN-09). Bloqueia USUARIO com 403 Forbidden.
+    """
+    model = Produto
+    template_name = 'core/produto_confirm_delete.html'
+    success_url = reverse_lazy('produto_list')
+
+    def form_valid(self, form):
+        with transaction.atomic():
+            sku = self.object.sku
+            nome = self.object.nome
+            loja = self.object.loja
+            LogAuditoria.objects.create(
+                loja=loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.EXCLUSAO_PRODUTO,
+                detalhes=f"Produto '{nome}' (SKU: {sku}) excluído do catálogo da loja '{loja.nome}'.",
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+            messages.success(self.request, f"Produto '{nome}' (SKU: {sku}) excluído com sucesso.")
+            return super().form_valid(form)
+
+
+class ProdutoBaixaEstoqueView(LoginRequiredMixin, FormView):
+    """
+    Ação dedicada para Baixa Pontual de Estoque por Avaria ou Perda (RN-09).
+    Disponível para todos os perfis da loja (incluindo USUARIO).
+    """
+    form_class = ProdutoBaixaAvariaForm
+    template_name = 'core/produto_baixa_estoque.html'
+    success_url = reverse_lazy('produto_list')
+
+    def dispatch(self, request, *args, **kwargs):
+        self.produto = get_object_or_404(
+            Produto.objects.select_related('loja'), pk=self.kwargs['pk']
+        )
+        if not pode_acessar_objeto_loja(request.user, self.produto):
+            raise PermissionDenied("Acesso negado: este produto pertence a outra loja.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['produto'] = self.produto
+        return kwargs
+
+    def form_valid(self, form):
+        quantidade = form.cleaned_data['quantidade']
+        tipo_baixa = form.cleaned_data['tipo_baixa']
+        justificativa = form.cleaned_data['justificativa']
+
+        with transaction.atomic():
+            estoque_antigo = self.produto.estoque
+            self.produto.estoque -= quantidade
+            self.produto.save()
+
+            tipo_baixa_nome = dict(form.fields['tipo_baixa'].choices).get(tipo_baixa, tipo_baixa)
+            LogAuditoria.objects.create(
+                loja=self.produto.loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.BAIXA_AVARIA_ESTOQUE,
+                detalhes=(
+                    f"Baixa de {quantidade} un. no produto '{self.produto.sku}' "
+                    f"(Saldo anterior: {estoque_antigo} -> Novo saldo: {self.produto.estoque}). "
+                    f"Motivo: {tipo_baixa_nome}. Justificativa: '{justificativa}'."
+                ),
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+
+        messages.success(
+            self.request,
+            f"Baixa de {quantidade} unidade(s) registrada com sucesso para o produto '{self.produto.sku}'!"
+        )
+        return redirect(reverse('produto_detail', kwargs={'pk': self.produto.pk}))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['produto'] = self.produto
+        return context
+
+
+class ProdutoAjusteEstoqueView(LoginRequiredMixin, FormView):
+    """
+    Ajuste geral de saldo físico de estoque por gestores (DEV, ADMIN, SUPERVISOR).
+    Bloqueia USUARIO com 403 Forbidden (RN-09).
+    """
+    form_class = ProdutoAjusteEstoqueForm
+    template_name = 'core/produto_ajuste_estoque.html'
+    success_url = reverse_lazy('produto_list')
+
+    def dispatch(self, request, *args, **kwargs):
+        if not pode_ajustar_estoque_geral(request.user):
+            raise PermissionDenied("Acesso negado: seu perfil não possui permissão para realizar ajustes gerais de estoque.")
+        
+        self.produto = get_object_or_404(
+            Produto.objects.select_related('loja'), pk=self.kwargs['pk']
+        )
+        if not pode_acessar_objeto_loja(request.user, self.produto):
+            raise PermissionDenied("Acesso negado: este produto pertence a outra loja.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        novo_estoque = form.cleaned_data['novo_estoque']
+        tipo_ajuste = form.cleaned_data['tipo_ajuste']
+        justificativa = form.cleaned_data['justificativa']
+
+        with transaction.atomic():
+            estoque_antigo = self.produto.estoque
+            self.produto.estoque = novo_estoque
+            self.produto.save()
+
+            tipo_ajuste_nome = dict(form.fields['tipo_ajuste'].choices).get(tipo_ajuste, tipo_ajuste)
+            LogAuditoria.objects.create(
+                loja=self.produto.loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.AJUSTE_ESTOQUE,
+                detalhes=(
+                    f"Ajuste manual de estoque no produto '{self.produto.sku}': "
+                    f"Saldo de {estoque_antigo} para {novo_estoque} un. "
+                    f"Tipo: {tipo_ajuste_nome}. Justificativa: '{justificativa}'."
+                ),
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+
+        messages.success(
+            self.request,
+            f"Saldo de estoque do produto '{self.produto.sku}' atualizado para {novo_estoque} un. com sucesso!"
+        )
+        return redirect(reverse('produto_detail', kwargs={'pk': self.produto.pk}))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['produto'] = self.produto
+        return context
+
 
 

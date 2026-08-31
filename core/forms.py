@@ -1,12 +1,16 @@
+from decimal import Decimal
 from django import forms
 from django.contrib.auth.models import User
 from django.utils.text import slugify
 from django.core.exceptions import ValidationError
 
-from .models import Loja, PerfilUsuario
-from .enums import PapelUsuarioEnum
+from .models import Loja, PerfilUsuario, Categoria, Produto, HistoricoPreco
+from .enums import (
+    PapelUsuarioEnum, StatusProdutoEnum, StatusSincronizacaoEnum, TipoAjusteEstoqueEnum
+)
 from .permissions import (
-    usuario_is_dev, usuario_is_admin, pode_criar_usuario, pode_alterar_papel
+    usuario_is_dev, usuario_is_admin, pode_criar_usuario, pode_alterar_papel,
+    pode_alterar_preco, pode_ajustar_estoque_geral
 )
 
 
@@ -174,12 +178,10 @@ class UsuarioCreateForm(forms.Form):
         super().__init__(*args, **kwargs)
 
         if usuario_is_dev(self.autor):
-            # DEV pode criar qualquer papel
             self.fields['papel'].choices = PapelUsuarioEnum.choices
             self.fields['loja'].queryset = Loja.objects.filter(ativo=True).order_by('nome')
             self.fields['loja'].help_text = "Obrigatório para papéis não-DEV. Deixe vazio para escopo global DEV."
         elif usuario_is_admin(self.autor):
-            # ADMIN pode criar apenas SUPERVISOR e USUARIO na sua própria loja
             self.fields['papel'].choices = [
                 (PapelUsuarioEnum.SUPERVISOR, 'Supervisor da Loja (SUPERVISOR)'),
                 (PapelUsuarioEnum.USUARIO, 'Usuário Padrão da Loja (USUÁRIO)'),
@@ -212,12 +214,10 @@ class UsuarioCreateForm(forms.Form):
         if p1 and len(p1) < 8:
             self.add_error('password1', "A senha deve conter no mínimo 8 caracteres.")
 
-        # Se o campo loja estiver desabilitado (ADMIN), recuperar a loja do perfil do autor
         if usuario_is_admin(self.autor):
             loja = getattr(self.autor.perfil, 'loja', None)
             cleaned_data['loja'] = loja
 
-        # Validação de escopo e permissão de criação
         if not pode_criar_usuario(self.autor, papel, loja):
             raise ValidationError(
                 "Você não possui permissão para cadastrar este papel de usuário para a loja informada."
@@ -294,7 +294,6 @@ class UsuarioUpdateForm(forms.ModelForm):
             self.fields['papel'].initial = perfil_alvo.papel
             self.fields['loja'].initial = perfil_alvo.loja
 
-        # Impede que o usuário desative a própria conta ou altere o próprio papel
         if self.autor == user_alvo:
             self.fields['is_active'].disabled = True
             self.fields['papel'].disabled = True
@@ -357,4 +356,323 @@ class UsuarioPasswordResetAdminForm(forms.Form):
         user.set_password(self.cleaned_data['nova_senha1'])
         user.save()
         return user
+
+
+# ==============================================================================
+# FORMULÁRIOS DE CATEGORIAS E PRODUTOS (RF-03 / RN-01 / RN-02 / RN-06 / RN-09)
+# ==============================================================================
+
+class CategoriaForm(forms.ModelForm):
+    """
+    Formulário para cadastro e edição de Categoria de Produtos com isolamento multi-tenant.
+    """
+    loja = forms.ModelChoiceField(
+        label="Loja (Tenant)",
+        queryset=Loja.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+
+    class Meta:
+        model = Categoria
+        fields = ['loja', 'nome', 'slug', 'descricao', 'ativo']
+        widgets = {
+            'nome': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Ex: Calçados Masculinos, Eletrônicos...',
+                'autofocus': 'autofocus'
+            }),
+            'slug': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Gerado automaticamente a partir do nome'
+            }),
+            'descricao': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 3,
+                'placeholder': 'Descrição opcional da categoria...'
+            }),
+            'ativo': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+        }
+
+    def __init__(self, *args, autor=None, **kwargs):
+        self.autor = autor
+        super().__init__(*args, **kwargs)
+        self.fields['slug'].required = False
+
+        if usuario_is_dev(self.autor):
+            self.fields['loja'].queryset = Loja.objects.filter(ativo=True).order_by('nome')
+            self.fields['loja'].required = True
+            if self.instance.pk:
+                self.fields['loja'].initial = self.instance.loja
+        else:
+            loja_autor = getattr(self.autor.perfil, 'loja', None) if self.autor else None
+            self.fields['loja'].queryset = Loja.objects.filter(id=loja_autor.id) if loja_autor else Loja.objects.none()
+            self.fields['loja'].initial = loja_autor
+            self.fields['loja'].disabled = True
+
+    def clean_slug(self):
+        slug = self.cleaned_data.get('slug', '').strip()
+        nome = self.cleaned_data.get('nome', '').strip()
+        if not slug and nome:
+            slug = slugify(nome)
+        return slug
+
+    def clean(self):
+        cleaned_data = super().clean()
+        loja = cleaned_data.get('loja')
+        if not usuario_is_dev(self.autor):
+            loja = getattr(self.autor.perfil, 'loja', None)
+            cleaned_data['loja'] = loja
+
+        if not loja:
+            self.add_error('loja', "A vinculação a uma Loja é obrigatória.")
+
+        slug = cleaned_data.get('slug')
+        if loja and slug:
+            qs = Categoria.objects.filter(loja=loja, slug=slug)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error('slug', f"Já existe uma categoria com o identificador '{slug}' nesta loja.")
+
+        return cleaned_data
+
+
+class ProdutoForm(forms.ModelForm):
+    """
+    Formulário unificado de Produto com controle de permissões por perfil (RN-09):
+    - DEV/ADMIN/SUPERVISOR: Acesso total a descritivo, preço e estoque.
+    - USUARIO: Acesso permitido apenas a dados descritivos (Preço e Estoque ficam somente leitura).
+    """
+    loja = forms.ModelChoiceField(
+        label="Loja (Tenant)",
+        queryset=Loja.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+
+    class Meta:
+        model = Produto
+        fields = [
+            'loja', 'categoria', 'sku', 'nome', 'descricao',
+            'preco', 'estoque', 'status', 'meli_item_id'
+        ]
+        widgets = {
+            'sku': forms.TextInput(attrs={
+                'class': 'form-control font-monospace text-uppercase',
+                'placeholder': 'Ex: CAM-POLO-AZ-G',
+                'autofocus': 'autofocus'
+            }),
+            'nome': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Ex: Camisa Polo Masculina Azul Tamanho G'
+            }),
+            'categoria': forms.Select(attrs={
+                'class': 'form-select'
+            }),
+            'descricao': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 4,
+                'placeholder': 'Descrição completa e especificações do produto...'
+            }),
+            'preco': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'step': '0.01',
+                'min': '0.00',
+                'placeholder': '0.00'
+            }),
+            'estoque': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'min': '0',
+                'placeholder': '0'
+            }),
+            'status': forms.Select(attrs={
+                'class': 'form-select'
+            }),
+            'meli_item_id': forms.TextInput(attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'Ex: MLB123456789 (Opcional)'
+            }),
+        }
+
+    def __init__(self, *args, autor=None, **kwargs):
+        self.autor = autor
+        super().__init__(*args, **kwargs)
+
+        # Determina a loja efetiva deste formulário
+        if self.instance.pk:
+            loja_efetiva = self.instance.loja
+        elif usuario_is_dev(self.autor):
+            loja_efetiva = None
+        else:
+            loja_efetiva = getattr(self.autor.perfil, 'loja', None) if self.autor else None
+
+        # Configuração do campo Loja
+        if usuario_is_dev(self.autor):
+            self.fields['loja'].queryset = Loja.objects.filter(ativo=True).order_by('nome')
+            self.fields['loja'].required = True
+            if self.instance.pk:
+                self.fields['loja'].initial = self.instance.loja
+        else:
+            self.fields['loja'].queryset = Loja.objects.filter(id=loja_efetiva.id) if loja_efetiva else Loja.objects.none()
+            self.fields['loja'].initial = loja_efetiva
+            self.fields['loja'].disabled = True
+
+        # Filtra Categorias pela loja efetiva
+        if loja_efetiva:
+            self.fields['categoria'].queryset = Categoria.objects.filter(loja=loja_efetiva, ativo=True).order_by('nome')
+        elif usuario_is_dev(self.autor) and not self.instance.pk:
+            self.fields['categoria'].queryset = Categoria.objects.filter(ativo=True).order_by('loja__nome', 'nome')
+        else:
+            self.fields['categoria'].queryset = Categoria.objects.none()
+
+        # RN-09: Restrições do perfil USUARIO sobre Preço e Estoque
+        if not pode_alterar_preco(self.autor):
+            self.fields['preco'].disabled = True
+            self.fields['preco'].help_text = "Seu perfil não possui permissão para alterar o preço de venda (RN-09)."
+
+        if not pode_ajustar_estoque_geral(self.autor):
+            self.fields['estoque'].disabled = True
+            self.fields['estoque'].help_text = "Ajuste geral bloqueado para o seu perfil. Para perdas/avarias, utilize o fluxo 'Baixa por Avaria' (RN-09)."
+
+    def clean_sku(self):
+        sku = self.cleaned_data.get('sku', '').strip().upper()
+        if not sku:
+            raise ValidationError("O código SKU é obrigatório.")
+        return sku
+
+    def clean(self):
+        cleaned_data = super().clean()
+        
+        # Garante a loja correta
+        if not usuario_is_dev(self.autor):
+            loja = getattr(self.autor.perfil, 'loja', None)
+            cleaned_data['loja'] = loja
+        else:
+            loja = cleaned_data.get('loja')
+
+        if not loja:
+            self.add_error('loja', "A vinculação a uma Loja é obrigatória.")
+
+        # RN-02: Valida unicidade de SKU por loja
+        sku = cleaned_data.get('sku')
+        if loja and sku:
+            qs = Produto.objects.filter(loja=loja, sku=sku)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error('sku', f"Já existe um produto com o SKU '{sku}' cadastrado nesta loja (RN-02).")
+
+        # RN-06: Validação de preços e estoques não negativos
+        preco = cleaned_data.get('preco')
+        estoque = cleaned_data.get('estoque')
+
+        # Se campos estiverem desabilitados (USUARIO), restaura os valores originais da instância
+        if not pode_alterar_preco(self.autor):
+            if self.instance.pk:
+                preco = self.instance.preco
+                cleaned_data['preco'] = preco
+            else:
+                preco = Decimal('0.00')
+                cleaned_data['preco'] = preco
+
+        if not pode_ajustar_estoque_geral(self.autor):
+            if self.instance.pk:
+                estoque = self.instance.estoque
+                cleaned_data['estoque'] = estoque
+            else:
+                estoque = 0
+                cleaned_data['estoque'] = estoque
+
+        if preco is not None and preco < Decimal('0.00'):
+            self.add_error('preco', "O preço de venda não pode ser negativo (RN-06).")
+        if estoque is not None and estoque < 0:
+            self.add_error('estoque', "O saldo de estoque não pode ser negativo (RN-06).")
+
+        # Validação de compatibilidade da Categoria com a Loja
+        categoria = cleaned_data.get('categoria')
+        if categoria and loja and categoria.loja_id != loja.id:
+            self.add_error('categoria', "A categoria selecionada não pertence à loja deste produto.")
+
+        return cleaned_data
+
+
+class ProdutoBaixaAvariaForm(forms.Form):
+    """
+    Formulário para baixa pontual de estoque por motivo de avaria ou perda (RN-09).
+    Permitido para todos os usuários autenticados da loja (inclusive USUARIO).
+    """
+    quantidade = forms.IntegerField(
+        label="Quantidade da Baixa",
+        min_value=1,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'min': '1',
+            'placeholder': 'Ex: 1, 2, 5...',
+            'autofocus': 'autofocus'
+        })
+    )
+    tipo_baixa = forms.ChoiceField(
+        label="Motivo da Baixa",
+        choices=[
+            (TipoAjusteEstoqueEnum.SAIDA_AVARIA, 'Avaria / Defeito no Produto'),
+            (TipoAjusteEstoqueEnum.SAIDA_PERDA, 'Perda / Extravio no Estoque'),
+        ],
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    justificativa = forms.CharField(
+        label="Justificativa / Descrição do Ocorrido (Obrigatório)",
+        max_length=200,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Ex: Produto avariado no transporte interno / Caixa molhada'
+        })
+    )
+
+    def __init__(self, *args, produto=None, **kwargs):
+        self.produto = produto
+        super().__init__(*args, **kwargs)
+
+    def clean_quantidade(self):
+        quantidade = self.cleaned_data.get('quantidade', 0)
+        if self.produto:
+            if self.produto.estoque <= 0:
+                raise ValidationError("Este produto já está com saldo de estoque zerado.")
+            if quantidade > self.produto.estoque:
+                raise ValidationError(
+                    f"A quantidade informada ({quantidade}) é maior do que o saldo atual ({self.produto.estoque})."
+                )
+        return quantidade
+
+
+class ProdutoAjusteEstoqueForm(forms.Form):
+    """
+    Formulário para ajuste geral de saldo de estoque por gestores (DEV, ADMIN, SUPERVISOR).
+    """
+    novo_estoque = forms.IntegerField(
+        label="Novo Saldo de Estoque",
+        min_value=0,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'min': '0',
+            'placeholder': 'Digite o novo saldo físico total...',
+            'autofocus': 'autofocus'
+        })
+    )
+    tipo_ajuste = forms.ChoiceField(
+        label="Tipo de Movimentação",
+        choices=TipoAjusteEstoqueEnum.choices,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    justificativa = forms.CharField(
+        label="Justificativa do Ajuste",
+        max_length=200,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Ex: Balanço físico mensal / Entrada de lote adicional'
+        })
+    )
+
 

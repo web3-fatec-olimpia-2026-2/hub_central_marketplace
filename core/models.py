@@ -1,9 +1,13 @@
+from decimal import Decimal
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils.text import slugify
 from django.core.exceptions import ValidationError
 
-from .enums import PapelUsuarioEnum, EventoAuditoriaEnum
+from .enums import (
+    PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum
+)
 
 
 ESTADOS_BRASIL = [
@@ -195,5 +199,146 @@ class LogAuditoria(models.Model):
     def __str__(self):
         autor_str = self.autor.username if self.autor else "Sistema"
         return f"[{self.get_evento_display()}] por {autor_str} em {self.criado_em.strftime('%d/%m/%Y %H:%M')}"
+
+
+class Categoria(models.Model):
+    """
+    Representa a categorização de produtos por loja (tenant).
+    Possui isolamento multi-tenant (RN-01) com slug único por loja.
+    """
+    loja = models.ForeignKey(
+        Loja, on_delete=models.CASCADE, related_name='categorias', verbose_name="Loja (Tenant)"
+    )
+    nome = models.CharField(max_length=100, verbose_name="Nome da Categoria")
+    slug = models.SlugField(max_length=120, verbose_name="Identificador (Slug)")
+    descricao = models.TextField(blank=True, null=True, verbose_name="Descrição da Categoria")
+    ativo = models.BooleanField(default=True, verbose_name="Categoria Ativa")
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name="Criado em")
+    atualizado_em = models.DateTimeField(auto_now=True, verbose_name="Atualizado em")
+
+    class Meta:
+        verbose_name = "Categoria"
+        verbose_name_plural = "Categorias"
+        unique_together = [['loja', 'slug']]
+        ordering = ['nome']
+
+    def __str__(self):
+        return f"{self.nome} ({self.loja.nome})"
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.nome)
+            slug = base_slug
+            counter = 1
+            while Categoria.objects.filter(loja=self.loja, slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+
+class Produto(models.Model):
+    """
+    Entidade central do Hub Marketplaces — Catálogo e Fonte Única da Verdade.
+    Unicidade de SKU por loja (RN-02) e regras estritas de preço e estoque (RN-06).
+    """
+    loja = models.ForeignKey(
+        Loja, on_delete=models.CASCADE, related_name='produtos', verbose_name="Loja (Tenant)"
+    )
+    categoria = models.ForeignKey(
+        Categoria, on_delete=models.PROTECT, related_name='produtos', verbose_name="Categoria"
+    )
+    sku = models.CharField(
+        max_length=60, verbose_name="Código SKU (Identificador Único na Loja)"
+    )
+    nome = models.CharField(max_length=200, verbose_name="Nome do Produto")
+    descricao = models.TextField(
+        blank=True, null=True, verbose_name="Descrição Detalhada do Produto"
+    )
+    preco = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'), verbose_name="Preço de Venda (R$)"
+    )
+    estoque = models.IntegerField(
+        default=0, verbose_name="Saldo de Estoque Físico"
+    )
+    status = models.CharField(
+        max_length=20, choices=StatusProdutoEnum.choices, default=StatusProdutoEnum.ATIVO,
+        verbose_name="Status do Produto"
+    )
+    
+    # Integração Mercado Livre
+    meli_item_id = models.CharField(
+        max_length=50, blank=True, null=True, verbose_name="ID do Anúncio Mercado Livre (MLB...)"
+    )
+    status_sincronizacao = models.CharField(
+        max_length=20, choices=StatusSincronizacaoEnum.choices,
+        default=StatusSincronizacaoEnum.NAO_SINCRONIZADO, verbose_name="Status de Sincronização"
+    )
+    
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name="Criado em")
+    atualizado_em = models.DateTimeField(auto_now=True, verbose_name="Atualizado em")
+
+    class Meta:
+        verbose_name = "Produto"
+        verbose_name_plural = "Produtos"
+        unique_together = [['loja', 'sku']]
+        ordering = ['nome']
+
+    def __str__(self):
+        return f"[{self.sku}] {self.nome} — R$ {self.preco} (Estoque: {self.estoque})"
+
+    def clean(self):
+        super().clean()
+        if self.preco is not None and self.preco < Decimal('0.00'):
+            raise ValidationError({'preco': 'O preço de venda não pode ser negativo (RN-06).'})
+        if self.estoque is not None and self.estoque < 0:
+            raise ValidationError({'estoque': 'O saldo de estoque não pode ser negativo (RN-06).'})
+        if self.categoria_id and self.loja_id:
+            if self.categoria.loja_id != self.loja_id:
+                raise ValidationError({'categoria': 'A categoria selecionada deve pertencer à mesma loja do produto.'})
+
+    def save(self, *args, **kwargs):
+        if self.sku:
+            self.sku = self.sku.strip().upper()
+        super().save(*args, **kwargs)
+
+
+class HistoricoPreco(models.Model):
+    """
+    Registro histórico de alterações de preços de venda (RN-04 / RF-05).
+    Armazena preço anterior, novo preço, responsável e data da mutação.
+    """
+    produto = models.ForeignKey(
+        Produto, on_delete=models.CASCADE, related_name='historico_precos', verbose_name="Produto"
+    )
+    loja = models.ForeignKey(
+        Loja, on_delete=models.CASCADE, related_name='historico_precos', verbose_name="Loja (Tenant)"
+    )
+    preco_anterior = models.DecimalField(
+        max_digits=10, decimal_places=2, verbose_name="Preço Anterior (R$)"
+    )
+    preco_novo = models.DecimalField(
+        max_digits=10, decimal_places=2, verbose_name="Novo Preço (R$)"
+    )
+    usuario = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='precos_alterados', verbose_name="Usuário Responsável"
+    )
+    motivo = models.CharField(
+        max_length=200, blank=True, null=True, verbose_name="Motivo da Alteração"
+    )
+    criado_em = models.DateTimeField(
+        auto_now_add=True, verbose_name="Data / Hora da Alteração"
+    )
+
+    class Meta:
+        verbose_name = "Histórico de Preço"
+        verbose_name_plural = "Históricos de Preços"
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        user_str = self.usuario.username if self.usuario else "Sistema"
+        return f"{self.produto.sku}: R$ {self.preco_anterior} -> R$ {self.preco_novo} por {user_str} em {self.criado_em.strftime('%d/%m/%Y %H:%M')}"
+
 
 
