@@ -90,14 +90,36 @@
 </div>
 
 <!-- TABELA DE PRODUTOS -->
-<div class="card shadow-sm border-0">
+<div class="card shadow-sm border-0 mb-4">
+    <!-- BARRA DE AÇÕES EM LOTE (RF-05) -->
+    {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor %}
+        <div class="card-header bg-white py-2 d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom">
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-muted small fw-semibold">Ações em Lote:</span>
+                <span id="selectedCountBadge" class="badge bg-secondary">0 selecionado(s)</span>
+            </div>
+            <form id="formSyncLote" method="post" action="{% url 'produto_sincronizar_lote_meli' %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="produtos_ids" id="hiddenProdutosIds" value="">
+                <button type="submit" id="btnSyncLote" class="btn btn-sm btn-outline-warning text-dark fw-semibold" disabled>
+                    <i class="bi bi-arrow-repeat"></i> Sincronizar Preços Selecionados (Mercado Livre)
+                </button>
+            </form>
+        </div>
+    {% endif %}
+
     <div class="card-body p-0">
         {% if produtos %}
             <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+                <table class="table table-hover align-middle mb-0" id="tabelaProdutos">
                     <thead class="table-light text-muted small text-uppercase">
                         <tr>
-                            <th class="ps-4">Produto / SKU</th>
+                            {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor %}
+                                <th class="ps-3 text-center" style="width: 40px;">
+                                    <input type="checkbox" class="form-check-input" id="selectAllCheckbox" title="Selecionar Todos">
+                                </th>
+                            {% endif %}
+                            <th class="ps-3">Produto / SKU</th>
                             <th>Categoria</th>
                             <th>Preço de Venda</th>
                             <th class="text-center">Estoque</th>
@@ -110,7 +132,12 @@
                     <tbody>
                         {% for prod in produtos %}
                             <tr>
-                                <td class="ps-4">
+                                {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor %}
+                                    <td class="ps-3 text-center">
+                                        <input type="checkbox" class="form-check-input row-checkbox" value="{{ prod.id }}" data-sku="{{ prod.sku }}">
+                                    </td>
+                                {% endif %}
+                                <td class="ps-3">
                                     <a href="{% url 'produto_detail' prod.id %}" class="fw-bold text-dark text-decoration-none">
                                         {{ prod.nome }}
                                     </a>
@@ -145,7 +172,13 @@
                                 <td>
                                     {% if prod.meli_item_id %}
                                         <div class="font-monospace small text-primary fw-semibold">{{ prod.meli_item_id }}</div>
-                                        <span class="badge bg-info bg-opacity-10 text-info border small">{{ prod.get_status_sincronizacao_display }}</span>
+                                        {% if prod.status_sincronizacao == 'SINCRONIZADO' %}
+                                            <span class="badge bg-success bg-opacity-10 text-success border small"><i class="bi bi-check-circle me-1"></i>Sincronizado</span>
+                                        {% elif prod.status_sincronizacao == 'ERRO' %}
+                                            <span class="badge bg-danger bg-opacity-10 text-danger border small"><i class="bi bi-x-circle me-1"></i>Erro Sync</span>
+                                        {% else %}
+                                            <span class="badge bg-info bg-opacity-10 text-info border small">{{ prod.get_status_sincronizacao_display }}</span>
+                                        {% endif %}
                                     {% else %}
                                         <span class="badge bg-light text-muted border small">Não Integrado</span>
                                     {% endif %}
@@ -160,6 +193,14 @@
                                         <a href="{% url 'produto_detail' prod.id %}" class="btn btn-outline-info" title="Ver Detalhes e Histórico">
                                             <i class="bi bi-eye"></i>
                                         </a>
+                                        {% if prod.meli_item_id and user.perfil.is_dev or prod.meli_item_id and user.perfil.is_admin or prod.meli_item_id and user.perfil.is_supervisor %}
+                                            <form method="post" action="{% url 'produto_sincronizar_preco_meli' prod.id %}?next={% url 'produto_list' %}" class="d-inline">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-outline-warning text-dark" title="Sincronizar Preço com Mercado Livre">
+                                                    <i class="bi bi-arrow-repeat"></i>
+                                                </button>
+                                            </form>
+                                        {% endif %}
                                         <a href="{% url 'produto_update' prod.id %}" class="btn btn-outline-secondary" title="Editar Produto">
                                             <i class="bi bi-pencil"></i>
                                         </a>
@@ -226,4 +267,57 @@
         {% endif %}
     </div>
 </div>
+
+<!-- SCRIPT DE SELEÇÃO EM LOTE -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    const rowCheckboxes = document.querySelectorAll('.row-checkbox');
+    const btnSyncLote = document.getElementById('btnSyncLote');
+    const hiddenProdutosIds = document.getElementById('hiddenProdutosIds');
+    const selectedCountBadge = document.getElementById('selectedCountBadge');
+
+    function updateSelection() {
+        const selectedValues = [];
+        rowCheckboxes.forEach(cb => {
+            if (cb.checked) {
+                selectedValues.push(cb.value);
+            }
+        });
+
+        const count = selectedValues.length;
+        if (selectedCountBadge) {
+            selectedCountBadge.textContent = `${count} selecionado(s)`;
+            selectedCountBadge.className = count > 0 ? 'badge bg-primary' : 'badge bg-secondary';
+        }
+
+        if (hiddenProdutosIds) {
+            hiddenProdutosIds.value = selectedValues.join(',');
+        }
+
+        if (btnSyncLote) {
+            btnSyncLote.disabled = count === 0;
+        }
+
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = rowCheckboxes.length > 0 && count === rowCheckboxes.length;
+            selectAllCheckbox.indeterminate = count > 0 && count < rowCheckboxes.length;
+        }
+    }
+
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            rowCheckboxes.forEach(cb => {
+                cb.checked = selectAllCheckbox.checked;
+            });
+            updateSelection();
+        });
+    }
+
+    rowCheckboxes.forEach(cb => {
+        cb.addEventListener('change', updateSelection);
+    });
+});
+</script>
 {% endblock %}
+

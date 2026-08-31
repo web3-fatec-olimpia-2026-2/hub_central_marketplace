@@ -228,6 +228,46 @@ def pode_acessar_objeto_loja(user, obj):
 
 
 # ==============================================================================
+# GUARDS DE INTEGRAÇÃO COM MARKETPLACES (RF-05)
+# ==============================================================================
+
+def pode_configurar_integracao(user, loja=None):
+    """
+    RN-09 / Matriz RBAC: Configuração de credenciais do Mercado Livre (Client ID, Secret, Tokens)
+    é permitida exclusivamente para:
+    - DEV: em qualquer loja (escopo global);
+    - ADMIN: estritamente na sua própria loja.
+    SUPERVISOR e USUARIO não possuem acesso a credenciais.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if usuario_is_dev(user):
+        return True
+    if usuario_is_admin(user):
+        if loja is None:
+            return True
+        perfil = getattr(user, 'perfil', None)
+        return perfil is not None and perfil.loja_id == loja.id
+    return False
+
+
+def pode_disparar_sincronizacao(user):
+    """
+    RN-09 / Matriz RBAC: Disparo de sincronização de preços (unitária ou em lote)
+    é permitido para DEV, ADMIN e SUPERVISOR.
+    USUARIO é estritamente bloqueado (403 Forbidden).
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if usuario_is_dev(user):
+        return True
+    perfil = getattr(user, 'perfil', None)
+    if perfil and perfil.papel in [PapelUsuarioEnum.ADMIN, PapelUsuarioEnum.SUPERVISOR]:
+        return True
+    return False
+
+
+# ==============================================================================
 # MIXINS PARA CLASS-BASED VIEWS
 # ==============================================================================
 
@@ -320,6 +360,38 @@ class CatalogDeletePermissionMixin(AccessMixin):
         return super().dispatch(request, *args, **kwargs)
 
 
+class IntegracaoConfigPermissionMixin(AccessMixin):
+    """
+    Mixin para a tela de configuração de credenciais e integrações da Loja (RF-05).
+    Permite acesso a DEV e ADMIN. Bloqueia SUPERVISOR e USUARIO com 403 Forbidden.
+    """
+    permission_denied_message = "Acesso negado: apenas administradores da loja ou desenvolvedores podem gerenciar credenciais de integração."
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not pode_configurar_integracao(request.user):
+            messages.error(request, self.permission_denied_message)
+            raise PermissionDenied(self.permission_denied_message)
+        return super().dispatch(request, *args, **kwargs)
+
+
+class SyncPermissionMixin(AccessMixin):
+    """
+    Mixin para views de disparo de sincronização com marketplaces (RF-05).
+    Permite acesso a DEV, ADMIN e SUPERVISOR. Bloqueia USUARIO com 403 Forbidden.
+    """
+    permission_denied_message = "Acesso negado: seu perfil não possui permissão para disparar sincronizações com marketplaces."
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not pode_disparar_sincronizacao(request.user):
+            messages.error(request, self.permission_denied_message)
+            raise PermissionDenied(self.permission_denied_message)
+        return super().dispatch(request, *args, **kwargs)
+
+
 # ==============================================================================
 # DECORATORS PARA FUNCTION-BASED VIEWS
 # ==============================================================================
@@ -334,5 +406,6 @@ def dev_required(view_func):
             raise PermissionDenied("Acesso restrito exclusivamente ao perfil Desenvolvedor (DEV).")
         return view_func(request, *args, **kwargs)
     return _wrapped_view
+
 
 

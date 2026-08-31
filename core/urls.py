@@ -32,6 +32,16 @@ urlpatterns = [
     path('produtos/<int:pk>/excluir/', views.ProdutoDeleteView.as_view(), name='produto_delete'),
     path('produtos/<int:pk>/baixa-estoque/', views.ProdutoBaixaEstoqueView.as_view(), name='produto_baixa_estoque'),
     path('produtos/<int:pk>/ajuste-estoque/', views.ProdutoAjusteEstoqueView.as_view(), name='produto_ajuste_estoque'),
+
+    # Integração Mercado Livre — Sincronização de Preços e Credenciais (RF-05)
+    path('loja/integracao-mercadolivre/', views.LojaIntegracaoMeliView.as_view(), name='loja_integracao_meli'),
+    path('lojas/<slug:slug>/integracao-mercadolivre/', views.LojaIntegracaoMeliView.as_view(), name='loja_integracao_meli_slug'),
+    path('produtos/<int:pk>/sincronizar-meli/', views.ProdutoSincronizarPrecoMeliView.as_view(), name='produto_sincronizar_preco_meli'),
+    path('produtos/sincronizar-lote-meli/', views.ProdutoSincronizarPrecoLoteView.as_view(), name='produto_sincronizar_lote_meli'),
+
+    # Logs de Integração e Auditoria de Sincronização (RF-05 / RN-04)
+    path('logs/sincronizacao/', views.LogSincronizacaoListView.as_view(), name='log_sincronizacao_list'),
 ]
+
 
 

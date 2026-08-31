@@ -41,6 +41,15 @@ class TipoAjusteEstoqueEnum(models.TextChoices):
     CORRECAO_BALANCO = 'CORRECAO_BALANCO', 'Ajuste de Balanço / Correção Manual'
 
 
+class MarketplaceEnum(models.TextChoices):
+    """
+    Marketplaces suportados ou planejados na arquitetura multi-canal.
+    """
+    MERCADO_LIVRE = 'MERCADO_LIVRE', 'Mercado Livre'
+    SHOPEE = 'SHOPEE', 'Shopee (Backlog)'
+    MAGALU = 'MAGALU', 'Magazine Luiza (Backlog)'
+
+
 class EventoAuditoriaEnum(models.TextChoices):
     """
     Tipos de eventos para registro em LogAuditoria.
@@ -66,4 +75,12 @@ class EventoAuditoriaEnum(models.TextChoices):
     CRIACAO_CATEGORIA = 'CRIACAO_CATEGORIA', 'Cadastro de Categoria'
     EDICAO_CATEGORIA = 'EDICAO_CATEGORIA', 'Edição de Categoria'
     EXCLUSAO_CATEGORIA = 'EXCLUSAO_CATEGORIA', 'Exclusão de Categoria'
+
+    # Integração Marketplaces (RF-05)
+    SYNC_PRECO_MELI = 'SYNC_PRECO_MELI', 'Sincronização de Preço (Mercado Livre)'
+    SYNC_PRECO_LOTE_MELI = 'SYNC_PRECO_LOTE_MELI', 'Sincronização em Lote de Preços (Mercado Livre)'
+    REFRESH_TOKEN_MELI = 'REFRESH_TOKEN_MELI', 'Renovação de Token OAuth (Mercado Livre)'
+    CONFIG_CREDENCIAIS_MELI = 'CONFIG_CREDENCIAIS_MELI', 'Configuração de Credenciais de Integração'
+    TESTE_CONEXAO_MELI = 'TESTE_CONEXAO_MELI', 'Teste de Conexão com Mercado Livre'
+
 

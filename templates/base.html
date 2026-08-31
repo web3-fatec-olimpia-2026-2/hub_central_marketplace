@@ -125,6 +125,18 @@
                                 <i class="bi bi-tags"></i> Categorias
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'log_sincronizacao_list' %}">
+                                <i class="bi bi-journal-text"></i> Logs de Integração
+                            </a>
+                        </li>
+                        {% if user.perfil.is_admin or user.perfil.is_dev or user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'loja_integracao_meli' %}">
+                                    <i class="bi bi-link-45deg text-warning"></i> Mercado Livre
+                                </a>
+                            </li>
+                        {% endif %}
                         {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'usuario_list' %}">

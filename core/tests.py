@@ -1,25 +1,32 @@
+import unittest
+from unittest.mock import patch, MagicMock
 from decimal import Decimal
+import requests
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.urls import reverse
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
-from .models import Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco
+from .models import (
+    Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco, LogSincronizacao
+)
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
-    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum
 )
 from .forms import (
     LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
-    CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm
+    CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm,
+    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm
 )
 from .permissions import (
     pode_visualizar_usuarios, pode_gerenciar_usuarios, pode_criar_usuario,
     pode_editar_usuario, pode_alterar_papel, pode_alterar_preco,
     pode_ajustar_estoque_geral, pode_excluir_catalogo, pode_dar_baixa_avaria,
-    pode_acessar_objeto_loja
+    pode_acessar_objeto_loja, pode_configurar_integracao, pode_disparar_sincronizacao
 )
+from .services import MercadoLivreService
 
 
 class LojaModelTestCase(TestCase):
@@ -547,6 +554,381 @@ class CatalogoViewsRBACMultiTenantTestCase(TestCase):
             data={'quantidade': 1, 'tipo_baixa': TipoAjusteEstoqueEnum.SAIDA_AVARIA, 'justificativa': 'Ataque'}
         )
         self.assertEqual(response_baixa.status_code, 403)
+
+
+# ==============================================================================
+# TESTES DE SERVIÇOS DE INTEGRAÇÃO MERCADO LIVRE COM MOCKS (RF-05 / RN-01 / RN-04)
+# ==============================================================================
+
+class MercadoLivreServiceTestCase(TestCase):
+    """
+    Testes unitários e comportamentais de MercadoLivreService utilizando unittest.mock.
+    Simula chamadas HTTP sem realizar conexões com a API externa real.
+    """
+    def setUp(self):
+        self.loja = Loja.objects.create(
+            nome='Loja Teste ML',
+            cnpj='11.222.333/0001-44',
+            inscricao_estadual='ISENTO',
+            telefone='(11) 99999-1111',
+            email='contato@lojameli.com',
+            cep='01001-000',
+            endereco='Praça da Sé',
+            numero='10',
+            bairro='Sé',
+            cidade='São Paulo',
+            estado='SP',
+            pais='Brasil',
+            ativo=True,
+            meli_client_id='app-meli-12345',
+            meli_client_secret='sec-meli-abcde',
+            meli_access_token='APP_USR-test-token-active',
+            meli_refresh_token='TG-test-refresh-token',
+        )
+        self.categoria = Categoria.objects.create(
+            loja=self.loja,
+            nome='Informática',
+            slug='informatica'
+        )
+        self.produto = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku='NOTE-DELL-G15',
+            nome='Notebook Dell G15 16GB',
+            preco=Decimal('5499.90'),
+            estoque=10,
+            meli_item_id='MLB9988776655',
+            status=StatusProdutoEnum.ATIVO
+        )
+        self.user = User.objects.create_user(username='admin_meli', password='password123')
+        self.perfil = PerfilUsuario.objects.create(
+            usuario=self.user,
+            papel=PapelUsuarioEnum.ADMIN,
+            loja=self.loja
+        )
+
+    @patch('requests.put')
+    def test_sincronizar_preco_produto_sucesso_200(self, mock_put):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'id': 'MLB9988776655',
+            'price': 5499.90,
+            'status': 'active'
+        }
+        mock_put.return_value = mock_response
+
+        sucesso, msg, log = MercadoLivreService.sincronizar_preco_produto(self.produto, usuario=self.user)
+
+        self.assertTrue(sucesso)
+        self.assertIn('sincronizado com sucesso', msg)
+        self.assertIsNotNone(log)
+        self.assertTrue(log.sucesso)
+        self.assertEqual(log.status_http, 200)
+        self.assertEqual(log.payload_enviado, {'price': 5499.90})
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.status_sincronizacao, StatusSincronizacaoEnum.SINCRONIZADO)
+
+        # Valida Log de Auditoria
+        audit = LogAuditoria.objects.filter(evento=EventoAuditoriaEnum.SYNC_PRECO_MELI).first()
+        self.assertIsNotNone(audit)
+        self.assertIn('NOTE-DELL-G15', audit.detalhes)
+
+    @patch('requests.put')
+    @patch('requests.post')
+    def test_sincronizar_preco_com_renovacao_automatica_de_token_401(self, mock_post, mock_put):
+        # 1ª chamada PUT retorna 401 Unauthorized
+        res_401 = MagicMock()
+        res_401.status_code = 401
+        res_401.json.return_value = {'message': 'expired token', 'error': 'unauthorized'}
+
+        # 2ª chamada PUT após refresh retorna 200 OK
+        res_200 = MagicMock()
+        res_200.status_code = 200
+        res_200.json.return_value = {'id': 'MLB9988776655', 'price': 5499.90}
+
+        mock_put.side_effect = [res_401, res_200]
+
+        # Resposta do endpoint /oauth/token
+        mock_oauth_res = MagicMock()
+        mock_oauth_res.status_code = 200
+        mock_oauth_res.json.return_value = {
+            'access_token': 'APP_USR-novo-token-renovado',
+            'refresh_token': 'TG-novo-refresh-token',
+            'expires_in': 21600
+        }
+        mock_post.return_value = mock_oauth_res
+
+        sucesso, msg, log = MercadoLivreService.sincronizar_preco_produto(self.produto, usuario=self.user)
+
+        self.assertTrue(sucesso)
+        self.loja.refresh_from_db()
+        self.assertEqual(self.loja.meli_access_token, 'APP_USR-novo-token-renovado')
+        self.assertEqual(self.loja.meli_refresh_token, 'TG-novo-refresh-token')
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.status_sincronizacao, StatusSincronizacaoEnum.SINCRONIZADO)
+
+    def test_sincronizar_preco_sem_item_id_externo(self):
+        self.produto.meli_item_id = ''
+        self.produto.save()
+
+        sucesso, msg, log = MercadoLivreService.sincronizar_preco_produto(self.produto)
+        self.assertFalse(sucesso)
+        self.assertIn('não possui identificador de anúncio', msg)
+        self.assertIsNone(log)
+
+    def test_sincronizar_preco_sem_token_na_loja(self):
+        self.loja.meli_access_token = ''
+        self.loja.save()
+
+        sucesso, msg, log = MercadoLivreService.sincronizar_preco_produto(self.produto)
+        self.assertFalse(sucesso)
+        self.assertIn('não possui Access Token', msg)
+        self.assertIsNotNone(log)
+        self.assertFalse(log.sucesso)
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.status_sincronizacao, StatusSincronizacaoEnum.ERRO)
+
+    @patch('requests.put')
+    def test_sincronizar_preco_falha_400_bad_request(self, mock_put):
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.json.return_value = {
+            'message': 'Price cannot be lower than 10.0',
+            'error': 'bad_request',
+            'cause': [{'message': 'min_price_violation'}]
+        }
+        mock_put.return_value = mock_response
+
+        sucesso, msg, log = MercadoLivreService.sincronizar_preco_produto(self.produto, usuario=self.user)
+
+        self.assertFalse(sucesso)
+        self.assertIn('Mercado Livre rejeitou a sincronização', msg)
+        self.assertIsNotNone(log)
+        self.assertFalse(log.sucesso)
+        self.assertEqual(log.status_http, 400)
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.status_sincronizacao, StatusSincronizacaoEnum.ERRO)
+
+    @patch('requests.put')
+    def test_sincronizar_preco_timeout(self, mock_put):
+        mock_put.side_effect = requests.exceptions.Timeout("Connection timed out")
+
+        sucesso, msg, log = MercadoLivreService.sincronizar_preco_produto(self.produto)
+
+        self.assertFalse(sucesso)
+        self.assertIn('Tempo limite', msg)
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status_http, 408)
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.status_sincronizacao, StatusSincronizacaoEnum.ERRO)
+
+    @patch('requests.put')
+    def test_sincronizar_precos_lote(self, mock_put):
+        prod2 = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku='MOUSE-LOGI-G502',
+            nome='Mouse Gamer Logitech G502',
+            preco=Decimal('299.90'),
+            estoque=15,
+            meli_item_id='MLB1122334455',
+            status=StatusProdutoEnum.ATIVO
+        )
+
+        res_ok = MagicMock()
+        res_ok.status_code = 200
+        res_ok.json.return_value = {'status': 'active'}
+        mock_put.return_value = res_ok
+
+        produtos = Produto.objects.filter(loja=self.loja)
+        res = MercadoLivreService.sincronizar_precos_lote(produtos, usuario=self.user)
+
+        self.assertEqual(res['total'], 2)
+        self.assertEqual(res['sucessos'], 2)
+        self.assertEqual(res['erros'], 0)
+
+        logs_count = LogSincronizacao.objects.filter(loja=self.loja, sucesso=True).count()
+        self.assertEqual(logs_count, 2)
+
+
+# ==============================================================================
+# TESTES DE VIEWS, ROTAS E RBAC PARA INTEGRAÇÃO MERCADO LIVRE (RF-05)
+# ==============================================================================
+
+class MercadoLivreViewsAndRBACTestCase(TestCase):
+    """
+    Testes de integração das Views, RBAC e Multi-Tenancy para o módulo de integração Mercado Livre.
+    """
+    def setUp(self):
+        self.client = Client()
+
+        # Loja A
+        self.loja_a = Loja.objects.create(
+            nome='Loja Alfa', cnpj='11.111.111/0001-11', inscricao_estadual='ISENTO',
+            telefone='(11) 1111-1111', email='alfa@loja.com', cep='01001-000', endereco='Rua A',
+            numero='1', bairro='Centro', cidade='SP', estado='SP', pais='Brasil', ativo=True,
+            meli_client_id='app-alfa', meli_client_secret='sec-alfa',
+            meli_access_token='tok-alfa', meli_refresh_token='ref-alfa'
+        )
+        self.cat_a = Categoria.objects.create(loja=self.loja_a, nome='Cat A', slug='cat-a')
+        self.prod_a = Produto.objects.create(
+            loja=self.loja_a, categoria=self.cat_a, sku='SKU-ALFA-01', nome='Produto Alfa',
+            preco=Decimal('150.00'), estoque=10, meli_item_id='MLB-ALFA-01', status=StatusProdutoEnum.ATIVO
+        )
+
+        # Loja B
+        self.loja_b = Loja.objects.create(
+            nome='Loja Beta', cnpj='22.222.222/0001-22', inscricao_estadual='ISENTO',
+            telefone='(11) 2222-2222', email='beta@loja.com', cep='01002-000', endereco='Rua B',
+            numero='2', bairro='Centro', cidade='SP', estado='SP', pais='Brasil', ativo=True,
+            meli_client_id='app-beta', meli_client_secret='sec-beta',
+            meli_access_token='tok-beta', meli_refresh_token='ref-beta'
+        )
+        self.cat_b = Categoria.objects.create(loja=self.loja_b, nome='Cat B', slug='cat-b')
+        self.prod_b = Produto.objects.create(
+            loja=self.loja_b, categoria=self.cat_b, sku='SKU-BETA-01', nome='Produto Beta',
+            preco=Decimal('250.00'), estoque=5, meli_item_id='MLB-BETA-01', status=StatusProdutoEnum.ATIVO
+        )
+
+        # Usuários
+        self.dev = User.objects.create_user(username='dev_user', password='password123')
+        PerfilUsuario.objects.create(usuario=self.dev, papel=PapelUsuarioEnum.DEV, loja=None)
+
+        self.admin_a = User.objects.create_user(username='admin_alfa', password='password123')
+        PerfilUsuario.objects.create(usuario=self.admin_a, papel=PapelUsuarioEnum.ADMIN, loja=self.loja_a)
+
+        self.sup_a = User.objects.create_user(username='sup_alfa', password='password123')
+        PerfilUsuario.objects.create(usuario=self.sup_a, papel=PapelUsuarioEnum.SUPERVISOR, loja=self.loja_a)
+
+        self.usr_a = User.objects.create_user(username='usr_alfa', password='password123')
+        PerfilUsuario.objects.create(usuario=self.usr_a, papel=PapelUsuarioEnum.USUARIO, loja=self.loja_a)
+
+    # 1. CONFIGURAÇÃO DE CREDENCIAIS
+    def test_admin_configura_credenciais_sua_loja(self):
+        self.client.login(username='admin_alfa', password='password123')
+        response = self.client.get(reverse('loja_integracao_meli'))
+        self.assertEqual(response.status_code, 200)
+
+        post_data = {
+            'meli_client_id': 'app-alfa-novo',
+            'meli_client_secret': 'sec-alfa-novo',
+            'meli_access_token': 'tok-alfa-novo',
+            'meli_refresh_token': 'ref-alfa-novo',
+        }
+        res_post = self.client.post(reverse('loja_integracao_meli'), data=post_data, follow=True)
+        self.assertEqual(res_post.status_code, 200)
+
+        self.loja_a.refresh_from_db()
+        self.assertEqual(self.loja_a.meli_client_id, 'app-alfa-novo')
+
+    def test_supervisor_e_usuario_bloqueados_de_configurar_credenciais(self):
+        # Supervisor
+        self.client.login(username='sup_alfa', password='password123')
+        res_sup = self.client.get(reverse('loja_integracao_meli'))
+        self.assertEqual(res_sup.status_code, 403)
+
+        # Usuário
+        self.client.login(username='usr_alfa', password='password123')
+        res_usr = self.client.get(reverse('loja_integracao_meli'))
+        self.assertEqual(res_usr.status_code, 403)
+
+    def test_dev_configura_credenciais_de_qualquer_loja(self):
+        self.client.login(username='dev_user', password='password123')
+        res = self.client.get(reverse('loja_integracao_meli_slug', kwargs={'slug': self.loja_b.slug}))
+        self.assertEqual(res.status_code, 200)
+
+    # 2. SINCRONIZAÇÃO UNITÁRIA DE PREÇOS
+    @patch('core.services.MercadoLivreService.sincronizar_preco_produto')
+    def test_admin_e_supervisor_disparam_sincronizacao_unitaria(self, mock_sync):
+        mock_sync.return_value = (True, "Preço sincronizado!", None)
+
+        # ADMIN
+        self.client.login(username='admin_alfa', password='password123')
+        res_adm = self.client.post(
+            reverse('produto_sincronizar_preco_meli', kwargs={'pk': self.prod_a.pk}),
+            follow=True
+        )
+        self.assertEqual(res_adm.status_code, 200)
+        self.assertTrue(mock_sync.called)
+
+        # SUPERVISOR
+        mock_sync.reset_mock()
+        self.client.login(username='sup_alfa', password='password123')
+        res_sup = self.client.post(
+            reverse('produto_sincronizar_preco_meli', kwargs={'pk': self.prod_a.pk}),
+            follow=True
+        )
+        self.assertEqual(res_sup.status_code, 200)
+        self.assertTrue(mock_sync.called)
+
+    def test_usuario_padrao_bloqueado_de_disparar_sincronizacao_unitaria(self):
+        self.client.login(username='usr_alfa', password='password123')
+        res = self.client.post(
+            reverse('produto_sincronizar_preco_meli', kwargs={'pk': self.prod_a.pk})
+        )
+        self.assertEqual(res.status_code, 403)  # Bloqueado com 403!
+
+    def test_admin_loja_a_bloqueado_ao_tentar_sincronizar_produto_loja_b(self):
+        self.client.login(username='admin_alfa', password='password123')
+        res = self.client.post(
+            reverse('produto_sincronizar_preco_meli', kwargs={'pk': self.prod_b.pk})
+        )
+        self.assertEqual(res.status_code, 403)  # Cross-tenant ownership check!
+
+    # 3. SINCRONIZAÇÃO EM LOTE
+    @patch('core.services.MercadoLivreService.sincronizar_precos_lote')
+    def test_admin_dispara_sincronizacao_em_lote(self, mock_lote):
+        mock_lote.return_value = {
+            'total': 1, 'sucessos': 1, 'erros': 0, 'detalhes': []
+        }
+        self.client.login(username='admin_alfa', password='password123')
+        res = self.client.post(
+            reverse('produto_sincronizar_lote_meli'),
+            data={'produtos_ids': f"{self.prod_a.id}"},
+            follow=True
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(mock_lote.called)
+
+    def test_usuario_padrao_bloqueado_de_disparar_sincronizacao_em_lote(self):
+        self.client.login(username='usr_alfa', password='password123')
+        res = self.client.post(
+            reverse('produto_sincronizar_lote_meli'),
+            data={'produtos_ids': f"{self.prod_a.id}"}
+        )
+        self.assertEqual(res.status_code, 403)
+
+    # 4. LISTAGEM E MULTI-TENANT DE LOGS
+    def test_listagem_logs_multi_tenant(self):
+        # Log da Loja A
+        LogSincronizacao.objects.create(
+            loja=self.loja_a, produto=self.prod_a, marketplace=MarketplaceEnum.MERCADO_LIVRE,
+            evento=EventoAuditoriaEnum.SYNC_PRECO_MELI, sucesso=True, status_http=200
+        )
+        # Log da Loja B
+        LogSincronizacao.objects.create(
+            loja=self.loja_b, produto=self.prod_b, marketplace=MarketplaceEnum.MERCADO_LIVRE,
+            evento=EventoAuditoriaEnum.SYNC_PRECO_MELI, sucesso=True, status_http=200
+        )
+
+        # ADMIN Loja A deve ver apenas 1 log (da loja A)
+        self.client.login(username='admin_alfa', password='password123')
+        res_adm = self.client.get(reverse('log_sincronizacao_list'))
+        self.assertEqual(res_adm.status_code, 200)
+        self.assertEqual(len(res_adm.context['logs']), 1)
+
+        # DEV deve ver os 2 logs
+        self.client.login(username='dev_user', password='password123')
+        res_dev = self.client.get(reverse('log_sincronizacao_list'))
+        self.assertEqual(res_dev.status_code, 200)
+        self.assertEqual(len(res_dev.context['logs']), 2)
+
 
 
 

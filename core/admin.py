@@ -1,10 +1,11 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
-from .models import Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco
+from .models import Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco, LogSincronizacao
 
 
 class PerfilUsuarioInline(admin.StackedInline):
+
     model = PerfilUsuario
     can_delete = False
     verbose_name_plural = 'Perfil de Acesso (RBAC & Tenant)'
@@ -103,9 +104,28 @@ class HistoricoPrecoAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(LogSincronizacao)
+class LogSincronizacaoAdmin(admin.ModelAdmin):
+    list_display = ('marketplace', 'evento', 'loja', 'produto', 'status_http', 'sucesso', 'tempo_resposta_ms', 'criado_em')
+    list_filter = ('marketplace', 'evento', 'sucesso', 'status_http', 'loja', 'criado_em')
+    search_fields = ('item_id_externo', 'produto__sku', 'produto__nome', 'mensagem_erro', 'loja__nome')
+    readonly_fields = (
+        'loja', 'produto', 'marketplace', 'evento', 'item_id_externo',
+        'payload_enviado', 'resposta_recebida', 'status_http', 'sucesso',
+        'mensagem_erro', 'tempo_resposta_ms', 'criado_em'
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 # Re-registra o modelo User com o inline de Perfil
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
+
 
 
 

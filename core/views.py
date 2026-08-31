@@ -11,22 +11,28 @@ from django.db import transaction
 from django.db.models import Q, Count, Sum
 from django.core.exceptions import PermissionDenied
 
-from .models import Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco
+from .models import (
+    Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco, LogSincronizacao
+)
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
-    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum
 )
 from .forms import (
     LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
-    CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm
+    CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm,
+    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm
 )
 from .permissions import (
     DevRequiredMixin, UserListAccessMixin, UserWriteAccessMixin, UserOwnershipCheckMixin,
     CatalogOwnershipCheckMixin, CatalogDeletePermissionMixin,
+    IntegracaoConfigPermissionMixin, SyncPermissionMixin,
     usuario_is_dev, usuario_is_admin, pode_visualizar_usuarios, pode_gerenciar_usuarios,
     pode_editar_usuario, pode_alterar_preco, pode_ajustar_estoque_geral,
-    pode_excluir_catalogo, pode_dar_baixa_avaria, pode_acessar_objeto_loja
+    pode_excluir_catalogo, pode_dar_baixa_avaria, pode_acessar_objeto_loja,
+    pode_configurar_integracao, pode_disparar_sincronizacao
 )
+from .services import MercadoLivreService
 
 
 class DashboardHomeView(LoginRequiredMixin, TemplateView):
@@ -47,6 +53,7 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
             context['total_usuarios'] = User.objects.count()
             context['total_produtos'] = Produto.objects.count()
             context['total_categorias'] = Categoria.objects.count()
+            context['total_logs_sincronizacao'] = LogSincronizacao.objects.count()
         else:
             perfil = getattr(user, 'perfil', None)
             context['perfil'] = perfil
@@ -56,6 +63,10 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
                 context['total_produtos_loja'] = Produto.objects.filter(loja=perfil.loja).count()
                 context['total_categorias_loja'] = Categoria.objects.filter(loja=perfil.loja).count()
                 context['produtos_sem_estoque'] = Produto.objects.filter(loja=perfil.loja, estoque=0).count()
+                context['produtos_sincronizados'] = Produto.objects.filter(
+                    loja=perfil.loja, status_sincronizacao=StatusSincronizacaoEnum.SINCRONIZADO
+                ).count()
+                context['total_logs_loja'] = LogSincronizacao.objects.filter(loja=perfil.loja).count()
 
         return context
 
@@ -931,6 +942,245 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, FormView):
         context = super().get_context_data(**kwargs)
         context['produto'] = self.produto
         return context
+
+
+# ==============================================================================
+# INTEGRAÇÃO COM MERCADO LIVRE (RF-05 / RN-01 / RN-04 / RN-09)
+# ==============================================================================
+
+class LojaIntegracaoMeliView(LoginRequiredMixin, IntegracaoConfigPermissionMixin, FormView):
+    """
+    Tela de configuração e teste das credenciais de integração com a API do Mercado Livre (RF-05).
+    Acessível por DEV (qualquer loja) e ADMIN (apenas a sua própria loja).
+    SUPERVISOR e USUARIO são bloqueados via IntegracaoConfigPermissionMixin (403 Forbidden).
+    """
+    form_class = LojaIntegracaoMeliForm
+    template_name = 'core/loja_integracao_meli.html'
+    success_url = reverse_lazy('loja_integracao_meli')
+
+    def get_loja(self):
+        user = self.request.user
+        if usuario_is_dev(user):
+            slug = self.kwargs.get('slug')
+            if slug:
+                return get_object_or_404(Loja, slug=slug)
+            # Se for DEV sem slug, usa a primeira loja ou a selecionada
+            loja_id = self.request.GET.get('loja')
+            if loja_id:
+                return get_object_or_404(Loja, pk=loja_id)
+            primeira_loja = Loja.objects.first()
+            if not primeira_loja:
+                messages.warning(self.request, "Nenhuma loja cadastrada para configurar integrações.")
+                return None
+            return primeira_loja
+        else:
+            perfil = getattr(user, 'perfil', None)
+            if not perfil or not perfil.loja:
+                raise PermissionDenied("Seu usuário não está vinculado a nenhuma loja ativa.")
+            return perfil.loja
+
+    def dispatch(self, request, *args, **kwargs):
+        self.loja = self.get_loja()
+        if self.loja and not pode_configurar_integracao(request.user, self.loja):
+            raise PermissionDenied("Acesso negado: você não possui permissão para gerenciar as credenciais desta loja.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if self.loja:
+            kwargs['instance'] = self.loja
+        return kwargs
+
+    def form_valid(self, form):
+        acao = self.request.POST.get('acao', 'salvar')
+
+        with transaction.atomic():
+            self.loja = form.save()
+            LogAuditoria.objects.create(
+                loja=self.loja,
+                autor=self.request.user,
+                evento=EventoAuditoriaEnum.CONFIG_CREDENCIAIS_MELI,
+                detalhes=f"Credenciais de integração com o Mercado Livre da loja '{self.loja.nome}' atualizadas.",
+                ip_origem=self.request.META.get('REMOTE_ADDR')
+            )
+
+        if acao == 'testar_conexao':
+            sucesso, msg, info = MercadoLivreService.testar_conexao_loja(self.loja, self.request.user)
+            if sucesso:
+                messages.success(self.request, f"Credenciais salvas e {msg}")
+            else:
+                messages.error(self.request, f"Credenciais salvas, mas o teste falhou: {msg}")
+        else:
+            messages.success(self.request, f"Credenciais do Mercado Livre da loja '{self.loja.nome}' salvas com sucesso!")
+
+        if usuario_is_dev(self.request.user) and self.kwargs.get('slug'):
+            return redirect('loja_integracao_meli_slug', slug=self.loja.slug)
+        return redirect(self.success_url)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['loja'] = self.loja
+        context['is_dev'] = usuario_is_dev(self.request.user)
+        if context['is_dev']:
+            context['lojas_disponiveis'] = Loja.objects.filter(ativo=True).order_by('nome')
+        return context
+
+
+class ProdutoSincronizarPrecoMeliView(LoginRequiredMixin, SyncPermissionMixin, View):
+    """
+    Dispara a sincronização de preço unitária de um produto com a API do Mercado Livre (RF-05).
+    """
+    def post(self, request, pk, *args, **kwargs):
+        produto = get_object_or_404(
+            Produto.objects.select_related('loja'), pk=pk
+        )
+
+        # Ownership Check estrito
+        if not pode_acessar_objeto_loja(request.user, produto):
+            raise PermissionDenied("Acesso negado: este produto pertence a outra loja.")
+
+        sucesso, msg, log = MercadoLivreService.sincronizar_preco_produto(produto, request.user)
+
+        if sucesso:
+            messages.success(request, msg)
+        else:
+            messages.error(request, msg)
+
+        # Redireciona de volta para a tela de origem ou detalhe do produto
+        next_url = request.POST.get('next') or request.GET.get('next')
+        if next_url:
+            return redirect(next_url)
+        return redirect(reverse('produto_detail', kwargs={'pk': produto.pk}))
+
+
+class ProdutoSincronizarPrecoLoteView(LoginRequiredMixin, SyncPermissionMixin, View):
+    """
+    Dispara a sincronização de preço em lote para os produtos selecionados via checkboxes (RF-05).
+    """
+    def post(self, request, *args, **kwargs):
+        form = ProdutoSincronizacaoLoteForm(request.POST)
+        if not form.is_valid():
+            erro_msg = form.errors.get('produtos_ids', ['Nenhum produto válido foi selecionado.'])[0]
+            messages.error(request, erro_msg)
+            return redirect('produto_list')
+
+        produtos_ids = form.cleaned_data['produtos_ids']
+
+        # Filtro estrito de Ownership pelo tenant do usuário logado
+        if usuario_is_dev(request.user):
+            produtos = Produto.objects.filter(id__in=produtos_ids).select_related('loja')
+        else:
+            perfil = getattr(request.user, 'perfil', None)
+            if not perfil or not perfil.loja:
+                raise PermissionDenied("Usuário sem loja vinculada.")
+            produtos = Produto.objects.filter(id__in=produtos_ids, loja=perfil.loja).select_related('loja')
+
+        if not produtos.exists():
+            messages.error(request, "Nenhum produto válido encontrado no escopo da sua loja.")
+            return redirect('produto_list')
+
+        resultado = MercadoLivreService.sincronizar_precos_lote(produtos, request.user)
+
+        total = resultado['total']
+        sucessos = resultado['sucessos']
+        erros = resultado['erros']
+
+        if erros == 0:
+            messages.success(
+                request,
+                f"Sincronização em lote concluída com sucesso! {sucessos} de {total} produto(s) atualizado(s) no Mercado Livre."
+            )
+        elif sucessos > 0:
+            messages.warning(
+                request,
+                f"Sincronização em lote finalizada com alertas: {sucessos} produto(s) sincronizado(s) com sucesso e {erros} falha(s). Verifique os logs de integração."
+            )
+        else:
+            messages.error(
+                request,
+                f"Falha na sincronização em lote: todos os {erros} produto(s) selecionados apresentaram erros. Verifique os logs de integração."
+            )
+
+        return redirect('produto_list')
+
+
+# ==============================================================================
+# PAINEL DE LOGS DE SINCRONIZAÇÃO E INTEGRAÇÃO (RF-05 / RN-01 / RN-04)
+# ==============================================================================
+
+class LogSincronizacaoListView(LoginRequiredMixin, ListView):
+    """
+    Painel de monitoramento e auditoria técnica de todas as integrações com marketplaces.
+    - DEV: Visualiza logs de todas as lojas com filtro por tenant.
+    - ADMIN, SUPERVISOR e USUARIO: Visualizam apenas os logs da sua própria loja.
+    """
+    model = LogSincronizacao
+    template_name = 'core/log_sincronizacao_list.html'
+    context_object_name = 'logs'
+    paginate_by = 25
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = LogSincronizacao.objects.select_related('loja', 'produto').order_by('-criado_em')
+
+        if usuario_is_dev(user):
+            loja_id = self.request.GET.get('loja', '').strip()
+            if loja_id:
+                queryset = queryset.filter(loja_id=loja_id)
+        else:
+            perfil = getattr(user, 'perfil', None)
+            if not perfil or not perfil.loja:
+                return LogSincronizacao.objects.none()
+            queryset = queryset.filter(loja=perfil.loja)
+
+        # Filtros adicionais
+        status_filtro = self.request.GET.get('status', '').strip()
+        if status_filtro == 'sucesso':
+            queryset = queryset.filter(sucesso=True)
+        elif status_filtro == 'erro':
+            queryset = queryset.filter(sucesso=False)
+
+        evento_filtro = self.request.GET.get('evento', '').strip()
+        if evento_filtro:
+            queryset = queryset.filter(evento=evento_filtro)
+
+        marketplace_filtro = self.request.GET.get('marketplace', '').strip()
+        if marketplace_filtro:
+            queryset = queryset.filter(marketplace=marketplace_filtro)
+
+        busca = self.request.GET.get('q', '').strip()
+        if busca:
+            queryset = queryset.filter(
+                Q(item_id_externo__icontains=busca) |
+                Q(produto__sku__icontains=busca) |
+                Q(produto__nome__icontains=busca) |
+                Q(mensagem_erro__icontains=busca)
+            )
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        context['is_dev'] = usuario_is_dev(user)
+        context['termo_busca'] = self.request.GET.get('q', '').strip()
+        context['status_filtro'] = self.request.GET.get('status', '').strip()
+        context['evento_filtro'] = self.request.GET.get('evento', '').strip()
+        context['marketplace_filtro'] = self.request.GET.get('marketplace', '').strip()
+        context['loja_filtro'] = self.request.GET.get('loja', '').strip()
+
+        context['marketplaces_disponiveis'] = MarketplaceEnum.choices
+        context['eventos_disponiveis'] = [
+            (e.value, e.label) for e in EventoAuditoriaEnum if 'MELI' in e.value or 'SYNC' in e.value
+        ]
+
+        if context['is_dev']:
+            context['lojas_disponiveis'] = Loja.objects.filter(ativo=True).order_by('nome')
+        else:
+            context['minha_loja'] = getattr(user.perfil, 'loja', None)
+
+        return context
+
 
 
 

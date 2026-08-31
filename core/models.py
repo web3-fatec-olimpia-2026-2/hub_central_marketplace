@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
-    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum
 )
 
 
@@ -339,6 +339,62 @@ class HistoricoPreco(models.Model):
     def __str__(self):
         user_str = self.usuario.username if self.usuario else "Sistema"
         return f"{self.produto.sku}: R$ {self.preco_anterior} -> R$ {self.preco_novo} por {user_str} em {self.criado_em.strftime('%d/%m/%Y %H:%M')}"
+
+
+class LogSincronizacao(models.Model):
+    """
+    Registro detalhado de chamadas e respostas de integração com marketplaces externos (RF-05 / RN-04).
+    Armazena o payload enviado, resposta da API, status HTTP, sucesso e eventuais mensagens de erro.
+    """
+    loja = models.ForeignKey(
+        Loja, on_delete=models.CASCADE, related_name='logs_sincronizacao', verbose_name="Loja (Tenant)"
+    )
+    produto = models.ForeignKey(
+        Produto, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='logs_sincronizacao', verbose_name="Produto Relacionado"
+    )
+    marketplace = models.CharField(
+        max_length=30, choices=MarketplaceEnum.choices, default=MarketplaceEnum.MERCADO_LIVRE,
+        verbose_name="Marketplace"
+    )
+    evento = models.CharField(
+        max_length=40, choices=EventoAuditoriaEnum.choices, verbose_name="Tipo de Operação / Evento"
+    )
+    item_id_externo = models.CharField(
+        max_length=64, blank=True, null=True, verbose_name="ID Externo no Marketplace (MLB...)"
+    )
+    payload_enviado = models.JSONField(
+        default=dict, blank=True, verbose_name="Payload Enviado (JSON)"
+    )
+    resposta_recebida = models.JSONField(
+        default=dict, blank=True, verbose_name="Resposta Recebida da API (JSON)"
+    )
+    status_http = models.IntegerField(
+        null=True, blank=True, verbose_name="Status HTTP"
+    )
+    sucesso = models.BooleanField(
+        default=False, verbose_name="Operação Bem-Sucedida"
+    )
+    mensagem_erro = models.TextField(
+        blank=True, null=True, verbose_name="Mensagem de Erro / Diagnóstico"
+    )
+    tempo_resposta_ms = models.IntegerField(
+        null=True, blank=True, verbose_name="Tempo de Resposta (ms)"
+    )
+    criado_em = models.DateTimeField(
+        auto_now_add=True, verbose_name="Data / Hora do Disparo"
+    )
+
+    class Meta:
+        verbose_name = "Log de Sincronização"
+        verbose_name_plural = "Logs de Sincronização"
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        status_txt = "Sucesso" if self.sucesso else "Falha"
+        prod_sku = self.produto.sku if self.produto else (self.item_id_externo or "Geral")
+        return f"[{self.get_marketplace_display()}] {self.get_evento_display()} - {prod_sku} ({status_txt}, HTTP {self.status_http}) em {self.criado_em.strftime('%d/%m/%Y %H:%M:%S')}"
+
 
 
 

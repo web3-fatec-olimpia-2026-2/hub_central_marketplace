@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}Integração Mercado Livre — {{ loja.nome }} — Hub Marketplaces{% endblock %}
+
+{% block page_title %}
+    <i class="bi bi-link-45deg text-warning me-2"></i>Integração Mercado Livre
+{% endblock %}
+
+{% block page_subtitle %}
+    Credenciais OAuth e configuração da API REST para a loja <strong>{{ loja.nome }}</strong> ({{ loja.cnpj }})
+{% endblock %}
+
+{% block toolbar_actions %}
+    <div class="d-flex gap-2">
+        {% if is_dev %}
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-dismiss="dropdown" data-bs-toggle="dropdown">
+                    <i class="bi bi-buildings"></i> Trocar Loja (DEV)
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow">
+                    {% for l in lojas_disponiveis %}
+                        <li>
+                            <a class="dropdown-item {% if l.id == loja.id %}active{% endif %}" href="{% url 'loja_integracao_meli_slug' l.slug %}">
+                                {{ l.nome }} ({{ l.slug }})
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+        <a href="{% url 'log_sincronizacao_list' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-journal-text"></i> Ver Logs de Integração
+        </a>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-9 col-xl-8">
+
+        {% if form.errors %}
+            <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+                <h6 class="alert-heading fw-bold mb-1">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Erros de validação encontrados:
+                </h6>
+                <ul class="mb-0 ps-3 small">
+                    {% for field in form %}
+                        {% for error in field.errors %}
+                            <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+                        {% endfor %}
+                    {% endfor %}
+                    {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endif %}
+
+        <!-- CARD DE STATUS ATUAL DA CONEXÃO -->
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-body p-4 bg-light rounded d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="p-3 bg-white rounded-circle shadow-sm">
+                        <i class="bi bi-shop text-warning fs-3"></i>
+                    </div>
+                    <div>
+                        <h6 class="fw-bold mb-1">{{ loja.nome }}</h6>
+                        <div class="small text-muted font-monospace">CNPJ: {{ loja.cnpj }} &bull; Slug: {{ loja.slug }}</div>
+                    </div>
+                </div>
+
+                <div class="text-md-end">
+                    <div class="small text-muted mb-1">Status da Autenticação</div>
+                    {% if loja.meli_access_token %}
+                        <span class="badge bg-success px-3 py-2 fs-6">
+                            <i class="bi bi-check-circle-fill me-1"></i> Tokens Configurados
+                        </span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark px-3 py-2 fs-6">
+                            <i class="bi bi-exclamation-circle-fill me-1"></i> Não Configurado
+                        </span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- FORMULÁRIO DE CREDENCIAIS OAUTH -->
+        <form method="post" novalidate>
+            {% csrf_token %}
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-shield-lock-fill text-primary"></i>
+                        <span class="fw-bold">Parâmetros da Aplicação (Mercado Livre Developers)</span>
+                    </div>
+                </div>
+                <div class="card-body p-4">
+                    <div class="alert alert-info small mb-4">
+                        <i class="bi bi-info-circle-fill me-1"></i>
+                        Obtenha o <strong>App ID</strong> e o <strong>Client Secret</strong> no portal
+                        <a href="https://developers.mercadolivre.com.br/devcenter" target="_blank" class="fw-bold alert-link">Mercado Livre DevCenter</a>.
+                        O Hub utilizará estas chaves para autenticar as requisições de preço e renovar o Access Token automaticamente (RN-01).
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="{{ form.meli_client_id.id_for_label }}" class="form-label fw-semibold">
+                                {{ form.meli_client_id.label }}
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted"><i class="bi bi-key"></i></span>
+                                {{ form.meli_client_id }}
+                            </div>
+                            <div class="form-text small">{{ form.meli_client_id.help_text }}</div>
+                            {% if form.meli_client_id.errors %}
+                                <div class="text-danger small mt-1">{{ form.meli_client_id.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="{{ form.meli_client_secret.id_for_label }}" class="form-label fw-semibold">
+                                {{ form.meli_client_secret.label }}
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted"><i class="bi bi-lock"></i></span>
+                                {{ form.meli_client_secret }}
+                            </div>
+                            <div class="form-text small">{{ form.meli_client_secret.help_text }}</div>
+                            {% if form.meli_client_secret.errors %}
+                                <div class="text-danger small mt-1">{{ form.meli_client_secret.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-12 mt-4">
+                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">
+                                <i class="bi bi-arrow-repeat text-primary me-1"></i>Tokens OAuth 2.0 Ativos
+                            </h6>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="{{ form.meli_access_token.id_for_label }}" class="form-label fw-semibold">
+                                {{ form.meli_access_token.label }}
+                            </label>
+                            {{ form.meli_access_token }}
+                            <div class="form-text small">{{ form.meli_access_token.help_text }}</div>
+                            {% if form.meli_access_token.errors %}
+                                <div class="text-danger small mt-1">{{ form.meli_access_token.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-12">
+                            <label for="{{ form.meli_refresh_token.id_for_label }}" class="form-label fw-semibold">
+                                {{ form.meli_refresh_token.label }}
+                            </label>
+                            {{ form.meli_refresh_token }}
+                            <div class="form-text small">{{ form.meli_refresh_token.help_text }}</div>
+                            {% if form.meli_refresh_token.errors %}
+                                <div class="text-danger small mt-1">{{ form.meli_refresh_token.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-footer bg-light p-3 d-flex flex-column flex-sm-row justify-content-between gap-2">
+                    <a href="{% url 'home' %}" class="btn btn-danger">
+                        <i class="bi bi-x-circle"></i> Cancelar
+                    </a>
+                    <div class="d-flex gap-2">
+                        <button type="submit" name="acao" value="testar_conexao" class="btn btn-outline-primary" {% if not loja.meli_access_token %}disabled{% endif %}>
+                            <i class="bi bi-activity"></i> Salvar e Testar Conexão
+                        </button>
+                        <button type="submit" name="acao" value="salvar" class="btn btn-success px-4">
+                            <i class="bi bi-check-circle-fill"></i> Salvar Credenciais
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+    </div>
+</div>
+{% endblock %}

@@ -676,3 +676,61 @@ class ProdutoAjusteEstoqueForm(forms.Form):
     )
 
 
+class LojaIntegracaoMeliForm(forms.ModelForm):
+    """
+    Formulário para configuração das credenciais de integração com a API do Mercado Livre (RF-05).
+    Acessível por DEV (qualquer loja) e ADMIN (sua própria loja).
+    """
+    class Meta:
+        model = Loja
+        fields = ['meli_client_id', 'meli_client_secret', 'meli_access_token', 'meli_refresh_token']
+        widgets = {
+            'meli_client_id': forms.TextInput(attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'Ex: 1234567890123456',
+                'autocomplete': 'off',
+            }),
+            'meli_client_secret': forms.PasswordInput(render_value=True, attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'Secret da aplicação no Mercado Livre Developers',
+                'autocomplete': 'new-password',
+            }),
+            'meli_access_token': forms.TextInput(attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'APP_USR-...',
+                'autocomplete': 'off',
+            }),
+            'meli_refresh_token': forms.TextInput(attrs={
+                'class': 'form-control font-monospace',
+                'placeholder': 'TG-...',
+                'autocomplete': 'off',
+            }),
+        }
+        help_texts = {
+            'meli_client_id': 'App ID gerado no portal de desenvolvedores do Mercado Livre.',
+            'meli_client_secret': 'Chave secreta correspondente ao seu App ID.',
+            'meli_access_token': 'Token de acesso OAuth 2.0 ativo.',
+            'meli_refresh_token': 'Token utilizado para renovação automática do Access Token quando expirado.',
+        }
+
+
+class ProdutoSincronizacaoLoteForm(forms.Form):
+    """
+    Formulário para validação de IDs de produtos selecionados para sincronização em lote.
+    """
+    produtos_ids = forms.CharField(widget=forms.HiddenInput())
+
+    def clean_produtos_ids(self):
+        raw_ids = self.cleaned_data.get('produtos_ids', '').strip()
+        if not raw_ids:
+            raise ValidationError("Nenhum produto foi selecionado para sincronização.")
+        try:
+            ids = [int(x.strip()) for x in raw_ids.split(',') if x.strip()]
+        except ValueError:
+            raise ValidationError("Lista de identificadores de produtos inválida.")
+        if not ids:
+            raise ValidationError("Nenhum produto válido selecionado.")
+        return ids
+
+
+
