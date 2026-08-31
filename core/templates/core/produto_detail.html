@@ -17,6 +17,9 @@
         <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left"></i> Catálogo
         </a>
+        <a href="{% url 'simulador_promocional_produto' produto.id %}" class="btn btn-success">
+            <i class="bi bi-calculator"></i> Simular Promoção
+        </a>
         <a href="{% url 'produto_update' produto.id %}" class="btn btn-secondary">
             <i class="bi bi-pencil"></i> Editar
         </a>

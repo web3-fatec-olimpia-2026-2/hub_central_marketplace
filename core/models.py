@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
     StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum,
-    StatusPedidoEnum
+    StatusPedidoEnum, CanalMarketplaceEnum
 )
 
 
@@ -124,6 +124,57 @@ class Loja(models.Model):
         if self.cep:
             partes.append(f"CEP: {self.cep}")
         return " - ".join(partes) if partes else "Endereço não informado"
+
+    def obter_ou_criar_parametros_financeiros(self):
+        """
+        Retorna (ou provisiona com defaults canônicos) a Configuração de Taxas
+        e os Parâmetros de Canais de Marketplace desta Loja.
+        """
+        config_taxas, _ = ConfiguracaoTaxasLoja.objects.get_or_create(
+            loja=self,
+            defaults={
+                'aliquota_imposto': Decimal('6.00'),
+                'custo_embalagem_padrao': Decimal('2.00'),
+                'margem_minima_seguranca': Decimal('5.00'),
+                'custos_fixos_mensais': Decimal('0.00'),
+            }
+        )
+
+        canais_defaults = {
+            CanalMarketplaceEnum.MERCADOLIVRE_CLASSICO: {
+                'comissao_padrao': Decimal('16.00'),
+                'frete_gratis_piso': Decimal('79.00'),
+                'taxa_frete_acima_limite': Decimal('18.00'),
+                'taxa_fixa_abaixo_limite': Decimal('6.00'),
+            },
+            CanalMarketplaceEnum.MERCADOLIVRE_PREMIUM: {
+                'comissao_padrao': Decimal('19.00'),
+                'frete_gratis_piso': Decimal('79.00'),
+                'taxa_frete_acima_limite': Decimal('18.00'),
+                'taxa_fixa_abaixo_limite': Decimal('6.00'),
+            },
+            CanalMarketplaceEnum.SHOPEE: {
+                'comissao_padrao': Decimal('14.00'),
+                'frete_gratis_piso': Decimal('79.00'),
+                'taxa_frete_acima_limite': Decimal('15.00'),
+                'taxa_fixa_abaixo_limite': Decimal('4.00'),
+            },
+            CanalMarketplaceEnum.MAGALU: {
+                'comissao_padrao': Decimal('16.00'),
+                'frete_gratis_piso': Decimal('79.00'),
+                'taxa_frete_acima_limite': Decimal('18.00'),
+                'taxa_fixa_abaixo_limite': Decimal('5.00'),
+            },
+        }
+
+        for canal_key, defaults in canais_defaults.items():
+            ParametroCanalMarketplace.objects.get_or_create(
+                loja=self,
+                marketplace=canal_key,
+                defaults=defaults
+            )
+
+        return config_taxas
 
 
 class PerfilUsuario(models.Model):
@@ -281,6 +332,23 @@ class Produto(models.Model):
         verbose_name="Status do Produto"
     )
     
+    # Inteligência Financeira e Custos (RF-09)
+    custo_aquisicao = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'), blank=True,
+        verbose_name="Custo de Aquisição / CMV (R$)",
+        help_text="Custo de compra ou fabricação unitária do produto."
+    )
+    custo_embalagem = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'), blank=True,
+        verbose_name="Custo Específico de Embalagem (R$)",
+        help_text="Custo de insumos e embalagem deste produto. Se 0, herda o padrão da loja."
+    )
+    modalidade_full = models.BooleanField(
+        default=False,
+        verbose_name="Modalidade Full / Fulfillment",
+        help_text="Se marcado, o custo próprio de embalagem é zerado pois o marketplace assume o envio."
+    )
+
     # Integração Mercado Livre
     meli_item_id = models.CharField(
         max_length=50, blank=True, null=True, verbose_name="ID do Anúncio Mercado Livre (MLB...)"
@@ -520,6 +588,88 @@ class ItemPedidoVenda(models.Model):
 
     def __str__(self):
         return f"{self.quantidade}x {self.titulo_anuncio} (R$ {self.preco_unitario})"
+
+
+class ConfiguracaoTaxasLoja(models.Model):
+    """
+    Parâmetros tributários, operacionais e margem de segurança da Loja para simulação financeira.
+    """
+    loja = models.OneToOneField(
+        Loja, on_delete=models.CASCADE, related_name='configuracao_taxas', verbose_name="Loja"
+    )
+    aliquota_imposto = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('6.00'),
+        verbose_name="Alíquota Média de Imposto (%)",
+        help_text="Percentual médio de tributos (ex.: Simples Nacional / Lucro Presumido)."
+    )
+    custo_embalagem_padrao = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('2.00'),
+        verbose_name="Custo Padrão de Embalagem (R$)",
+        help_text="Custo padrão de embalagem caso o produto não possua custo customizado."
+    )
+    margem_minima_seguranca = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('5.00'),
+        verbose_name="Margem Mínima de Segurança (%)",
+        help_text="Margem de contribuição mínima recomendada para evitar risco de prejuízo operacional."
+    )
+    custos_fixos_mensais = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'),
+        verbose_name="Custos Fixos Mensais (R$)",
+        help_text="Custos operacionais fixos mensais da loja (aluguel, folha, energia, etc.)."
+    )
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name="Criado em")
+    atualizado_em = models.DateTimeField(auto_now=True, verbose_name="Atualizado em")
+
+    class Meta:
+        verbose_name = "Configuração de Taxas da Loja"
+        verbose_name_plural = "Configurações de Taxas das Lojas"
+
+    def __str__(self):
+        return f"Configurações Financeiras — {self.loja.nome}"
+
+
+class ParametroCanalMarketplace(models.Model):
+    """
+    Tarifas, comissões e faixas de frete por canal de marketplace vinculado à Loja.
+    """
+    loja = models.ForeignKey(
+        Loja, on_delete=models.CASCADE, related_name='parametros_canais', verbose_name="Loja"
+    )
+    marketplace = models.CharField(
+        max_length=50, choices=CanalMarketplaceEnum.choices, verbose_name="Canal de Marketplace"
+    )
+    comissao_padrao = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('16.00'),
+        verbose_name="Comissão Padrão (%)",
+        help_text="Comissão percentual retida pelo marketplace (ex: 16% Mercado Livre Clássico, 19% Premium)."
+    )
+    frete_gratis_piso = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('79.00'),
+        verbose_name="Piso de Frete Grátis (R$)",
+        help_text="Valor a partir do qual incide cobrança de frete no lojista (ex.: R$ 79,00)."
+    )
+    taxa_frete_acima_limite = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('18.00'),
+        verbose_name="Taxa de Frete Acima do Piso (R$)",
+        help_text="Custo médio de frete pago pelo lojista para produtos a partir do piso (ex.: R$ 18,00)."
+    )
+    taxa_fixa_abaixo_limite = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('6.00'),
+        verbose_name="Taxa Fixa Abaixo do Piso (R$)",
+        help_text="Tarifa fixa cobrada por unidade em itens de baixo valor (ex.: R$ 6,00)."
+    )
+    ativo = models.BooleanField(default=True, verbose_name="Canal Ativo")
+    criado_em = models.DateTimeField(auto_now_add=True, verbose_name="Criado em")
+    atualizado_em = models.DateTimeField(auto_now=True, verbose_name="Atualizado em")
+
+    class Meta:
+        verbose_name = "Parâmetro de Canal de Marketplace"
+        verbose_name_plural = "Parâmetros de Canais de Marketplaces"
+        unique_together = ['loja', 'marketplace']
+
+    def __str__(self):
+        return f"{self.get_marketplace_display()} — {self.loja.nome}"
+
 
 
 

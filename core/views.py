@@ -18,27 +18,31 @@ from django.utils.decorators import method_decorator
 
 from .models import (
     Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco,
-    LogSincronizacao, PedidoVenda, ItemPedidoVenda
+    LogSincronizacao, PedidoVenda, ItemPedidoVenda,
+    ConfiguracaoTaxasLoja, ParametroCanalMarketplace
 )
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
-    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum, StatusPedidoEnum
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum, StatusPedidoEnum,
+    CanalMarketplaceEnum
 )
 from .forms import (
     LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
     CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm,
-    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm, ProdutoBroadcastLoteForm
+    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm, ProdutoBroadcastLoteForm,
+    SimuladorPromocionalForm
 )
 from .permissions import (
     DevRequiredMixin, UserListAccessMixin, UserWriteAccessMixin, UserOwnershipCheckMixin,
     CatalogOwnershipCheckMixin, CatalogDeletePermissionMixin,
-    IntegracaoConfigPermissionMixin, SyncPermissionMixin,
+    IntegracaoConfigPermissionMixin, SyncPermissionMixin, FinancialAccessMixin,
     usuario_is_dev, usuario_is_admin, pode_visualizar_usuarios, pode_gerenciar_usuarios,
     pode_editar_usuario, pode_alterar_preco, pode_ajustar_estoque_geral,
     pode_excluir_catalogo, pode_dar_baixa_avaria, pode_acessar_objeto_loja,
-    pode_configurar_integracao, pode_disparar_sincronizacao
+    pode_configurar_integracao, pode_disparar_sincronizacao,
+    pode_acessar_inteligencia_financeira
 )
-from .services import MercadoLivreService, BroadcastEstoqueService
+from .services import MercadoLivreService, BroadcastEstoqueService, SimuladorPromocionalService
 
 
 class DashboardHomeView(LoginRequiredMixin, TemplateView):
@@ -1418,6 +1422,153 @@ class ProdutoBroadcastEstoqueLoteView(LoginRequiredMixin, SyncPermissionMixin, V
             f"{resumo['sucessos']} com sucesso total, {resumo['falhas']} com pendências."
         )
         return redirect(reverse('produto_list'))
+
+
+# ==============================================================================
+# VIEWS DO MOTOR DE INTELIGÊNCIA FINANCEIRA (RF-09)
+# ==============================================================================
+
+class SimuladorPromocionalView(LoginRequiredMixin, FinancialAccessMixin, View):
+    """
+    Interface e API Reativa do Simulador de Viabilidade Promocional e Formação de Preço (RF-09).
+    Acesso restrito aos perfis DEV, ADMIN e SUPERVISOR.
+    Isolamento multi-tenant garantido em todas as queries.
+    """
+    template_name = 'core/simulador_promocional.html'
+
+    def get(self, request, pk=None, *args, **kwargs):
+        user = request.user
+        loja_efetiva = getattr(user.perfil, 'loja', None) if not usuario_is_dev(user) else None
+
+        if pk:
+            produto = get_object_or_404(Produto.objects.select_related('loja', 'categoria'), pk=pk)
+            if not pode_acessar_objeto_loja(user, produto):
+                raise PermissionDenied("Acesso negado: o produto selecionado pertence a outra loja.")
+            loja = produto.loja
+        else:
+            if loja_efetiva:
+                loja = loja_efetiva
+                produto = Produto.objects.filter(loja=loja).select_related('loja', 'categoria').first()
+            else:
+                loja = Loja.objects.filter(ativo=True).first()
+                produto = Produto.objects.filter(loja=loja).select_related('loja', 'categoria').first() if loja else None
+
+        if not loja:
+            messages.warning(request, "Nenhuma loja cadastrada para simulação financeira.")
+            return redirect(reverse('home'))
+
+        # Auto-provisiona configurações financeiras se não existirem
+        config_loja = loja.obter_ou_criar_parametros_financeiros()
+        canais = ParametroCanalMarketplace.objects.filter(loja=loja, ativo=True).order_by('marketplace')
+        produtos_loja = Produto.objects.filter(loja=loja, status=StatusProdutoEnum.ATIVO).order_by('nome') if loja else Produto.objects.none()
+
+        resultado_inicial = None
+        canal_selecionado = canais.first() if canais.exists() else None
+
+        if produto and canal_selecionado:
+            resultado_inicial = SimuladorPromocionalService.simular_impacto_promocional(
+                produto=produto,
+                canal_params=canal_selecionado,
+                config_loja=config_loja,
+                desconto_total_pct=Decimal('5.00'),
+                subsidio_mkt_pct=Decimal('0.00'),
+                volume_base=1000
+            )
+
+        context = {
+            'produto': produto,
+            'loja': loja,
+            'config_loja': config_loja,
+            'canais': canais,
+            'canal_selecionado': canal_selecionado,
+            'produtos_loja': produtos_loja,
+            'resultado_inicial': resultado_inicial,
+            'resultado_json': json.dumps(resultado_inicial) if resultado_inicial else '{}',
+        }
+        return render(request, self.template_name, context)
+
+    def post(self, request, pk=None, *args, **kwargs):
+        user = request.user
+        
+        # Leitura flexível: JSON body ou FormData
+        try:
+            if request.content_type == 'application/json':
+                payload = json.loads(request.body.decode('utf-8'))
+            else:
+                payload = request.POST.dict()
+        except Exception:
+            return JsonResponse({'erro': 'Payload inválido.'}, status=400)
+
+        produto_id = payload.get('produto_id') or pk
+        if not produto_id:
+            return JsonResponse({'erro': 'Identificador do produto é obrigatório.'}, status=400)
+
+        produto = get_object_or_404(Produto.objects.select_related('loja'), pk=produto_id)
+        if not pode_acessar_objeto_loja(user, produto):
+            return JsonResponse({'erro': 'Acesso negado: o produto pertence a outra loja.'}, status=403)
+
+        loja = produto.loja
+        config_loja = loja.obter_ou_criar_parametros_financeiros()
+
+        canal_key = payload.get('canal', CanalMarketplaceEnum.MERCADOLIVRE_CLASSICO)
+        canal_params = ParametroCanalMarketplace.objects.filter(loja=loja, marketplace=canal_key).first()
+        if not canal_params:
+            canal_params = ParametroCanalMarketplace.objects.filter(loja=loja).first()
+
+        if not canal_params:
+            return JsonResponse({'erro': 'Nenhum canal de marketplace configurado para a loja.'}, status=400)
+
+        try:
+            desconto_total_pct = Decimal(str(payload.get('desconto_total_pct', '5.00')))
+            subsidio_mkt_pct = Decimal(str(payload.get('subsidio_mkt_pct', '0.00')))
+            volume_base = int(payload.get('volume_base', 1000))
+        except (ValueError, TypeError):
+            return JsonResponse({'erro': 'Parâmetros numéricos inválidos.'}, status=400)
+
+        # Atualização opcional em tempo real de custos e preço para permitir simulações what-if
+        custo_aquisicao_override = payload.get('custo_aquisicao')
+        custo_embalagem_override = payload.get('custo_embalagem')
+        preco_override = payload.get('preco')
+        modalidade_full_override = payload.get('modalidade_full')
+
+        # Cria clone em memória para não persistir dirty reads no banco
+        produto_simulado = Produto(
+            id=produto.id,
+            sku=produto.sku,
+            nome=produto.nome,
+            loja=produto.loja,
+            categoria=produto.categoria,
+            preco=Decimal(str(preco_override)) if preco_override is not None and str(preco_override).strip() != '' else produto.preco,
+            custo_aquisicao=Decimal(str(custo_aquisicao_override)) if custo_aquisicao_override is not None and str(custo_aquisicao_override).strip() != '' else produto.custo_aquisicao,
+            custo_embalagem=Decimal(str(custo_embalagem_override)) if custo_embalagem_override is not None and str(custo_embalagem_override).strip() != '' else produto.custo_embalagem,
+            modalidade_full=bool(modalidade_full_override) if modalidade_full_override is not None else produto.modalidade_full,
+        )
+
+        resultado = SimuladorPromocionalService.simular_impacto_promocional(
+            produto=produto_simulado,
+            canal_params=canal_params,
+            config_loja=config_loja,
+            desconto_total_pct=desconto_total_pct,
+            subsidio_mkt_pct=subsidio_mkt_pct,
+            volume_base=volume_base
+        )
+
+        # Adiciona dados de formação de preço recomendada
+        try:
+            preco_sugerido_10 = SimuladorPromocionalService.calcular_formacao_preco(
+                produto_simulado, canal_params, config_loja, margem_alvo_pct=Decimal('10.00')
+            )
+            preco_sugerido_20 = SimuladorPromocionalService.calcular_formacao_preco(
+                produto_simulado, canal_params, config_loja, margem_alvo_pct=Decimal('20.00')
+            )
+            resultado['preco_sugerido_margem_10'] = float(preco_sugerido_10)
+            resultado['preco_sugerido_margem_20'] = float(preco_sugerido_20)
+        except Exception:
+            resultado['preco_sugerido_margem_10'] = None
+            resultado['preco_sugerido_margem_20'] = None
+
+        return JsonResponse(resultado)
+
 
 
 

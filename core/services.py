@@ -8,10 +8,12 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from .models import (
-    Loja, Produto, LogSincronizacao, LogAuditoria, PedidoVenda, ItemPedidoVenda
+    Loja, Produto, LogSincronizacao, LogAuditoria, PedidoVenda, ItemPedidoVenda,
+    ConfiguracaoTaxasLoja, ParametroCanalMarketplace
 )
 from .enums import (
-    MarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum, StatusPedidoEnum
+    MarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum, StatusPedidoEnum,
+    CanalMarketplaceEnum
 )
 
 
@@ -981,5 +983,269 @@ class BroadcastEstoqueService:
                 resumo['falhas'] += 1
             resumo['resultados_produtos'].append(res)
         return resumo
+
+
+# ==============================================================================
+# MOTOR DE INTELIGÊNCIA FINANCEIRA E SIMULADOR PROMOCIONAL (RF-09)
+# ==============================================================================
+
+class SimuladorPromocionalService:
+    """
+    Serviço de cálculo e inteligência financeira para formação de preço e simulação
+    de viabilidade de campanhas promocionais em marketplaces.
+    """
+
+    @classmethod
+    def calcular_custo_direto_unitario(
+        cls, produto: Produto, config_loja: Optional[ConfiguracaoTaxasLoja] = None
+    ) -> Decimal:
+        """
+        Calcula o custo direto unitário (CFdir = Custo Aquisição + Embalagem Efetiva).
+        Se modalidade_full=True, o custo de embalagem é zerado (marketplace assume o envio).
+        """
+        custo_aquisicao = produto.custo_aquisicao or Decimal('0.00')
+        if produto.modalidade_full:
+            return custo_aquisicao
+
+        custo_emb = produto.custo_embalagem
+        if custo_emb is None or custo_emb == Decimal('0.00'):
+            custo_emb = config_loja.custo_embalagem_padrao if config_loja else Decimal('2.00')
+
+        return custo_aquisicao + (custo_emb or Decimal('0.00'))
+
+    @classmethod
+    def calcular_frete_para_preco(
+        cls, preco: Decimal, canal_params: ParametroCanalMarketplace
+    ) -> Decimal:
+        """
+        Determina a tarifa de frete aplicável para um dado preço de venda.
+        P >= frete_gratis_piso -> taxa_frete_acima_limite
+        P < frete_gratis_piso  -> taxa_fixa_abaixo_limite
+        """
+        if preco >= canal_params.frete_gratis_piso:
+            return canal_params.taxa_frete_acima_limite
+        return canal_params.taxa_fixa_abaixo_limite
+
+    @classmethod
+    def calcular_formacao_preco(
+        cls,
+        produto: Produto,
+        canal_params: ParametroCanalMarketplace,
+        config_loja: ConfiguracaoTaxasLoja,
+        margem_alvo_pct: Decimal
+    ) -> Decimal:
+        """
+        Calcula o Preço de Venda (PV) ideal que garante a margem_alvo_pct (%) desejada.
+        Resolve a circularidade do frete via regime piecewise (Regimes A e B).
+        Fórmula: PV = (CFdir + Frete) / (1 - (comissao + imposto + margem_alvo) / 100)
+        """
+        cf_dir = cls.calcular_custo_direto_unitario(produto, config_loja)
+        comissao = canal_params.comissao_padrao
+        imposto = config_loja.aliquota_imposto
+        fracao_variavel = (comissao + imposto + margem_alvo_pct) / Decimal('100.0')
+
+        denominador = Decimal('1.0') - fracao_variavel
+        if denominador <= Decimal('0.0'):
+            raise ValueError(
+                f"A soma de comissão ({comissao}%), impostos ({imposto}%) e margem alvo ({margem_alvo_pct}%) "
+                f"totaliza {comissao + imposto + margem_alvo_pct}%, que é maior ou igual a 100%."
+            )
+
+        # Regime A: Assume PV >= frete_gratis_piso
+        pv_a = (cf_dir + canal_params.taxa_frete_acima_limite) / denominador
+        if pv_a >= canal_params.frete_gratis_piso:
+            return pv_a.quantize(Decimal('0.01'))
+
+        # Regime B: Assume PV < frete_gratis_piso
+        pv_b = (cf_dir + canal_params.taxa_fixa_abaixo_limite) / denominador
+        if pv_b < canal_params.frete_gratis_piso:
+            return pv_b.quantize(Decimal('0.01'))
+
+        # Se houver ponto de transição/descontinuidade, escolhe o valor mais conservador que cobre custos
+        return max(pv_a, pv_b).quantize(Decimal('0.01'))
+
+    @classmethod
+    def calcular_desconto_maximo_suportavel(
+        cls,
+        produto: Produto,
+        canal_params: ParametroCanalMarketplace,
+        config_loja: ConfiguracaoTaxasLoja
+    ) -> Decimal:
+        """
+        Calcula o Desconto Máximo Suportável pelo Seller (D_seller_max) sem entrar em prejuízo.
+        Preço de equilíbrio P* zera a margem unitária: MC(P*) = 0.
+        P* = (CFdir + Frete) / (1 - pv), onde pv = (comissao + imposto) / 100.
+        """
+        p0 = produto.preco or Decimal('0.00')
+        if p0 <= Decimal('0.00'):
+            return Decimal('0.00')
+
+        cf_dir = cls.calcular_custo_direto_unitario(produto, config_loja)
+        pv = (canal_params.comissao_padrao + config_loja.aliquota_imposto) / Decimal('100.0')
+        denominador = Decimal('1.0') - pv
+
+        if denominador <= Decimal('0.0'):
+            return Decimal('0.00')
+
+        # Regime A (P* >= piso)
+        p_star_a = (cf_dir + canal_params.taxa_frete_acima_limite) / denominador
+        # Regime B (P* < piso)
+        p_star_b = (cf_dir + canal_params.taxa_fixa_abaixo_limite) / denominador
+
+        if p_star_a >= canal_params.frete_gratis_piso:
+            p_star = p_star_a
+        elif p_star_b < canal_params.frete_gratis_piso:
+            p_star = p_star_b
+        else:
+            p_star = min(p_star_a, p_star_b)
+
+        if p_star >= p0:
+            return Decimal('0.00')
+
+        d_max = (Decimal('1.0') - (p_star / p0)) * Decimal('100.0')
+        return max(Decimal('0.00'), min(Decimal('100.00'), d_max.quantize(Decimal('0.01'))))
+
+    @classmethod
+    def simular_impacto_promocional(
+        cls,
+        produto: Produto,
+        canal_params: ParametroCanalMarketplace,
+        config_loja: ConfiguracaoTaxasLoja,
+        desconto_total_pct: Decimal,
+        subsidio_mkt_pct: Decimal = Decimal('0.00'),
+        volume_base: int = 1000
+    ) -> Dict[str, Any]:
+        """
+        Simula a viabilidade econômica de uma campanha promocional.
+        """
+        if volume_base <= 0:
+            volume_base = 1
+
+        p0 = produto.preco or Decimal('0.00')
+        cf_dir = cls.calcular_custo_direto_unitario(produto, config_loja)
+
+        # 1. Desconto do Seller e Preços
+        desconto_total = max(Decimal('0.00'), min(Decimal('100.00'), Decimal(str(desconto_total_pct))))
+        subsidio_mkt = max(Decimal('0.00'), min(Decimal('100.00'), Decimal(str(subsidio_mkt_pct))))
+        desconto_seller = max(Decimal('0.00'), desconto_total - subsidio_mkt)
+
+        preco_promocional = p0 * (Decimal('1.0') - (desconto_total / Decimal('100.0')))
+        receita_liquida_seller = p0 * (Decimal('1.0') - (desconto_seller / Decimal('100.0')))
+
+        # 2. Deduções e Margem Unitária Atual (Cenário Base)
+        imposto_atual = p0 * (config_loja.aliquota_imposto / Decimal('100.0'))
+        comissao_atual = p0 * (canal_params.comissao_padrao / Decimal('100.0'))
+        frete_atual = cls.calcular_frete_para_preco(p0, canal_params)
+        mc_unit_atual_rs = p0 - (imposto_atual + comissao_atual + frete_atual + cf_dir)
+        mc_unit_atual_pct = (mc_unit_atual_rs / p0 * Decimal('100.0')) if p0 > Decimal('0.00') else Decimal('0.00')
+
+        # 3. Deduções e Margem Unitária Promocional
+        imposto_promo = preco_promocional * (config_loja.aliquota_imposto / Decimal('100.0'))
+        comissao_promo = preco_promocional * (canal_params.comissao_padrao / Decimal('100.0'))
+        frete_promo = cls.calcular_frete_para_preco(preco_promocional, canal_params)
+        mc_unit_promo_rs = receita_liquida_seller - (imposto_promo + comissao_promo + frete_promo + cf_dir)
+        mc_unit_promo_pct = (mc_unit_promo_rs / preco_promocional * Decimal('100.0')) if preco_promocional > Decimal('0.00') else Decimal('0.00')
+
+        # 4. Elasticidade Mínima e Volume Meta (Breakeven de Volume)
+        if mc_unit_promo_rs <= Decimal('0.00'):
+            elasticidade_minima_pct = None
+            volume_meta_compensacao = None
+        else:
+            if mc_unit_atual_rs > Decimal('0.00'):
+                razao_mc = mc_unit_atual_rs / mc_unit_promo_rs
+                elasticidade_minima_pct = ((razao_mc - Decimal('1.0')) * Decimal('100.0')).quantize(Decimal('0.01'))
+                volume_meta_compensacao = int(round(Decimal(volume_base) * razao_mc))
+            else:
+                elasticidade_minima_pct = Decimal('0.00')
+                volume_meta_compensacao = volume_base
+
+        # 5. Desconto Máximo Suportável
+        desconto_maximo_suportavel_pct = cls.calcular_desconto_maximo_suportavel(produto, canal_params, config_loja)
+
+        # 6. Status de Viabilidade
+        status = cls.avaliar_status_viabilidade(
+            mc_unit_promo_rs=mc_unit_promo_rs,
+            mc_unit_promo_pct=mc_unit_promo_pct,
+            margem_minima_seguranca=config_loja.margem_minima_seguranca,
+            elasticidade_minima_pct=elasticidade_minima_pct
+        )
+
+        # 7. Totais Operacionais
+        custos_fixos = config_loja.custos_fixos_mensais or Decimal('0.00')
+        lucro_operacional_atual = (mc_unit_atual_rs * Decimal(volume_base)) - custos_fixos
+        lucro_operacional_promo_mesmo_vol = (mc_unit_promo_rs * Decimal(volume_base)) - custos_fixos
+        lucro_operacional_promo_vol_meta = (
+            (mc_unit_promo_rs * Decimal(volume_meta_compensacao)) - custos_fixos
+            if volume_meta_compensacao is not None else Decimal('0.00')
+        )
+
+        return {
+            'produto_id': produto.id,
+            'sku': produto.sku,
+            'nome': produto.nome,
+            'canal': canal_params.get_marketplace_display(),
+            'canal_key': canal_params.marketplace,
+            'preco_cheio': float(p0.quantize(Decimal('0.01'))),
+            'preco_promocional': float(preco_promocional.quantize(Decimal('0.01'))),
+            'receita_liquida_seller': float(receita_liquida_seller.quantize(Decimal('0.01'))),
+            'desconto_total_pct': float(desconto_total.quantize(Decimal('0.01'))),
+            'subsidio_mkt_pct': float(subsidio_mkt.quantize(Decimal('0.01'))),
+            'desconto_seller_pct': float(desconto_seller.quantize(Decimal('0.01'))),
+            'custo_direto_unitario': float(cf_dir.quantize(Decimal('0.01'))),
+            
+            # Cenário Atual
+            'mc_unit_atual_rs': float(mc_unit_atual_rs.quantize(Decimal('0.01'))),
+            'mc_unit_atual_pct': float(mc_unit_atual_pct.quantize(Decimal('0.01'))),
+            'lucro_operacional_atual': float(lucro_operacional_atual.quantize(Decimal('0.01'))),
+            
+            # Cenário Promocional
+            'mc_unit_promo_rs': float(mc_unit_promo_rs.quantize(Decimal('0.01'))),
+            'mc_unit_promo_pct': float(mc_unit_promo_pct.quantize(Decimal('0.01'))),
+            'lucro_operacional_promo_mesmo_vol': float(lucro_operacional_promo_mesmo_vol.quantize(Decimal('0.01'))),
+            
+            # Métricas de Alavancagem e Meta
+            'volume_base': volume_base,
+            'elasticidade_minima_pct': float(elasticidade_minima_pct) if elasticidade_minima_pct is not None else None,
+            'volume_meta_compensacao': volume_meta_compensacao,
+            'lucro_operacional_promo_vol_meta': float(lucro_operacional_promo_vol_meta.quantize(Decimal('0.01'))),
+            'desconto_maximo_suportavel_pct': float(desconto_maximo_suportavel_pct.quantize(Decimal('0.01'))),
+            
+            # Status e Alertas
+            'status': status,
+            'status_label': cls.obter_label_status(status),
+            'status_cor': cls.obter_cor_status(status),
+        }
+
+    @staticmethod
+    def avaliar_status_viabilidade(
+        mc_unit_promo_rs: Decimal,
+        mc_unit_promo_pct: Decimal,
+        margem_minima_seguranca: Decimal,
+        elasticidade_minima_pct: Optional[Decimal]
+    ) -> str:
+        if mc_unit_promo_rs <= Decimal('0.00'):
+            return "PREJUIZO"
+        if mc_unit_promo_pct < margem_minima_seguranca or (elasticidade_minima_pct is not None and elasticidade_minima_pct > Decimal('15.00')):
+            return "ALERTA_ELASTICIDADE"
+        return "VIAVEL"
+
+    @staticmethod
+    def obter_label_status(status: str) -> str:
+        labels = {
+            "VIAVEL": "Promoção Viável e Saudável",
+            "ALERTA_ELASTICIDADE": "Alerta de Alavancagem / Margem Baixa",
+            "PREJUIZO": "Inviável / Risco de Prejuízo Operacional"
+        }
+        return labels.get(status, status)
+
+    @staticmethod
+    def obter_cor_status(status: str) -> str:
+        cores = {
+            "VIAVEL": "success",
+            "ALERTA_ELASTICIDADE": "warning",
+            "PREJUIZO": "danger"
+        }
+        return cores.get(status, "secondary")
+
 
 

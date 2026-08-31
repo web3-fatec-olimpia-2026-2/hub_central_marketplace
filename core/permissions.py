@@ -393,6 +393,31 @@ class SyncPermissionMixin(AccessMixin):
         return super().dispatch(request, *args, **kwargs)
 
 
+def pode_acessar_inteligencia_financeira(user):
+    """
+    RN-09 / Matriz RBAC: Acesso ao Motor de Inteligência Financeira e Simulador Promocional (RF-09)
+    é permitido para DEV, ADMIN e SUPERVISOR.
+    USUARIO é estritamente bloqueado (403 Forbidden).
+    """
+    return pode_disparar_sincronizacao(user)
+
+
+class FinancialAccessMixin(AccessMixin):
+    """
+    Mixin para views do Motor Financeiro e Simulador Promocional (RF-09).
+    Restrito a DEV, ADMIN e SUPERVISOR.
+    """
+    permission_denied_message = "Acesso negado: seu perfil não possui permissão para acessar o simulador financeiro promocional."
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not pode_acessar_inteligencia_financeira(request.user):
+            messages.error(request, self.permission_denied_message)
+            raise PermissionDenied(self.permission_denied_message)
+        return super().dispatch(request, *args, **kwargs)
+
+
 # ==============================================================================
 # DECORATORS PARA FUNCTION-BASED VIEWS
 # ==============================================================================

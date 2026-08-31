@@ -7,7 +7,8 @@ from django.core.exceptions import ValidationError
 
 from .models import Loja, PerfilUsuario, Categoria, Produto, HistoricoPreco
 from .enums import (
-    PapelUsuarioEnum, StatusProdutoEnum, StatusSincronizacaoEnum, TipoAjusteEstoqueEnum
+    PapelUsuarioEnum, StatusProdutoEnum, StatusSincronizacaoEnum, TipoAjusteEstoqueEnum,
+    CanalMarketplaceEnum
 )
 from .permissions import (
     usuario_is_dev, usuario_is_admin, pode_criar_usuario, pode_alterar_papel,
@@ -458,7 +459,8 @@ class ProdutoForm(forms.ModelForm):
         model = Produto
         fields = [
             'loja', 'categoria', 'sku', 'nome', 'descricao',
-            'preco', 'estoque', 'status', 'meli_item_id'
+            'preco', 'estoque', 'status', 'meli_item_id',
+            'custo_aquisicao', 'custo_embalagem', 'modalidade_full'
         ]
         widgets = {
             'sku': forms.TextInput(attrs={
@@ -488,6 +490,21 @@ class ProdutoForm(forms.ModelForm):
                 'class': 'form-control',
                 'min': '0',
                 'placeholder': '0'
+            }),
+            'custo_aquisicao': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'step': '0.01',
+                'min': '0.00',
+                'placeholder': '0.00'
+            }),
+            'custo_embalagem': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'step': '0.01',
+                'min': '0.00',
+                'placeholder': '0.00 (Deixe 0 para usar padrão da loja)'
+            }),
+            'modalidade_full': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
             }),
             'status': forms.Select(attrs={
                 'class': 'form-select'
@@ -537,6 +554,10 @@ class ProdutoForm(forms.ModelForm):
         if not pode_ajustar_estoque_geral(self.autor):
             self.fields['estoque'].disabled = True
             self.fields['estoque'].help_text = "Ajuste geral bloqueado para o seu perfil. Para perdas/avarias, utilize o fluxo 'Baixa por Avaria' (RN-09)."
+
+        self.fields['custo_aquisicao'].required = False
+        self.fields['custo_embalagem'].required = False
+        self.fields['modalidade_full'].required = False
 
     def clean_sku(self):
         sku = self.cleaned_data.get('sku', '').strip().upper()
@@ -773,6 +794,32 @@ class ProdutoBroadcastLoteForm(forms.Form):
         if not ids:
             raise ValidationError("Nenhum produto válido selecionado.")
         return ids
+
+
+class SimuladorPromocionalForm(forms.Form):
+    """
+    Formulário para validação dos parâmetros de simulação de viabilidade promocional (RF-09).
+    """
+    canal = forms.ChoiceField(
+        choices=CanalMarketplaceEnum.choices,
+        label="Canal / Modalidade de Marketplace",
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'selectCanal'})
+    )
+    desconto_total_pct = forms.DecimalField(
+        max_digits=5, decimal_places=2, min_value=Decimal('0.00'), max_value=Decimal('100.00'),
+        initial=Decimal('5.00'), label="Desconto Total na Vitrine (%)",
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.5', 'id': 'inputDescontoTotal'})
+    )
+    subsidio_mkt_pct = forms.DecimalField(
+        max_digits=5, decimal_places=2, min_value=Decimal('0.00'), max_value=Decimal('100.00'),
+        initial=Decimal('0.00'), label="Subsídio Co-financiado do Marketplace (%)",
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.5', 'id': 'inputSubsidioMkt'})
+    )
+    volume_base = forms.IntegerField(
+        min_value=1, initial=1000, label="Volume Mensal Base de Vendas (Unidades)",
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'id': 'inputVolumeBase'})
+    )
+
 
 
 

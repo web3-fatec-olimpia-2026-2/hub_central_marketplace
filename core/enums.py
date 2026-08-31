@@ -51,6 +51,16 @@ class MarketplaceEnum(models.TextChoices):
     MAGALU = 'MAGALU', 'Magazine Luiza (Backlog)'
 
 
+class CanalMarketplaceEnum(models.TextChoices):
+    """
+    Canais e modalidades tarifárias de marketplaces suportados no Motor Financeiro.
+    """
+    MERCADOLIVRE_CLASSICO = 'mercadolivre_classico', 'Mercado Livre (Clássico)'
+    MERCADOLIVRE_PREMIUM = 'mercadolivre_premium', 'Mercado Livre (Premium)'
+    SHOPEE = 'shopee', 'Shopee'
+    MAGALU = 'magalu', 'Magazine Luiza'
+
+
 class StatusPedidoEnum(models.TextChoices):
     """
     Status de processamento e faturamento de Pedidos de Venda recebidos via Webhook.
@@ -103,6 +113,10 @@ class EventoAuditoriaEnum(models.TextChoices):
     SYNC_ESTOQUE_MELI = 'SYNC_ESTOQUE_MELI', 'Sincronização de Estoque (Mercado Livre)'
     SYNC_ESTOQUE_SHOPEE = 'SYNC_ESTOQUE_SHOPEE', 'Sincronização de Estoque (Shopee)'
     SYNC_ESTOQUE_MAGALU = 'SYNC_ESTOQUE_MAGALU', 'Sincronização de Estoque (Magalu)'
+
+    # Motor de Inteligência Financeira
+    SIMULACAO_FINANCEIRA_PROMO = 'SIMULACAO_FINANCEIRA_PROMO', 'Simulação de Viabilidade Promocional'
+
 
 
 

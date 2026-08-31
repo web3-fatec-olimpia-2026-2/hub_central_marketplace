@@ -54,6 +54,10 @@ urlpatterns = [
     # Broadcast Multi-Canal de Estoque (RF-08)
     path('produtos/<int:pk>/broadcast-estoque/', views.ProdutoBroadcastEstoqueView.as_view(), name='produto_broadcast_estoque'),
     path('produtos/broadcast-estoque-lote/', views.ProdutoBroadcastEstoqueLoteView.as_view(), name='produto_broadcast_estoque_lote'),
+
+    # Motor de Inteligência Financeira e Simulador Promocional (RF-09)
+    path('simulador-promocional/', views.SimuladorPromocionalView.as_view(), name='simulador_promocional'),
+    path('produtos/<int:pk>/simulador-promocional/', views.SimuladorPromocionalView.as_view(), name='simulador_promocional_produto'),
 ]
 
 

@@ -205,6 +205,9 @@
                                 {% endif %}
                                 <td class="text-end pe-4">
                                     <div class="btn-group btn-group-sm">
+                                        <a href="{% url 'simulador_promocional_produto' prod.id %}" class="btn btn-outline-success" title="Simular Viabilidade Promocional e Margem">
+                                            <i class="bi bi-calculator"></i>
+                                        </a>
                                         <a href="{% url 'produto_detail' prod.id %}" class="btn btn-outline-info" title="Ver Detalhes e Histórico">
                                             <i class="bi bi-eye"></i>
                                         </a>

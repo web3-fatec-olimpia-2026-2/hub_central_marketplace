@@ -1,4 +1,5 @@
 # Os códigos foram gerados com auxilio de I.A.
+import json
 import unittest
 from unittest.mock import patch, MagicMock
 from decimal import Decimal
@@ -11,24 +12,28 @@ from django.db import IntegrityError
 
 from .models import (
     Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco,
-    LogSincronizacao, PedidoVenda, ItemPedidoVenda
+    LogSincronizacao, PedidoVenda, ItemPedidoVenda,
+    ConfiguracaoTaxasLoja, ParametroCanalMarketplace
 )
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
-    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum, StatusPedidoEnum
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum, StatusPedidoEnum,
+    CanalMarketplaceEnum
 )
 from .forms import (
     LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
     CategoriaForm, ProdutoForm, ProdutoBaixaAvariaForm, ProdutoAjusteEstoqueForm,
-    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm, ProdutoBroadcastLoteForm
+    LojaIntegracaoMeliForm, ProdutoSincronizacaoLoteForm, ProdutoBroadcastLoteForm,
+    SimuladorPromocionalForm
 )
 from .permissions import (
     pode_visualizar_usuarios, pode_gerenciar_usuarios, pode_criar_usuario,
     pode_editar_usuario, pode_alterar_papel, pode_alterar_preco,
     pode_ajustar_estoque_geral, pode_excluir_catalogo, pode_dar_baixa_avaria,
-    pode_acessar_objeto_loja, pode_configurar_integracao, pode_disparar_sincronizacao
+    pode_acessar_objeto_loja, pode_configurar_integracao, pode_disparar_sincronizacao,
+    pode_acessar_inteligencia_financeira
 )
-from .services import MercadoLivreService, BroadcastEstoqueService
+from .services import MercadoLivreService, BroadcastEstoqueService, SimuladorPromocionalService
 
 
 class LojaModelTestCase(TestCase):
@@ -1428,6 +1433,240 @@ class ErrorPagesTestCase(TestCase):
         self.assertContains(response, 'Página não encontrada', status_code=404)
         self.assertContains(response, '404', status_code=404)
         self.assertContains(response, 'Voltar ao Início', status_code=404)
+
+
+class MotorInteligenciaFinanceiraTestCase(TestCase):
+    """
+    Suíte de testes para o Motor de Inteligência Financeira e Simulador de Viabilidade Promocional (RF-09).
+    Valida formação de preço, resolução de circularidade de frete, elasticidade mínima (alavancagem reversa),
+    desconto máximo suportável e isolamento multi-tenant.
+    """
+    def setUp(self):
+        self.client = Client()
+
+        # Loja A e Loja B
+        self.loja_a = Loja.objects.create(
+            nome='Loja Alfa Finanças', cnpj='11.222.333/0001-44', ativo=True
+        )
+        self.loja_b = Loja.objects.create(
+            nome='Loja Beta Finanças', cnpj='55.666.777/0001-88', ativo=True
+        )
+
+        self.config_a = self.loja_a.obter_ou_criar_parametros_financeiros()
+        self.config_b = self.loja_b.obter_ou_criar_parametros_financeiros()
+
+        self.cat_a = Categoria.objects.create(loja=self.loja_a, nome='Smartphones')
+        self.cat_b = Categoria.objects.create(loja=self.loja_b, nome='Informática')
+
+        # Produto de Referência Canônica (Seção 5.8): P=100.00, CVu=70.00
+        self.prod_canonico = Produto.objects.create(
+            loja=self.loja_a,
+            categoria=self.cat_a,
+            sku='PROD-REF-100',
+            nome='Produto Exemplo de Referência',
+            preco=Decimal('100.00'),
+            custo_aquisicao=Decimal('70.00'),
+            custo_embalagem=Decimal('0.00'),
+            modalidade_full=True, # Zera embalagem
+            estoque=50
+        )
+
+        # Canal com tarifas zeradas para teste puro do mecanismo marginal
+        self.canal_puro = ParametroCanalMarketplace.objects.create(
+            loja=self.loja_a,
+            marketplace='canal_puro_teste',
+            comissao_padrao=Decimal('0.00'),
+            frete_gratis_piso=Decimal('1000.00'),
+            taxa_frete_acima_limite=Decimal('0.00'),
+            taxa_fixa_abaixo_limite=Decimal('0.00'),
+            ativo=True
+        )
+        self.config_a_puro = ConfiguracaoTaxasLoja.objects.create(
+            loja=Loja.objects.create(nome='Loja Pura', cnpj='99.999.999/0001-99', ativo=True),
+            aliquota_imposto=Decimal('0.00'),
+            custo_embalagem_padrao=Decimal('0.00'),
+            margem_minima_seguranca=Decimal('5.00'),
+            custos_fixos_mensais=Decimal('0.00')
+        )
+
+        # Usuários
+        self.dev = User.objects.create_superuser(username='dev_fin', password='password123', email='dev@fin.com')
+        
+        self.admin_a = User.objects.create_user(username='admin_a_fin', password='password123')
+        PerfilUsuario.objects.create(usuario=self.admin_a, papel=PapelUsuarioEnum.ADMIN, loja=self.loja_a)
+
+        self.supervisor_a = User.objects.create_user(username='sup_a_fin', password='password123')
+        PerfilUsuario.objects.create(usuario=self.supervisor_a, papel=PapelUsuarioEnum.SUPERVISOR, loja=self.loja_a)
+
+        self.usuario_a = User.objects.create_user(username='usr_a_fin', password='password123')
+        PerfilUsuario.objects.create(usuario=self.usuario_a, papel=PapelUsuarioEnum.USUARIO, loja=self.loja_a)
+
+        self.admin_b = User.objects.create_user(username='admin_b_fin', password='password123')
+        PerfilUsuario.objects.create(usuario=self.admin_b, papel=PapelUsuarioEnum.ADMIN, loja=self.loja_b)
+
+    def test_fixture_referencia_canonica_secao_5_8(self):
+        """
+        Validação exata do exemplo de referência do plano (seção 5.8):
+        Entrada: P=100.00, CVu=70.00, desconto_total=5%, subsidio_mkt=0%, volume_base=1000.
+        Esperado:
+          - preco_promocional == 95.00
+          - nova_margem_contribuicao_rs == 25.00
+          - elasticidade_minima_pct == 20.0%
+          - volume_meta_compensacao == 1200
+        """
+        resultado = SimuladorPromocionalService.simular_impacto_promocional(
+            produto=self.prod_canonico,
+            canal_params=self.canal_puro,
+            config_loja=self.config_a_puro,
+            desconto_total_pct=Decimal('5.00'),
+            subsidio_mkt_pct=Decimal('0.00'),
+            volume_base=1000
+        )
+
+        self.assertEqual(Decimal(str(resultado['preco_promocional'])), Decimal('95.00'))
+        self.assertEqual(Decimal(str(resultado['mc_unit_promo_rs'])), Decimal('25.00'))
+        self.assertEqual(Decimal(str(resultado['mc_unit_atual_rs'])), Decimal('30.00'))
+        self.assertEqual(Decimal(str(resultado['elasticidade_minima_pct'])), Decimal('20.00'))
+        self.assertEqual(resultado['volume_meta_compensacao'], 1200)
+
+    def test_markup_frete_gratis_vs_tarifa_fixa_piecewise(self):
+        """
+        Valida a resolução da circularidade de frete no cálculo de formação de preço.
+        """
+        canal_meli = ParametroCanalMarketplace.objects.get(
+            loja=self.loja_a, marketplace=CanalMarketplaceEnum.MERCADOLIVRE_CLASSICO
+        )
+        # Produto barato (abaixo de R$ 79,00)
+        prod_barato = Produto.objects.create(
+            loja=self.loja_a, categoria=self.cat_a, sku='CABO-USB',
+            nome='Cabo USB-C', preco=Decimal('25.00'), custo_aquisicao=Decimal('8.00'),
+            custo_embalagem=Decimal('1.00'), modalidade_full=False, estoque=100
+        )
+        # PV com margem alvo 15%
+        pv_barato = SimuladorPromocionalService.calcular_formacao_preco(
+            prod_barato, canal_meli, self.config_a, margem_alvo_pct=Decimal('15.00')
+        )
+        # Deve aplicar taxa fixa abaixo do limite (R$ 6.00)
+        self.assertLess(pv_barato, canal_meli.frete_gratis_piso)
+
+        # Produto caro (acima de R$ 79,00)
+        prod_caro = Produto.objects.create(
+            loja=self.loja_a, categoria=self.cat_a, sku='FONE-BT',
+            nome='Fone Bluetooth Pro', preco=Decimal('150.00'), custo_aquisicao=Decimal('60.00'),
+            custo_embalagem=Decimal('2.00'), modalidade_full=False, estoque=40
+        )
+        pv_caro = SimuladorPromocionalService.calcular_formacao_preco(
+            prod_caro, canal_meli, self.config_a, margem_alvo_pct=Decimal('15.00')
+        )
+        # Deve aplicar taxa de frete acima do limite (R$ 18.00)
+        self.assertGreaterEqual(pv_caro, canal_meli.frete_gratis_piso)
+
+    def test_elasticidade_com_subsidio_parcial_marketplace(self):
+        """
+        Valida desconto na vitrine co-financiado: Desconto 10%, Subsídio Mkt 6% -> Desconto Seller 4%.
+        """
+        canal_meli = ParametroCanalMarketplace.objects.get(
+            loja=self.loja_a, marketplace=CanalMarketplaceEnum.MERCADOLIVRE_CLASSICO
+        )
+        resultado = SimuladorPromocionalService.simular_impacto_promocional(
+            produto=self.prod_canonico,
+            canal_params=canal_meli,
+            config_loja=self.config_a,
+            desconto_total_pct=Decimal('10.00'),
+            subsidio_mkt_pct=Decimal('6.00'),
+            volume_base=500
+        )
+        self.assertEqual(Decimal(str(resultado['desconto_seller_pct'])), Decimal('4.00'))
+        self.assertEqual(Decimal(str(resultado['preco_promocional'])), Decimal('90.00'))
+        self.assertEqual(Decimal(str(resultado['receita_liquida_seller'])), Decimal('96.00'))
+
+    def test_desconto_maximo_suportavel(self):
+        """
+        Valida o cálculo do Desconto Máximo Suportável (D_seller_max) antes de margem negativa.
+        """
+        canal_meli = ParametroCanalMarketplace.objects.get(
+            loja=self.loja_a, marketplace=CanalMarketplaceEnum.MERCADOLIVRE_CLASSICO
+        )
+        prod_lucrativo = Produto.objects.create(
+            loja=self.loja_a, categoria=self.cat_a, sku='SMART-TOP',
+            nome='Smartphone Top', preco=Decimal('200.00'), custo_aquisicao=Decimal('50.00'),
+            custo_embalagem=Decimal('2.00'), modalidade_full=False, estoque=10
+        )
+        d_max = SimuladorPromocionalService.calcular_desconto_maximo_suportavel(
+            prod_lucrativo, canal_meli, self.config_a
+        )
+        self.assertGreater(d_max, Decimal('0.00'))
+        self.assertLess(d_max, Decimal('100.00'))
+
+    def test_modalidade_fulfillment_full(self):
+        """
+        Verifica que na modalidade Full o custo de embalagem próprio é zerado.
+        """
+        prod_full = Produto.objects.create(
+            loja=self.loja_a, categoria=self.cat_a, sku='SKU-FULL',
+            nome='Item no Full', preco=Decimal('120.00'), custo_aquisicao=Decimal('40.00'),
+            custo_embalagem=Decimal('5.00'), modalidade_full=True, estoque=30
+        )
+        custo_direto = SimuladorPromocionalService.calcular_custo_direto_unitario(prod_full, self.config_a)
+        self.assertEqual(custo_direto, Decimal('40.00'))
+
+    def test_multitenant_e_rbac_simulador_view(self):
+        """
+        Valida que DEV, ADMIN e SUPERVISOR têm acesso à view,
+        enquanto cross-tenant é bloqueado e USUARIO recebe 403 Forbidden.
+        """
+        # DEV acessa
+        self.client.login(username='dev_fin', password='password123')
+        res = self.client.get(reverse('simulador_promocional_produto', kwargs={'pk': self.prod_canonico.pk}))
+        self.assertEqual(res.status_code, 200)
+
+        # ADMIN Loja A acessa
+        self.client.login(username='admin_a_fin', password='password123')
+        res = self.client.get(reverse('simulador_promocional_produto', kwargs={'pk': self.prod_canonico.pk}))
+        self.assertEqual(res.status_code, 200)
+
+        # SUPERVISOR Loja A acessa
+        self.client.login(username='sup_a_fin', password='password123')
+        res = self.client.get(reverse('simulador_promocional_produto', kwargs={'pk': self.prod_canonico.pk}))
+        self.assertEqual(res.status_code, 200)
+
+        # Cross-tenant: Admin da Loja B tenta acessar produto da Loja A
+        self.client.login(username='admin_b_fin', password='password123')
+        res = self.client.get(reverse('simulador_promocional_produto', kwargs={'pk': self.prod_canonico.pk}))
+        self.assertEqual(res.status_code, 403)
+
+        # USUARIO padrão é bloqueado (403 Forbidden)
+        self.client.login(username='usr_a_fin', password='password123')
+        res = self.client.get(reverse('simulador_promocional_produto', kwargs={'pk': self.prod_canonico.pk}))
+        self.assertEqual(res.status_code, 403)
+
+    def test_simulador_post_ajax_json_response(self):
+        """
+        Valida que a chamada AJAX POST ao endpoint do simulador retorna o JSON completo de KPIs.
+        """
+        self.client.login(username='admin_a_fin', password='password123')
+        payload = {
+            'produto_id': self.prod_canonico.id,
+            'canal': 'mercadolivre_classico',
+            'desconto_total_pct': '8.00',
+            'subsidio_mkt_pct': '2.00',
+            'volume_base': 800
+        }
+        res = self.client.post(
+            reverse('simulador_promocional_produto', kwargs={'pk': self.prod_canonico.pk}),
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn('preco_promocional', data)
+        self.assertIn('receita_liquida_seller', data)
+        self.assertIn('mc_unit_promo_rs', data)
+        self.assertIn('elasticidade_minima_pct', data)
+        self.assertIn('volume_meta_compensacao', data)
+        self.assertIn('status', data)
+        self.assertIn(data['status'], ['VIAVEL', 'ALERTA_ELASTICIDADE', 'PREJUIZO'])
+
 
 
 

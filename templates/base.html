@@ -207,6 +207,13 @@
                                 </a>
                             </li>
                         {% endif %}
+                        {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'simulador_promocional' %}">
+                                    <i class="bi bi-calculator"></i> Simulador Promoções
+                                </a>
+                            </li>
+                        {% endif %}
                         {% if user.perfil.is_dev or user.is_superuser %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'loja_list' %}">

@@ -4,8 +4,35 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 from .models import (
     Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco,
-    LogSincronizacao, PedidoVenda, ItemPedidoVenda
+    LogSincronizacao, PedidoVenda, ItemPedidoVenda,
+    ConfiguracaoTaxasLoja, ParametroCanalMarketplace
 )
+
+
+class ConfiguracaoTaxasLojaInline(admin.StackedInline):
+    model = ConfiguracaoTaxasLoja
+    can_delete = False
+    extra = 0
+    verbose_name_plural = 'Parâmetros Tributários e Margem de Segurança'
+
+
+class ParametroCanalMarketplaceInline(admin.TabularInline):
+    model = ParametroCanalMarketplace
+    extra = 0
+    verbose_name_plural = 'Tarifas e Comissões por Canal de Marketplace'
+
+
+@admin.register(ConfiguracaoTaxasLoja)
+class ConfiguracaoTaxasLojaAdmin(admin.ModelAdmin):
+    list_display = ('loja', 'aliquota_imposto', 'custo_embalagem_padrao', 'margem_minima_seguranca', 'custos_fixos_mensais', 'atualizado_em')
+    search_fields = ('loja__nome', 'loja__cnpj')
+
+
+@admin.register(ParametroCanalMarketplace)
+class ParametroCanalMarketplaceAdmin(admin.ModelAdmin):
+    list_display = ('marketplace', 'loja', 'comissao_padrao', 'frete_gratis_piso', 'taxa_frete_acima_limite', 'taxa_fixa_abaixo_limite', 'ativo')
+    list_filter = ('marketplace', 'ativo', 'loja')
+    search_fields = ('loja__nome',)
 
 
 class PerfilUsuarioInline(admin.StackedInline):
