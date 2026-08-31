@@ -3,6 +3,8 @@ from django.contrib.auth.models import User
 from django.utils.text import slugify
 from django.core.exceptions import ValidationError
 
+from .enums import PapelUsuarioEnum, EventoAuditoriaEnum
+
 
 ESTADOS_BRASIL = [
     ('AC', 'Acre'), ('AL', 'Alagoas'), ('AP', 'Amapá'), ('AM', 'Amazonas'),
@@ -108,20 +110,8 @@ class Loja(models.Model):
 class PerfilUsuario(models.Model):
     """
     Extensão do modelo User do Django para gerenciar a vinculação de Tenant (Loja)
-    e o papel RBAC do usuário (DEV, ADMIN, SUPERVISOR, USUARIO).
+    e o papel RBAC do usuário (consumindo PapelUsuarioEnum).
     """
-    PAPEL_DEV = 'DEV'
-    PAPEL_ADMIN = 'ADMIN'
-    PAPEL_SUPERVISOR = 'SUPERVISOR'
-    PAPEL_USUARIO = 'USUARIO'
-
-    PAPEIS_CHOICES = [
-        (PAPEL_DEV, 'Desenvolvedor (DEV) — Escopo Global'),
-        (PAPEL_ADMIN, 'Administrador da Loja (ADMIN)'),
-        (PAPEL_SUPERVISOR, 'Supervisor da Loja (SUPERVISOR)'),
-        (PAPEL_USUARIO, 'Usuário Padrão da Loja (USUÁRIO)'),
-    ]
-
     usuario = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='perfil', verbose_name="Usuário"
     )
@@ -130,7 +120,8 @@ class PerfilUsuario(models.Model):
         related_name='usuarios', verbose_name="Loja (Tenant)"
     )
     papel = models.CharField(
-        max_length=20, choices=PAPEIS_CHOICES, default=PAPEL_USUARIO, verbose_name="Papel de Acesso"
+        max_length=20, choices=PapelUsuarioEnum.choices, default=PapelUsuarioEnum.USUARIO,
+        verbose_name="Papel de Acesso"
     )
     criado_em = models.DateTimeField(auto_now_add=True, verbose_name="Criado em")
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name="Atualizado em")
@@ -140,28 +131,69 @@ class PerfilUsuario(models.Model):
         verbose_name_plural = "Perfis de Usuários"
 
     def __str__(self):
-        loja_str = self.loja.nome if self.loja else ("Global" if self.papel == self.PAPEL_DEV else "Sem Loja")
+        loja_str = self.loja.nome if self.loja else ("Global" if self.papel == PapelUsuarioEnum.DEV else "Sem Loja")
         return f"{self.usuario.username} [{self.get_papel_display()}] - {loja_str}"
 
     @property
     def is_dev(self):
-        return self.papel == self.PAPEL_DEV
+        return self.papel == PapelUsuarioEnum.DEV
 
     @property
     def is_admin(self):
-        return self.papel == self.PAPEL_ADMIN
+        return self.papel == PapelUsuarioEnum.ADMIN
 
     @property
     def is_supervisor(self):
-        return self.papel == self.PAPEL_SUPERVISOR
+        return self.papel == PapelUsuarioEnum.SUPERVISOR
 
     @property
     def is_usuario(self):
-        return self.papel == self.PAPEL_USUARIO
+        return self.papel == PapelUsuarioEnum.USUARIO
 
     def clean(self):
         super().clean()
-        if self.papel != self.PAPEL_DEV and not self.loja:
+        if self.papel != PapelUsuarioEnum.DEV and not self.loja:
             # RN-01: Perfis não-DEV devem obrigatoriamente estar vinculados a uma loja
             raise ValidationError({'loja': 'Usuários com papel diferente de DEV devem pertencer a uma Loja.'})
+
+
+class LogAuditoria(models.Model):
+    """
+    Registro histórico de ações críticas e alterações cadastrais/RBAC (RN-04).
+    Garante rastreabilidade total de mutações de usuários e tenants.
+    """
+    loja = models.ForeignKey(
+        Loja, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='logs_auditoria', verbose_name="Loja (Tenant)"
+    )
+    autor = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='logs_realizados', verbose_name="Autor da Ação"
+    )
+    usuario_afetado = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='logs_recebidos', verbose_name="Usuário Afetado"
+    )
+    evento = models.CharField(
+        max_length=30, choices=EventoAuditoriaEnum.choices, verbose_name="Evento"
+    )
+    detalhes = models.TextField(
+        verbose_name="Detalhes da Ação / Histórico de Alterações"
+    )
+    ip_origem = models.CharField(
+        max_length=45, blank=True, null=True, verbose_name="IP de Origem"
+    )
+    criado_em = models.DateTimeField(
+        auto_now_add=True, verbose_name="Data / Hora do Evento"
+    )
+
+    class Meta:
+        verbose_name = "Log de Auditoria"
+        verbose_name_plural = "Logs de Auditoria"
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        autor_str = self.autor.username if self.autor else "Sistema"
+        return f"[{self.get_evento_display()}] por {autor_str} em {self.criado_em.strftime('%d/%m/%Y %H:%M')}"
+
 

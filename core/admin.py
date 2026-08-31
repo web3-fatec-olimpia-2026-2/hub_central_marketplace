@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
-from .models import Loja, PerfilUsuario
+from .models import Loja, PerfilUsuario, LogAuditoria
 
 
 class PerfilUsuarioInline(admin.StackedInline):
@@ -60,7 +60,22 @@ class PerfilUsuarioAdmin(admin.ModelAdmin):
     search_fields = ('usuario__username', 'usuario__email', 'loja__nome')
 
 
+@admin.register(LogAuditoria)
+class LogAuditoriaAdmin(admin.ModelAdmin):
+    list_display = ('evento', 'autor', 'usuario_afetado', 'loja', 'criado_em')
+    list_filter = ('evento', 'loja', 'criado_em')
+    search_fields = ('detalhes', 'autor__username', 'usuario_afetado__username', 'loja__nome')
+    readonly_fields = ('loja', 'autor', 'usuario_afetado', 'evento', 'detalhes', 'ip_origem', 'criado_em')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 # Re-registra o modelo User com o inline de Perfil
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
+
 

@@ -114,12 +114,21 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'home' %}"><i class="bi bi-house-door"></i> Início</a>
                     </li>
-                    {% if user.is_authenticated and user.perfil.is_dev or user.is_superuser %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'loja_list' %}">
-                                <i class="bi bi-buildings"></i> Gestão de Lojas (Tenants)
-                            </a>
-                        </li>
+                    {% if user.is_authenticated %}
+                        {% if user.perfil.is_dev or user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'loja_list' %}">
+                                    <i class="bi bi-buildings"></i> Lojas (Tenants)
+                                </a>
+                            </li>
+                        {% endif %}
+                        {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'usuario_list' %}">
+                                    <i class="bi bi-people"></i> Usuários
+                                </a>
+                            </li>
+                        {% endif %}
                     {% endif %}
                 </ul>
 
