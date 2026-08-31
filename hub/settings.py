@@ -25,10 +25,11 @@ environ.Env.read_env(BASE_DIR / '.env')
 
 # Substitua as linhas originais do Django por estas que lêem o arquivo oculto de forma tipada:
 SECRET_KEY = env('SECRET_KEY')
+# Lê DEBUG do .env (se não encontrar, assume False por segurança)
 DEBUG = env.bool('DEBUG', default=False)
 
-ALLOWED_HOSTS = []
-
+# Lê ALLOWED_HOSTS como lista separada por vírgulas do .env (ex: 127.0.0.1,localhost)
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost', 'testserver'])
 
 # Application definition
 

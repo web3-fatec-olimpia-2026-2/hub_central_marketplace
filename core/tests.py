@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from decimal import Decimal
 import requests
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
 from django.urls import reverse
 from django.core.exceptions import ValidationError
@@ -1413,6 +1413,21 @@ class BroadcastEstoqueViewsTestCase(TestCase):
             follow=True
         )
         self.assertEqual(res.status_code, 200)
+
+
+class ErrorPagesTestCase(TestCase):
+    """
+    Testes de renderização de páginas customizadas de erro (404.html).
+    """
+    @override_settings(DEBUG=False)
+    def test_custom_404_template_renders(self):
+        response = self.client.get('/endereco-inexistente-404-rota-teste/')
+        self.assertEqual(response.status_code, 404)
+        self.assertTemplateUsed(response, '404.html')
+        self.assertContains(response, 'Página não encontrada', status_code=404)
+        self.assertContains(response, '404', status_code=404)
+        self.assertContains(response, 'Voltar ao Início', status_code=404)
+
 
 
 
