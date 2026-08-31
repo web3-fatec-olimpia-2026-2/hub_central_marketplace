@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Hub Marketplaces{% endblock %}
+
+{% block page_title %}
+    <i class="bi bi-speedometer2 text-primary me-2"></i>Painel de Controle
+{% endblock %}
+
+{% block page_subtitle %}
+    Visão geral do Hub Central de Integração de Marketplaces
+{% endblock %}
+
+{% block toolbar_actions %}
+    {% if is_dev %}
+        <a href="{% url 'loja_create' %}" class="btn btn-primary">
+            <i class="bi bi-plus-circle-fill"></i> Nova Loja (Tenant)
+        </a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if is_dev %}
+    <!-- VISÃO EXCLUSIVA DEV -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm bg-primary text-white h-100">
+                <div class="card-body p-4 d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-white-50 small text-uppercase fw-bold">Tenants Cadastrados</div>
+                        <h2 class="display-6 fw-bold mb-0 text-white">{{ total_lojas }}</h2>
+                        <a href="{% url 'loja_list' %}" class="text-white text-decoration-none small mt-2 d-inline-block opacity-75">
+                            Gerenciar Lojas <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                    <i class="bi bi-buildings-fill display-4 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-xl-4">
+            <div class="card border-0 shadow-sm bg-success text-white h-100">
+                <div class="card-body p-4 d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-white-50 small text-uppercase fw-bold">Lojas em Operação</div>
+                        <h2 class="display-6 fw-bold mb-0 text-white">{{ lojas_ativas }}</h2>
+                        <span class="badge bg-white text-success small mt-2">Prontas para sincronização</span>
+                    </div>
+                    <i class="bi bi-check-circle-fill display-4 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-12 col-xl-4">
+            <div class="card border-0 shadow-sm bg-dark text-white h-100">
+                <div class="card-body p-4 d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="text-white-50 small text-uppercase fw-bold">Perfil de Acesso</div>
+                        <h4 class="fw-bold mb-1 text-white">Desenvolvedor (DEV)</h4>
+                        <div class="text-white-50 small">Escopo Global &bull; Multi-Tenant</div>
+                    </div>
+                    <i class="bi bi-code-slash display-4 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ÚLTIMAS LOJAS CADASTRADAS -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+            <span class="fw-bold"><i class="bi bi-clock-history text-primary me-2"></i>Últimas Lojas Provisionadas</span>
+            <a href="{% url 'loja_list' %}" class="btn btn-sm btn-outline-secondary">Ver Todas as Lojas</a>
+        </div>
+        <div class="card-body p-0">
+            {% if ultimas_lojas %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small text-muted text-uppercase">
+                            <tr>
+                                <th class="ps-4">Loja</th>
+                                <th>CNPJ</th>
+                                <th>Cidade/UF</th>
+                                <th>Provisionamento</th>
+                                <th>Status</th>
+                                <th class="text-end pe-4">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for loja in ultimas_lojas %}
+                                <tr>
+                                    <td class="ps-4">
+                                        <div class="fw-bold">{{ loja.nome }}</div>
+                                        <small class="text-muted font-monospace">{{ loja.slug }}</small>
+                                    </td>
+                                    <td><span class="font-monospace text-secondary">{{ loja.cnpj }}</span></td>
+                                    <td>{{ loja.cidade|default:"—" }}{% if loja.estado %}/{{ loja.estado }}{% endif %}</td>
+                                    <td>{{ loja.criado_em|date:"d/m/Y H:i" }}</td>
+                                    <td>
+                                        {% if loja.ativo %}
+                                            <span class="badge bg-success">Ativa</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Inativa</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end pe-4">
+                                        <a href="{% url 'loja_detail' loja.slug %}" class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-eye"></i> Detalhes
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-4 text-muted">
+                    <i class="bi bi-buildings fs-1 text-secondary"></i>
+                    <p class="mt-2 mb-3">Nenhuma loja provisionada até o momento.</p>
+                    <a href="{% url 'loja_create' %}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-plus-circle"></i> Cadastrar Primeira Loja
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+{% else %}
+    <!-- VISÃO LOJA / TENANT -->
+    <div class="row g-4">
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-body p-4">
+                    <h4 class="fw-bold text-dark">
+                        <i class="bi bi-shop text-primary me-2"></i>{{ minha_loja.nome|default:"Loja Vinculada" }}
+                    </h4>
+                    <p class="text-muted mb-4">
+                        Você está autenticado no ambiente isolado da sua loja com o papel
+                        <strong>{{ perfil.get_papel_display }}</strong>.
+                    </p>
+
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <div class="card border bg-light h-100 p-3">
+                                <div class="text-muted small">CNPJ da Empresa</div>
+                                <div class="fw-bold font-monospace">{{ minha_loja.cnpj|default:"—" }}</div>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="card border bg-light h-100 p-3">
+                                <div class="text-muted small">Status Operacional</div>
+                                <div>
+                                    {% if minha_loja.ativo %}
+                                        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Ativa</span>
+                                    {% else %}
+                                        <span class="badge bg-danger"><i class="bi bi-exclamation-circle me-1"></i>Bloqueada</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header bg-light py-3">
+                    <span class="fw-bold"><i class="bi bi-lightning-charge text-primary me-2"></i>Módulos Disponíveis</span>
+                </div>
+                <div class="list-group list-group-flush">
+                    <div class="list-group-item d-flex justify-content-between align-items-center text-muted">
+                        <span><i class="bi bi-box-seam me-2"></i>Catálogo &amp; Produtos</span>
+                        <span class="badge bg-secondary">Em breve</span>
+                    </div>
+                    <div class="list-group-item d-flex justify-content-between align-items-center text-muted">
+                        <span><i class="bi bi-tag me-2"></i>Atualização de Preços</span>
+                        <span class="badge bg-secondary">Em breve</span>
+                    </div>
+                    <div class="list-group-item d-flex justify-content-between align-items-center text-muted">
+                        <span><i class="bi bi-arrow-repeat me-2"></i>Sincronização Mercado Livre</span>
+                        <span class="badge bg-secondary">Em breve</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
