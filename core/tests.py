@@ -1,3 +1,4 @@
+# Os códigos foram gerados com auxilio de I.A.
 import unittest
 from unittest.mock import patch, MagicMock
 from decimal import Decimal

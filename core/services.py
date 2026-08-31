@@ -1,3 +1,4 @@
+# Os códigos foram gerados com auxilio de I.A.
 import abc
 import time
 import requests

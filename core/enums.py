@@ -1,3 +1,4 @@
+# Os códigos foram gerados com auxilio de I.A.
 from django.db import models
 
 

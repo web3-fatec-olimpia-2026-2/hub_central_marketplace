@@ -1,3 +1,4 @@
+# Os códigos foram gerados com auxilio de I.A.
 import json
 from decimal import Decimal
 from django.shortcuts import render, redirect, get_object_or_404

@@ -1,3 +1,4 @@
+# Os códigos foram gerados com auxilio de I.A.
 from functools import wraps
 from django.contrib.auth.mixins import AccessMixin
 from django.core.exceptions import PermissionDenied
