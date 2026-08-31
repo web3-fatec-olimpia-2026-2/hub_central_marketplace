@@ -1,10 +1,14 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
-from .models import Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco, LogSincronizacao
+from .models import (
+    Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco,
+    LogSincronizacao, PedidoVenda, ItemPedidoVenda
+)
 
 
 class PerfilUsuarioInline(admin.StackedInline):
+
 
     model = PerfilUsuario
     can_delete = False
@@ -122,9 +126,42 @@ class LogSincronizacaoAdmin(admin.ModelAdmin):
         return False
 
 
+class ItemPedidoVendaInline(admin.TabularInline):
+    model = ItemPedidoVenda
+    extra = 0
+    readonly_fields = (
+        'produto', 'item_id_externo', 'sku_informado', 'titulo_anuncio',
+        'quantidade', 'preco_unitario', 'estoque_baixado',
+        'estoque_anterior', 'estoque_posterior', 'ruptura_estoque'
+    )
+    can_delete = False
+
+
+@admin.register(PedidoVenda)
+class PedidoVendaAdmin(admin.ModelAdmin):
+    list_display = (
+        'pedido_id_externo', 'marketplace', 'loja', 'comprador_nome',
+        'valor_total', 'status', 'teve_ruptura_estoque', 'processado_com_sucesso', 'criado_em'
+    )
+    list_filter = ('marketplace', 'status', 'teve_ruptura_estoque', 'processado_com_sucesso', 'loja', 'criado_em')
+    search_fields = ('pedido_id_externo', 'comprador_nome', 'comprador_documento', 'loja__nome')
+    readonly_fields = (
+        'loja', 'marketplace', 'pedido_id_externo', 'status_externo',
+        'status', 'comprador_nome', 'comprador_documento', 'valor_total',
+        'valor_frete', 'data_criacao_externa', 'processado_com_sucesso',
+        'teve_ruptura_estoque', 'observacoes', 'payload_original',
+        'criado_em', 'atualizado_em'
+    )
+    inlines = [ItemPedidoVendaInline]
+
+    def has_add_permission(self, request):
+        return False
+
+
 # Re-registra o modelo User com o inline de Perfil
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
+
 
 
 

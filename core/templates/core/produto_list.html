@@ -156,8 +156,12 @@
                                 <td class="text-center">
                                     {% if prod.estoque > 0 %}
                                         <span class="badge bg-success px-2 py-1 fs-6">{{ prod.estoque }} un.</span>
+                                    {% elif prod.estoque == 0 %}
+                                        <span class="badge bg-warning text-dark px-2 py-1 fs-6">0 un. (Zerado)</span>
                                     {% else %}
-                                        <span class="badge bg-danger px-2 py-1 fs-6">Esgotado</span>
+                                        <span class="badge bg-danger px-2 py-1 fs-6" title="Estoque em ruptura após vendas externas!">
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ prod.estoque }} un. (Ruptura)
+                                        </span>
                                     {% endif %}
                                 </td>
                                 <td>

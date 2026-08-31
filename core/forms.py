@@ -543,6 +543,12 @@ class ProdutoForm(forms.ModelForm):
             raise ValidationError("O código SKU é obrigatório.")
         return sku
 
+    def clean_estoque(self):
+        estoque = self.cleaned_data.get('estoque')
+        if estoque is not None and estoque < 0:
+            raise ValidationError("O saldo de estoque não pode ser negativo no cadastro manual (RN-06).")
+        return estoque
+
     def clean(self):
         cleaned_data = super().clean()
         

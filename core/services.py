@@ -5,9 +5,11 @@ from typing import Tuple, Dict, Any, List, Optional
 from django.db import transaction
 from django.db.models import QuerySet
 
-from .models import Loja, Produto, LogSincronizacao, LogAuditoria
+from .models import (
+    Loja, Produto, LogSincronizacao, LogAuditoria, PedidoVenda, ItemPedidoVenda
+)
 from .enums import (
-    MarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum
+    MarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum, StatusPedidoEnum
 )
 
 
@@ -401,3 +403,350 @@ class MercadoLivreService:
         except Exception as exc:
             msg_exc = f"Erro ao testar conexão: {str(exc)}"
             return False, msg_exc, {}
+
+    @classmethod
+    def sincronizar_estoque_produto(
+        cls, produto: Produto, usuario=None, tentar_refresh_401: bool = True
+    ) -> Tuple[bool, str, Optional[LogSincronizacao]]:
+        """
+        Sincroniza a quantidade de estoque disponível do produto com o Mercado Livre.
+        Aplica CLAMPING OBRIGATÓRIO: max(0, produto.estoque) para que o marketplace
+        nunca receba valor menor que zero (evita erro 400 Bad Request da API externa).
+        """
+        loja = produto.loja
+
+        if not produto.meli_item_id:
+            return False, f"O produto '{produto.sku}' não possui identificador de anúncio no Mercado Livre.", None
+
+        if not loja.meli_access_token:
+            msg_sem_token = f"A loja '{loja.nome}' não possui Access Token do Mercado Livre configurado."
+            log = LogSincronizacao.objects.create(
+                loja=loja,
+                produto=produto,
+                marketplace=MarketplaceEnum.MERCADO_LIVRE,
+                evento=EventoAuditoriaEnum.AJUSTE_ESTOQUE,
+                item_id_externo=produto.meli_item_id,
+                payload_enviado={'available_quantity': max(0, produto.estoque)},
+                resposta_recebida={'erro': 'Sem credenciais configuradas'},
+                status_http=None,
+                sucesso=False,
+                mensagem_erro=msg_sem_token,
+            )
+            return False, msg_sem_token, log
+
+        # Clamping mandatário: NUNCA envia valor negativo para a API externa
+        quantidade_envio = max(0, produto.estoque)
+        url = f"{cls.BASE_URL}/items/{produto.meli_item_id.strip()}"
+        headers = {
+            "Authorization": f"Bearer {loja.meli_access_token.strip()}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        payload = {
+            "available_quantity": quantidade_envio
+        }
+
+        inicio = time.time()
+        try:
+            response = requests.put(url, json=payload, headers=headers, timeout=cls.TIMEOUT_SEGUNDOS)
+            tempo_ms = int((time.time() - inicio) * 1000)
+            status_code = response.status_code
+
+            try:
+                res_json = response.json()
+            except Exception:
+                res_json = {"raw_text": response.text}
+
+            if status_code == 401 and tentar_refresh_401 and loja.meli_refresh_token:
+                refresh_ok, _ = cls.renovar_token_loja(loja, usuario=usuario)
+                if refresh_ok:
+                    loja.refresh_from_db()
+                    return cls.sincronizar_estoque_produto(produto, usuario=usuario, tentar_refresh_401=False)
+
+            if status_code in (200, 201):
+                log = LogSincronizacao.objects.create(
+                    loja=loja,
+                    produto=produto,
+                    marketplace=MarketplaceEnum.MERCADO_LIVRE,
+                    evento=EventoAuditoriaEnum.AJUSTE_ESTOQUE,
+                    item_id_externo=produto.meli_item_id,
+                    payload_enviado=payload,
+                    resposta_recebida=res_json,
+                    status_http=status_code,
+                    sucesso=True,
+                    tempo_resposta_ms=tempo_ms,
+                )
+                return True, f"Estoque sincronizado no Mercado Livre: {quantidade_envio} un.", log
+            else:
+                msg_erro = res_json.get('message') or f"Status HTTP {status_code}"
+                log = LogSincronizacao.objects.create(
+                    loja=loja,
+                    produto=produto,
+                    marketplace=MarketplaceEnum.MERCADO_LIVRE,
+                    evento=EventoAuditoriaEnum.AJUSTE_ESTOQUE,
+                    item_id_externo=produto.meli_item_id,
+                    payload_enviado=payload,
+                    resposta_recebida=res_json,
+                    status_http=status_code,
+                    sucesso=False,
+                    mensagem_erro=msg_erro,
+                    tempo_resposta_ms=tempo_ms,
+                )
+                return False, f"Mercado Livre rejeitou a sincronização de estoque: {msg_erro}", log
+
+        except Exception as exc:
+            tempo_ms = int((time.time() - inicio) * 1000)
+            log = LogSincronizacao.objects.create(
+                loja=loja,
+                produto=produto,
+                marketplace=MarketplaceEnum.MERCADO_LIVRE,
+                evento=EventoAuditoriaEnum.AJUSTE_ESTOQUE,
+                item_id_externo=produto.meli_item_id,
+                payload_enviado=payload,
+                resposta_recebida={'erro': str(exc)},
+                status_http=None,
+                sucesso=False,
+                mensagem_erro=str(exc),
+                tempo_resposta_ms=tempo_ms,
+            )
+            return False, f"Falha de comunicação ao sincronizar estoque: {str(exc)}", log
+
+    @classmethod
+    def consultar_pedido(
+        cls, loja: Loja, order_id: str, usuario=None, tentar_refresh_401: bool = True
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        """
+        Consulta os dados detalhados de um pedido no Mercado Livre via GET /orders/{order_id}.
+        """
+        if not loja.meli_access_token:
+            return False, {}, "Loja não possui Access Token configurado."
+
+        url = f"{cls.BASE_URL}/orders/{order_id.strip()}"
+        headers = {
+            "Authorization": f"Bearer {loja.meli_access_token.strip()}",
+            "Accept": "application/json",
+        }
+
+        try:
+            response = requests.get(url, headers=headers, timeout=cls.TIMEOUT_SEGUNDOS)
+            status_code = response.status_code
+
+            try:
+                res_json = response.json()
+            except Exception:
+                res_json = {"raw_text": response.text}
+
+            if status_code == 401 and tentar_refresh_401 and loja.meli_refresh_token:
+                refresh_ok, _ = cls.renovar_token_loja(loja, usuario=usuario)
+                if refresh_ok:
+                    loja.refresh_from_db()
+                    return cls.consultar_pedido(loja, order_id, usuario=usuario, tentar_refresh_401=False)
+
+            if status_code in (200, 201):
+                return True, res_json, ""
+            else:
+                msg_erro = res_json.get('message') or f"Status HTTP {status_code}"
+                return False, res_json, msg_erro
+
+        except Exception as exc:
+            return False, {}, f"Falha de rede ao consultar pedido: {str(exc)}"
+
+    @classmethod
+    def processar_webhook_venda(
+        cls, payload: Dict[str, Any], loja_especifica: Optional[Loja] = None, usuario=None
+    ) -> Tuple[bool, str, Optional[PedidoVenda]]:
+        """
+        Processa notificação de webhook de venda do Mercado Livre com:
+        - Identificação multi-tenant da Loja;
+        - Garantia estrita de Idempotência;
+        - Lock pessimista concorrente com select_for_update() (RN-05);
+        - Admissão de saldo negativo real com flag/auditoria de ruptura;
+        - Rastreabilidade integral em PedidoVenda, ItemPedidoVenda, LogAuditoria e LogSincronizacao.
+        """
+        # 1. Extração do Resource e Order ID
+        resource = payload.get('resource', '')
+        topic = payload.get('topic', '')
+        application_id = payload.get('application_id') or payload.get('client_id')
+        user_id_externo = payload.get('user_id')
+
+        # Resource esperado: "/orders/2000001234567890" ou "2000001234567890"
+        order_id = ""
+        if "/orders/" in str(resource):
+            order_id = str(resource).split("/orders/")[-1].split("?")[0].strip()
+        elif topic in ['orders_v2', 'orders', 'created', 'paid'] and str(resource).isdigit():
+            order_id = str(resource).strip()
+        elif payload.get('order_id'):
+            order_id = str(payload['order_id']).strip()
+        elif payload.get('id') and (topic in ['orders_v2', 'orders'] or 'order' in str(payload.get('id'))):
+            order_id = str(payload['id']).strip()
+
+        if not order_id:
+            # Notificação que não é de pedido (ex: ping/shipment não tratado neste fluxo)
+            return True, f"Notificação recebida para o tópico '{topic}', sem pedido associado para baixa de estoque.", None
+
+        # 2. Identificação da Loja (Tenant)
+        loja = loja_especifica
+        if not loja and application_id:
+            loja = Loja.objects.filter(meli_client_id=str(application_id), ativo=True).first()
+
+        if not loja:
+            # Tenta encontrar a loja candidata ativa com token configurado
+            lojas_candidatas = Loja.objects.filter(ativo=True).exclude(meli_access_token='').exclude(meli_access_token__isnull=True)
+            if lojas_candidatas.count() == 1:
+                loja = lojas_candidatas.first()
+            elif lojas_candidatas.count() > 1:
+                # Itera testando qual loja tem acesso a este pedido
+                for cand in lojas_candidatas:
+                    ok_cand, dados_cand, _ = cls.consultar_pedido(cand, order_id)
+                    if ok_cand:
+                        loja = cand
+                        break
+
+        if not loja:
+            msg_loja = f"Não foi possível identificar a loja proprietária do pedido #{order_id} (App ID: {application_id})."
+            return False, msg_loja, None
+
+        # 3. GARANTIA ESTRITA DE IDEMPOTÊNCIA
+        pedido_existente = PedidoVenda.objects.filter(
+            loja=loja,
+            marketplace=MarketplaceEnum.MERCADO_LIVRE,
+            pedido_id_externo=order_id,
+            processado_com_sucesso=True
+        ).first()
+
+        if pedido_existente:
+            msg_idempotente = f"Pedido #{order_id} já foi processado anteriormente com sucesso (Idempotência garantida)."
+            return True, msg_idempotente, pedido_existente
+
+        # 4. Consulta aos dados completos do pedido no Mercado Livre
+        sucesso_api, dados_pedido, erro_api = cls.consultar_pedido(loja, order_id, usuario=usuario)
+        if not sucesso_api:
+            # Se não conseguiu consultar dados do pedido
+            LogSincronizacao.objects.create(
+                loja=loja,
+                marketplace=MarketplaceEnum.MERCADO_LIVRE,
+                evento=EventoAuditoriaEnum.WEBHOOK_VENDA_MELI,
+                item_id_externo=order_id,
+                payload_enviado=payload,
+                resposta_recebida=dados_pedido,
+                status_http=None,
+                sucesso=False,
+                mensagem_erro=f"Falha ao consultar pedido #{order_id} na API: {erro_api}",
+            )
+            return False, f"Erro ao consultar pedido #{order_id}: {erro_api}", None
+
+        # 5. Processamento Atômico e Concorrente com select_for_update() (RN-05)
+        with transaction.atomic():
+            pedido, criado = PedidoVenda.objects.get_or_create(
+                loja=loja,
+                marketplace=MarketplaceEnum.MERCADO_LIVRE,
+                pedido_id_externo=order_id,
+                defaults={
+                    'status_externo': dados_pedido.get('status', 'paid'),
+                    'status': StatusPedidoEnum.PAGO if dados_pedido.get('status') in ['paid', 'confirmed'] else StatusPedidoEnum.CRIADO,
+                    'comprador_nome': dados_pedido.get('buyer', {}).get('nickname') or dados_pedido.get('buyer', {}).get('first_name', ''),
+                    'comprador_documento': dados_pedido.get('buyer', {}).get('billing_info', {}).get('doc_number', ''),
+                    'valor_total': Decimal(str(dados_pedido.get('total_amount', dados_pedido.get('paid_amount', '0.00')))),
+                    'valor_frete': Decimal(str(dados_pedido.get('shipping_cost', '0.00'))),
+                    'data_criacao_externa': dados_pedido.get('date_created'),
+                    'payload_original': dados_pedido,
+                }
+            )
+
+            order_items = dados_pedido.get('order_items', [])
+            teve_ruptura_geral = False
+            itens_processados = []
+
+            for item_data in order_items:
+                item_obj = item_data.get('item', {})
+                item_id = item_obj.get('id', '')
+                sku_informado = item_obj.get('seller_sku') or item_obj.get('seller_custom_field') or ''
+                titulo = item_obj.get('title', 'Item Sem Título')
+                qtd_vendida = int(item_data.get('quantity', 1))
+                unit_price = Decimal(str(item_data.get('unit_price', '0.00')))
+
+                # Localiza o produto no catálogo da loja por meli_item_id ou por SKU
+                produto = None
+                if item_id:
+                    produto = Produto.objects.filter(loja=loja, meli_item_id=item_id).first()
+                if not produto and sku_informado:
+                    produto = Produto.objects.filter(loja=loja, sku=sku_informado.strip().upper()).first()
+
+                estoque_antigo = None
+                estoque_novo = None
+                ruptura = False
+                estoque_baixado = False
+
+                if produto:
+                    # LOCK PESSIMISTA CONCORRENTE (RN-05)
+                    prod_locked = Produto.objects.select_for_update().get(pk=produto.pk)
+                    estoque_antigo = prod_locked.estoque
+                    estoque_novo = estoque_antigo - qtd_vendida
+                    prod_locked.estoque = estoque_novo
+                    prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+                    estoque_baixado = True
+
+                    if estoque_novo < 0:
+                        ruptura = True
+                        teve_ruptura_geral = True
+                        LogAuditoria.objects.create(
+                            loja=loja,
+                            autor=usuario,
+                            evento=EventoAuditoriaEnum.ALERTA_ESTOQUE_NEGATIVO_VENDA,
+                            detalhes=(
+                                f"ALERTA DE RUPTURA: Venda de {qtd_vendida} un. do produto '{prod_locked.sku}' no pedido #{order_id}. "
+                                f"Saldo anterior: {estoque_antigo} -> Saldo atual NEGATIVO: {estoque_novo} un. Necessária reposição física!"
+                            )
+                        )
+
+                    LogAuditoria.objects.create(
+                        loja=loja,
+                        autor=usuario,
+                        evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
+                        detalhes=(
+                            f"Baixa automática de estoque por venda externa (Pedido #{order_id}): "
+                            f"{qtd_vendida} un. do produto '{prod_locked.sku}' "
+                            f"(Saldo anterior: {estoque_antigo} -> Novo saldo: {estoque_novo})."
+                        )
+                    )
+
+                # Cria o registro do item do pedido
+                item_venda, _ = ItemPedidoVenda.objects.update_or_create(
+                    pedido=pedido,
+                    item_id_externo=item_id,
+                    defaults={
+                        'produto': produto,
+                        'sku_informado': sku_informado,
+                        'titulo_anuncio': titulo,
+                        'quantidade': qtd_vendida,
+                        'preco_unitario': unit_price,
+                        'estoque_baixado': estoque_baixado,
+                        'estoque_anterior': estoque_antigo,
+                        'estoque_posterior': estoque_novo,
+                        'ruptura_estoque': ruptura,
+                    }
+                )
+                itens_processados.append(item_venda)
+
+            pedido.processado_com_sucesso = True
+            pedido.teve_ruptura_estoque = teve_ruptura_geral
+            pedido.save(update_fields=['processado_com_sucesso', 'teve_ruptura_estoque', 'atualizado_em'])
+
+            # Log de Telemetria de Sincronização
+            LogSincronizacao.objects.create(
+                loja=loja,
+                marketplace=MarketplaceEnum.MERCADO_LIVRE,
+                evento=EventoAuditoriaEnum.WEBHOOK_VENDA_MELI,
+                item_id_externo=order_id,
+                payload_enviado=payload,
+                resposta_recebida={"order_id": order_id, "status": pedido.status, "itens_count": len(itens_processados), "ruptura": teve_ruptura_geral},
+                status_http=200,
+                sucesso=True,
+            )
+
+        msg_final = f"Pedido #{order_id} processado com sucesso! {len(itens_processados)} item(ns) baixado(s)."
+        if teve_ruptura_geral:
+            msg_final += " ALERTA: Um ou mais itens entraram em ruptura de estoque (saldo negativo)."
+
+        return True, msg_final, pedido
+

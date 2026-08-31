@@ -41,7 +41,16 @@ urlpatterns = [
 
     # Logs de Integração e Auditoria de Sincronização (RF-05 / RN-04)
     path('logs/sincronizacao/', views.LogSincronizacaoListView.as_view(), name='log_sincronizacao_list'),
+
+    # Webhook de Vendas do Mercado Livre e Baixa Automática de Estoque (RF-06 / RF-07)
+    path('webhook/mercadolivre/', views.MercadoLivreWebhookView.as_view(), name='webhook_mercadolivre'),
+    path('webhook/mercadolivre/<slug:slug>/', views.MercadoLivreWebhookView.as_view(), name='webhook_mercadolivre_loja'),
+
+    # Gestão de Pedidos de Venda
+    path('pedidos/', views.PedidoVendaListView.as_view(), name='pedido_list'),
+    path('pedidos/<int:pk>/', views.PedidoVendaDetailView.as_view(), name='pedido_detail'),
 ]
+
 
 
 

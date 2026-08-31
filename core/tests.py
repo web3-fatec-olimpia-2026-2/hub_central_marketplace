@@ -9,11 +9,12 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from .models import (
-    Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco, LogSincronizacao
+    Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco,
+    LogSincronizacao, PedidoVenda, ItemPedidoVenda
 )
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
-    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum, StatusPedidoEnum
 )
 from .forms import (
     LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
@@ -274,6 +275,9 @@ class CatalogoModelTestCase(TestCase):
         self.cat_a = Categoria.objects.create(loja=self.loja_a, nome='Eletrônicos')
         self.cat_b = Categoria.objects.create(loja=self.loja_b, nome='Eletrônicos')
 
+        self.dev_user = User.objects.create_user(username='dev_catalog_test', password='password123')
+        PerfilUsuario.objects.create(usuario=self.dev_user, papel=PapelUsuarioEnum.DEV)
+
     def test_rn_02_unicidade_sku_por_loja_permite_mesmo_sku_em_lojas_diferentes(self):
         prod_a = Produto.objects.create(
             loja=self.loja_a, categoria=self.cat_a, sku='FONE-BT-01',
@@ -306,13 +310,32 @@ class CatalogoModelTestCase(TestCase):
         with self.assertRaises(ValidationError):
             prod.clean()
 
-    def test_rn_06_estoque_negativo_bloqueado(self):
-        prod = Produto(
-            loja=self.loja_a, categoria=self.cat_a, sku='TECL-02',
-            nome='Teclado Mecânico', preco=Decimal('199.90'), estoque=-1
+    def test_rn_06_estoque_negativo_bloqueado_em_formulario_manual(self):
+        # Formulário manual bloqueia estoque negativo
+        form = ProdutoForm(
+            data={
+                'loja': self.loja_a.id,
+                'categoria': self.cat_a.id,
+                'sku': 'TECL-02',
+                'nome': 'Teclado Mecânico',
+                'preco': '199.90',
+                'estoque': '-1',
+                'status': 'ATIVO'
+            },
+            autor=self.dev_user
         )
-        with self.assertRaises(ValidationError):
-            prod.clean()
+        self.assertFalse(form.is_valid())
+        self.assertIn('estoque', form.errors)
+
+    def test_modelo_produto_admite_estoque_negativo_para_vendas_externas(self):
+        # Modelo interno admite estoque negativo gerado por webhooks assíncronos
+        prod = Produto(
+            loja=self.loja_a, categoria=self.cat_a, sku='TECL-03',
+            nome='Teclado Sem Fio', preco=Decimal('199.90'), estoque=-3
+        )
+        prod.clean()
+        prod.save()
+        self.assertEqual(prod.estoque, -3)
 
     def test_categoria_deve_pertencer_a_mesma_loja(self):
         prod_incompativel = Produto(
@@ -928,6 +951,274 @@ class MercadoLivreViewsAndRBACTestCase(TestCase):
         res_dev = self.client.get(reverse('log_sincronizacao_list'))
         self.assertEqual(res_dev.status_code, 200)
         self.assertEqual(len(res_dev.context['logs']), 2)
+
+
+class MercadoLivreWebhookServiceTestCase(TestCase):
+    """
+    Testes unitários e de integração para o serviço de Webhook e Baixa de Estoque (RF-06 / RF-07).
+    """
+    def setUp(self):
+        self.loja = Loja.objects.create(
+            nome='Loja Webhook Test',
+            cnpj='11.222.333/0001-44',
+            meli_client_id='123456789',
+            meli_client_secret='secret123',
+            meli_access_token='APP_USR-test-token',
+            meli_refresh_token='TG-refresh-token',
+            ativo=True
+        )
+        self.categoria = Categoria.objects.create(
+            loja=self.loja,
+            nome='Gamer',
+            slug='gamer'
+        )
+        self.produto_1 = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            nome='Teclado Mecânico RGB',
+            sku='TEC-MEC-RGB',
+            preco=Decimal('250.00'),
+            estoque=10,
+            meli_item_id='MLB1000000001',
+            status_sincronizacao=StatusSincronizacaoEnum.SINCRONIZADO
+        )
+        self.produto_2 = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            nome='Mouse Óptico Pro',
+            sku='MOU-OPT-PRO',
+            preco=Decimal('120.00'),
+            estoque=2,
+            meli_item_id='MLB1000000002',
+            status_sincronizacao=StatusSincronizacaoEnum.SINCRONIZADO
+        )
+
+    @patch('core.services.MercadoLivreService.consultar_pedido')
+    def test_baixa_estoque_venda_normal(self, mock_consultar):
+        mock_consultar.return_value = (True, {
+            'id': 200000111,
+            'status': 'paid',
+            'buyer': {'nickname': 'COMPRADOR_TESTE', 'billing_info': {'doc_number': '12345678900'}},
+            'total_amount': 500.00,
+            'shipping_cost': 0.00,
+            'date_created': '2026-08-31T00:00:00.000-04:00',
+            'order_items': [
+                {
+                    'item': {'id': 'MLB1000000001', 'seller_sku': 'TEC-MEC-RGB', 'title': 'Teclado Mecânico RGB'},
+                    'quantity': 2,
+                    'unit_price': 250.00
+                }
+            ]
+        }, "")
+
+        payload = {
+            'resource': '/orders/200000111',
+            'topic': 'orders_v2',
+            'application_id': '123456789'
+        }
+
+        sucesso, msg, pedido = MercadoLivreService.processar_webhook_venda(payload)
+        self.assertTrue(sucesso)
+        self.assertIsNotNone(pedido)
+        self.assertEqual(pedido.pedido_id_externo, '200000111')
+        self.assertFalse(pedido.teve_ruptura_estoque)
+        self.assertTrue(pedido.processado_com_sucesso)
+
+        # Verifica estoque baixado de 10 para 8
+        self.produto_1.refresh_from_db()
+        self.assertEqual(self.produto_1.estoque, 8)
+
+        # Verifica ItemPedidoVenda
+        item = pedido.itens.first()
+        self.assertEqual(item.quantidade, 2)
+        self.assertEqual(item.estoque_anterior, 10)
+        self.assertEqual(item.estoque_posterior, 8)
+        self.assertFalse(item.ruptura_estoque)
+
+    @patch('core.services.MercadoLivreService.consultar_pedido')
+    def test_baixa_estoque_venda_com_ruptura_estoque_negativo(self, mock_consultar):
+        # Produto 2 tem estoque = 2, venda solicita 5 unidades -> saldo deve ficar -3
+        mock_consultar.return_value = (True, {
+            'id': 200000222,
+            'status': 'paid',
+            'buyer': {'nickname': 'COMPRADOR_RUPTURA'},
+            'total_amount': 600.00,
+            'order_items': [
+                {
+                    'item': {'id': 'MLB1000000002', 'seller_sku': 'MOU-OPT-PRO', 'title': 'Mouse Óptico Pro'},
+                    'quantity': 5,
+                    'unit_price': 120.00
+                }
+            ]
+        }, "")
+
+        payload = {
+            'resource': '/orders/200000222',
+            'topic': 'orders_v2',
+            'application_id': '123456789'
+        }
+
+        sucesso, msg, pedido = MercadoLivreService.processar_webhook_venda(payload)
+        self.assertTrue(sucesso)
+        self.assertTrue(pedido.teve_ruptura_estoque)
+
+        # Saldo físico fiel: 2 - 5 = -3
+        self.produto_2.refresh_from_db()
+        self.assertEqual(self.produto_2.estoque, -3)
+
+        item = pedido.itens.first()
+        self.assertEqual(item.estoque_anterior, 2)
+        self.assertEqual(item.estoque_posterior, -3)
+        self.assertTrue(item.ruptura_estoque)
+
+        # Auditoria de alerta de ruptura gerada
+        alerta = LogAuditoria.objects.filter(
+            loja=self.loja, evento=EventoAuditoriaEnum.ALERTA_ESTOQUE_NEGATIVO_VENDA
+        ).first()
+        self.assertIsNotNone(alerta)
+        self.assertIn('ALERTA DE RUPTURA', alerta.detalhes)
+        self.assertIn('-3 un', alerta.detalhes)
+
+    @patch('requests.put')
+    def test_sincronizacao_estoque_com_clamping_max_0_ao_marketplace(self, mock_put):
+        mock_res = MagicMock()
+        mock_res.status_code = 200
+        mock_res.json.return_value = {'id': 'MLB1000000002', 'available_quantity': 0}
+        mock_put.return_value = mock_res
+
+        # Produto com saldo negativo (-3)
+        self.produto_2.estoque = -3
+        self.produto_2.save(update_fields=['estoque'])
+
+        sucesso, msg, log = MercadoLivreService.sincronizar_estoque_produto(self.produto_2)
+        self.assertTrue(sucesso)
+
+        # O payload enviado ao Mercado Livre DEVE SER clampado em 0 e nunca menor que 0!
+        mock_put.assert_called_once()
+        args, kwargs = mock_put.call_args
+        payload_enviado = kwargs.get('json', {})
+        self.assertEqual(payload_enviado.get('available_quantity'), 0)
+
+    @patch('core.services.MercadoLivreService.consultar_pedido')
+    def test_idempotencia_webhook_venda_duplicada(self, mock_consultar):
+        mock_consultar.return_value = (True, {
+            'id': 200000333,
+            'status': 'paid',
+            'buyer': {'nickname': 'COMPRADOR_IDEMPOTENTE'},
+            'total_amount': 250.00,
+            'order_items': [
+                {
+                    'item': {'id': 'MLB1000000001', 'seller_sku': 'TEC-MEC-RGB', 'title': 'Teclado Mecânico RGB'},
+                    'quantity': 2,
+                    'unit_price': 250.00
+                }
+            ]
+        }, "")
+
+        payload = {'resource': '/orders/200000333', 'topic': 'orders_v2', 'application_id': '123456789'}
+
+        # 1º processamento
+        sucesso_1, _, _ = MercadoLivreService.processar_webhook_venda(payload)
+        self.assertTrue(sucesso_1)
+        self.produto_1.refresh_from_db()
+        self.assertEqual(self.produto_1.estoque, 8)  # 10 - 2 = 8
+
+        # 2º processamento do mesmo webhook / order_id
+        sucesso_2, msg_2, _ = MercadoLivreService.processar_webhook_venda(payload)
+        self.assertTrue(sucesso_2)
+        self.assertIn('Idempotência garantida', msg_2)
+
+        # O estoque NÃO pode ser decrementado novamente (deve permanecer 8)
+        self.produto_1.refresh_from_db()
+        self.assertEqual(self.produto_1.estoque, 8)
+        self.assertEqual(PedidoVenda.objects.filter(pedido_id_externo='200000333').count(), 1)
+
+
+class MercadoLivreWebhookViewTestCase(TestCase):
+    """
+    Testes de integração HTTP do endpoint público /webhook/mercadolivre/.
+    """
+    def setUp(self):
+        self.client = Client()
+        self.loja = Loja.objects.create(
+            nome='Loja Webhook HTTP',
+            cnpj='55.666.777/0001-88',
+            slug='loja-webhook-http',
+            meli_client_id='987654321',
+            meli_access_token='APP_USR-token-http',
+            ativo=True
+        )
+
+    def test_webhook_endpoint_get_healthcheck(self):
+        res = self.client.get(reverse('webhook_mercadolivre'))
+        self.assertEqual(res.status_code, 200)
+        dados = res.json()
+        self.assertEqual(dados.get('status'), 'active')
+
+    @patch('core.services.MercadoLivreService.processar_webhook_venda')
+    def test_webhook_endpoint_post_sucesso(self, mock_processar):
+        mock_pedido = MagicMock()
+        mock_pedido.pedido_id_externo = '200000555'
+        mock_pedido.teve_ruptura_estoque = False
+        mock_processar.return_value = (True, "Pedido processado com sucesso!", mock_pedido)
+
+        payload = {'resource': '/orders/200000555', 'topic': 'orders_v2', 'application_id': '987654321'}
+        res = self.client.post(
+            reverse('webhook_mercadolivre'),
+            data=payload,
+            content_type='application/json'
+        )
+        self.assertEqual(res.status_code, 200)
+        dados = res.json()
+        self.assertEqual(dados.get('status'), 'success')
+        self.assertEqual(dados.get('pedido_id'), '200000555')
+
+
+class PedidoVendaViewsTestCase(TestCase):
+    """
+    Testes de RBAC e isolamento multi-tenant para as views de Pedido de Venda.
+    """
+    def setUp(self):
+        self.client = Client()
+        self.loja_a = Loja.objects.create(nome='Loja Alfa Pedidos', cnpj='11.111.111/0001-11', slug='loja-alfa')
+        self.loja_b = Loja.objects.create(nome='Loja Beta Pedidos', cnpj='22.222.222/0001-22', slug='loja-beta')
+
+        # Usuários
+        self.dev_user = User.objects.create_user(username='dev_orders', password='password123')
+        PerfilUsuario.objects.create(usuario=self.dev_user, papel=PapelUsuarioEnum.DEV, loja=self.loja_a)
+
+        self.admin_a = User.objects.create_user(username='admin_a_orders', password='password123')
+        PerfilUsuario.objects.create(usuario=self.admin_a, papel=PapelUsuarioEnum.ADMIN, loja=self.loja_a)
+
+        # Pedidos
+        self.ped_a = PedidoVenda.objects.create(
+            loja=self.loja_a, marketplace=MarketplaceEnum.MERCADO_LIVRE, pedido_id_externo='1001',
+            valor_total=Decimal('100.00'), processado_com_sucesso=True
+        )
+        self.ped_b = PedidoVenda.objects.create(
+            loja=self.loja_b, marketplace=MarketplaceEnum.MERCADO_LIVRE, pedido_id_externo='2002',
+            valor_total=Decimal('200.00'), processado_com_sucesso=True
+        )
+
+    def test_admin_visualiza_apenas_pedidos_da_propria_loja(self):
+        self.client.login(username='admin_a_orders', password='password123')
+        res = self.client.get(reverse('pedido_list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.context['pedidos']), 1)
+        self.assertEqual(res.context['pedidos'][0].pedido_id_externo, '1001')
+
+    def test_dev_visualiza_pedidos_de_todas_as_lojas(self):
+        self.client.login(username='dev_orders', password='password123')
+        res = self.client.get(reverse('pedido_list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.context['pedidos']), 2)
+
+    def test_cross_tenant_bloqueado_detalhes_pedido(self):
+        self.client.login(username='admin_a_orders', password='password123')
+        # Admin A tentando ver pedido da Loja B
+        res = self.client.get(reverse('pedido_detail', kwargs={'pk': self.ped_b.pk}))
+        self.assertEqual(res.status_code, 403)
+
 
 
 

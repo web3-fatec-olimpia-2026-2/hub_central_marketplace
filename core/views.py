@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy, reverse
@@ -10,13 +11,17 @@ from django.contrib import messages
 from django.db import transaction
 from django.db.models import Q, Count, Sum
 from django.core.exceptions import PermissionDenied
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 
 from .models import (
-    Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco, LogSincronizacao
+    Loja, PerfilUsuario, LogAuditoria, Categoria, Produto, HistoricoPreco,
+    LogSincronizacao, PedidoVenda, ItemPedidoVenda
 )
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
-    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum, StatusPedidoEnum
 )
 from .forms import (
     LojaForm, UsuarioCreateForm, UsuarioUpdateForm, UsuarioPasswordResetAdminForm,
@@ -54,6 +59,10 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
             context['total_produtos'] = Produto.objects.count()
             context['total_categorias'] = Categoria.objects.count()
             context['total_logs_sincronizacao'] = LogSincronizacao.objects.count()
+            context['total_pedidos'] = PedidoVenda.objects.count()
+            context['total_pedidos_ruptura'] = PedidoVenda.objects.filter(teve_ruptura_estoque=True).count()
+            context['faturamento_total'] = PedidoVenda.objects.filter(processado_com_sucesso=True).aggregate(total=Sum('valor_total'))['total'] or Decimal('0.00')
+            context['ultimos_pedidos'] = PedidoVenda.objects.select_related('loja').order_by('-criado_em')[:5]
         else:
             perfil = getattr(user, 'perfil', None)
             context['perfil'] = perfil
@@ -63,12 +72,18 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
                 context['total_produtos_loja'] = Produto.objects.filter(loja=perfil.loja).count()
                 context['total_categorias_loja'] = Categoria.objects.filter(loja=perfil.loja).count()
                 context['produtos_sem_estoque'] = Produto.objects.filter(loja=perfil.loja, estoque=0).count()
+                context['produtos_estoque_negativo'] = Produto.objects.filter(loja=perfil.loja, estoque__lt=0).count()
                 context['produtos_sincronizados'] = Produto.objects.filter(
                     loja=perfil.loja, status_sincronizacao=StatusSincronizacaoEnum.SINCRONIZADO
                 ).count()
                 context['total_logs_loja'] = LogSincronizacao.objects.filter(loja=perfil.loja).count()
+                context['total_pedidos_loja'] = PedidoVenda.objects.filter(loja=perfil.loja).count()
+                context['pedidos_ruptura_loja'] = PedidoVenda.objects.filter(loja=perfil.loja, teve_ruptura_estoque=True).count()
+                context['faturamento_loja'] = PedidoVenda.objects.filter(loja=perfil.loja, processado_com_sucesso=True).aggregate(total=Sum('valor_total'))['total'] or Decimal('0.00')
+                context['ultimos_pedidos'] = PedidoVenda.objects.filter(loja=perfil.loja).order_by('-criado_em')[:5]
 
         return context
+
 
 
 # ==============================================================================
@@ -1180,6 +1195,141 @@ class LogSincronizacaoListView(LoginRequiredMixin, ListView):
             context['minha_loja'] = getattr(user.perfil, 'loja', None)
 
         return context
+
+
+# ==============================================================================
+# WEBHOOK DE VENDAS E GESTÃO DE PEDIDOS (RF-06 / RF-07 / RN-01 / RN-04 / RN-05)
+# ==============================================================================
+
+@method_decorator(csrf_exempt, name='dispatch')
+class MercadoLivreWebhookView(View):
+    """
+    Endpoint HTTP público para recebimento e processamento de notificações de webhook do Mercado Livre.
+    Processa eventos de venda ('orders_v2' / 'orders') e dispara baixa atômica de estoque concorrente (RF-06 / RF-07).
+    """
+    def post(self, request, slug=None, *args, **kwargs):
+        loja_especifica = None
+        if slug:
+            loja_especifica = get_object_or_404(Loja, slug=slug, ativo=True)
+
+        try:
+            body = request.body.decode('utf-8')
+            payload = json.loads(body) if body else {}
+        except Exception as exc:
+            return JsonResponse({'status': 'error', 'mensagem': f'JSON inválido: {str(exc)}'}, status=400)
+
+        # Se for notificação em formato de lista ou dict
+        if isinstance(payload, list) and len(payload) > 0:
+            payload = payload[0]
+
+        sucesso, mensagem, pedido = MercadoLivreService.processar_webhook_venda(
+            payload, loja_especifica=loja_especifica
+        )
+
+        status_http = 200 if sucesso else 400
+        return JsonResponse({
+            'status': 'success' if sucesso else 'error',
+            'mensagem': mensagem,
+            'pedido_id': pedido.pedido_id_externo if pedido else None,
+            'ruptura_estoque': pedido.teve_ruptura_estoque if pedido else False,
+        }, status=status_http)
+
+    def get(self, request, *args, **kwargs):
+        """
+        Endpoint para handshake, ping de monitoramento ou validação pelo Mercado Livre Developers.
+        """
+        return JsonResponse({
+            'status': 'active',
+            'service': 'Hub Marketplaces — Mercado Livre Webhook Listener',
+            'topics_supported': ['orders_v2', 'orders', 'shipments', 'items'],
+        })
+
+
+class PedidoVendaListView(LoginRequiredMixin, ListView):
+    """
+    Painel corporativo de pedidos de venda recebidos via Webhook dos marketplaces.
+    - DEV: Visualiza todos os pedidos com filtro por loja.
+    - ADMIN, SUPERVISOR e USUARIO: Visualizam apenas pedidos da sua loja.
+    """
+    model = PedidoVenda
+    template_name = 'core/pedido_venda_list.html'
+    context_object_name = 'pedidos'
+    paginate_by = 25
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = PedidoVenda.objects.select_related('loja').prefetch_related('itens').order_by('-criado_em')
+
+        if usuario_is_dev(user):
+            loja_id = self.request.GET.get('loja', '').strip()
+            if loja_id:
+                queryset = queryset.filter(loja_id=loja_id)
+        else:
+            perfil = getattr(user, 'perfil', None)
+            if not perfil or not perfil.loja:
+                return PedidoVenda.objects.none()
+            queryset = queryset.filter(loja=perfil.loja)
+
+        # Filtros
+        status_filtro = self.request.GET.get('status', '').strip()
+        if status_filtro:
+            queryset = queryset.filter(status=status_filtro)
+
+        ruptura_filtro = self.request.GET.get('ruptura', '').strip()
+        if ruptura_filtro == 'sim':
+            queryset = queryset.filter(teve_ruptura_estoque=True)
+        elif ruptura_filtro == 'nao':
+            queryset = queryset.filter(teve_ruptura_estoque=False)
+
+        busca = self.request.GET.get('q', '').strip()
+        if busca:
+            queryset = queryset.filter(
+                Q(pedido_id_externo__icontains=busca) |
+                Q(comprador_nome__icontains=busca) |
+                Q(comprador_documento__icontains=busca) |
+                Q(itens__sku_informado__icontains=busca) |
+                Q(itens__titulo_anuncio__icontains=busca)
+            ).distinct()
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        context['is_dev'] = usuario_is_dev(user)
+        context['termo_busca'] = self.request.GET.get('q', '').strip()
+        context['status_filtro'] = self.request.GET.get('status', '').strip()
+        context['ruptura_filtro'] = self.request.GET.get('ruptura', '').strip()
+        context['loja_filtro'] = self.request.GET.get('loja', '').strip()
+        context['status_choices'] = StatusPedidoEnum.choices
+
+        if context['is_dev']:
+            context['lojas_disponiveis'] = Loja.objects.filter(ativo=True).order_by('nome')
+        else:
+            context['minha_loja'] = getattr(user.perfil, 'loja', None)
+
+        return context
+
+
+class PedidoVendaDetailView(LoginRequiredMixin, DetailView):
+    """
+    Exibição dos detalhes de um Pedido de Venda e seus itens, incluindo estoque anterior/posterior.
+    """
+    model = PedidoVenda
+    template_name = 'core/pedido_venda_detail.html'
+    context_object_name = 'pedido'
+
+    def get_object(self, queryset=None):
+        obj = super().get_object(queryset=queryset)
+        if not pode_acessar_objeto_loja(self.request.user, obj):
+            raise PermissionDenied("Acesso negado: este pedido pertence a outra loja.")
+        return obj
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['itens'] = self.object.itens.select_related('produto').all()
+        return context
+
 
 
 

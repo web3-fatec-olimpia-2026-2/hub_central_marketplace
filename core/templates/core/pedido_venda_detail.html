@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Pedido #{{ pedido.pedido_id_externo }} — Hub Marketplaces{% endblock %}
+
+{% block page_title %}
+    <i class="bi bi-receipt text-primary me-2"></i>Pedido #{{ pedido.pedido_id_externo }}
+{% endblock %}
+
+{% block page_subtitle %}
+    Venda originada via <strong>{{ pedido.get_marketplace_display }}</strong> para a loja <strong>{{ pedido.loja.nome }}</strong>
+{% endblock %}
+
+{% block toolbar_actions %}
+    <div class="d-flex gap-2">
+        <a href="{% url 'pedido_list' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Voltar aos Pedidos
+        </a>
+        <a href="{% url 'log_sincronizacao_list' %}?q={{ pedido.pedido_id_externo }}" class="btn btn-outline-info">
+            <i class="bi bi-journal-code"></i> Logs Deste Pedido
+        </a>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- CARDS DE RESUMO DO PEDIDO -->
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body p-4 text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Valor Total da Venda</div>
+                <div class="display-6 fw-bold text-success mb-1">R$ {{ pedido.valor_total|floatformat:2 }}</div>
+                {% if pedido.valor_frete > 0 %}
+                    <small class="text-muted">Frete: R$ {{ pedido.valor_frete|floatformat:2 }}</small>
+                {% else %}
+                    <small class="text-muted">Frete Grátis / Incluso</small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body p-4 text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Status da Venda</div>
+                <div class="h5 fw-bold text-dark mt-2 mb-2">
+                    {% if pedido.status == 'PAGO' %}
+                        <span class="badge bg-success px-3 py-2 fs-6"><i class="bi bi-check-circle me-1"></i>Confirmado / Pago</span>
+                    {% elif pedido.status == 'CANCELADO' %}
+                        <span class="badge bg-danger px-3 py-2 fs-6"><i class="bi bi-x-circle me-1"></i>Cancelado</span>
+                    {% else %}
+                        <span class="badge bg-info px-3 py-2 fs-6">{{ pedido.get_status_display }}</span>
+                    {% endif %}
+                </div>
+                <small class="text-muted font-monospace">Status ML: {{ pedido.status_externo|default:"N/A" }}</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body p-4 text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Comprador</div>
+                <div class="h6 fw-bold text-dark mt-2 mb-1">{{ pedido.comprador_nome|default:"Cliente Mercado Livre" }}</div>
+                {% if pedido.comprador_documento %}
+                    <div class="small text-muted font-monospace">Doc: {{ pedido.comprador_documento }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body p-4 text-center">
+                <div class="text-muted small text-uppercase fw-bold mb-1">Impacto no Estoque</div>
+                <div class="mt-2 mb-1">
+                    {% if pedido.teve_ruptura_estoque %}
+                        <span class="badge bg-danger px-3 py-2 fs-6">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i> Ruptura Detectada
+                        </span>
+                        <div class="small text-danger mt-1 fw-semibold">Saldo interno ficou negativo!</div>
+                    {% else %}
+                        <span class="badge bg-success px-3 py-2 fs-6">
+                            <i class="bi bi-check-circle-fill me-1"></i> Baixa Normal
+                        </span>
+                        <div class="small text-success mt-1">Saldo baixado com sucesso</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ALERTA SE HOUVE RUPTURA -->
+    {% if pedido.teve_ruptura_estoque %}
+        <div class="col-12">
+            <div class="alert alert-danger shadow-sm d-flex align-items-center gap-3 mb-0" role="alert">
+                <i class="bi bi-exclamation-octagon-fill fs-2 text-danger"></i>
+                <div>
+                    <h6 class="alert-heading fw-bold mb-1">Alerta de Ruptura de Inventário (Overselling)</h6>
+                    <p class="mb-0 small">
+                        Este pedido demandou mais unidades do que o saldo físico registrado anteriormente no Hub.
+                        O saldo interno foi atualizado para valor negativo para registrar fielmente a dívida de expedição.
+                        Ao receber nova remessa de estoque, a entrada irá reconciliar o saldo automaticamente.
+                    </p>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- TABELA DE ITENS DO PEDIDO -->
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-box-seam-fill text-primary"></i>
+                    <span class="fw-bold">Itens Vendidos e Movimentação de Estoque</span>
+                </div>
+                <span class="badge bg-light text-dark border">{{ itens.count }} item(ns)</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light text-muted small text-uppercase">
+                            <tr>
+                                <th class="ps-4">Item / Anúncio</th>
+                                <th>Produto no Hub</th>
+                                <th class="text-center">Quantidade</th>
+                                <th>Preço Unitário</th>
+                                <th>Subtotal</th>
+                                <th>Saldo Anterior</th>
+                                <th>Saldo Posterior</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for it in itens %}
+                                <tr>
+                                    <td class="ps-4">
+                                        <div class="fw-bold text-dark">{{ it.titulo_anuncio }}</div>
+                                        <div class="small">
+                                            {% if it.item_id_externo %}
+                                                <span class="badge bg-info bg-opacity-10 text-info font-monospace border">{{ it.item_id_externo }}</span>
+                                            {% endif %}
+                                            {% if it.sku_informado %}
+                                                <span class="badge bg-light text-dark font-monospace border">SKU Informado: {{ it.sku_informado }}</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {% if it.produto %}
+                                            <a href="{% url 'produto_detail' it.produto.id %}" class="fw-bold text-decoration-none">
+                                                {{ it.produto.nome }}
+                                            </a>
+                                            <div class="small text-muted font-monospace">SKU: {{ it.produto.sku }}</div>
+                                        {% else %}
+                                            <span class="badge bg-warning text-dark">Produto não vinculado</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="badge bg-primary px-3 py-2 fs-6">{{ it.quantidade }} un.</span>
+                                    </td>
+                                    <td>
+                                        <div class="fw-semibold">R$ {{ it.preco_unitario|floatformat:2 }}</div>
+                                    </td>
+                                    <td>
+                                        <div class="fw-bold text-success">
+                                            R$ {% widthratio it.preco_unitario 1 it.quantidade %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {% if it.estoque_anterior is not None %}
+                                            <span class="font-monospace fw-semibold">{{ it.estoque_anterior }} un.</span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if it.estoque_posterior is not None %}
+                                            {% if it.estoque_posterior < 0 %}
+                                                <span class="badge bg-danger font-monospace px-2 py-1 fs-6">
+                                                    {{ it.estoque_posterior }} un. (Ruptura)
+                                                </span>
+                                            {% elif it.estoque_posterior == 0 %}
+                                                <span class="badge bg-warning text-dark font-monospace px-2 py-1">
+                                                    0 un. (Zerado)
+                                                </span>
+                                            {% else %}
+                                                <span class="badge bg-success font-monospace px-2 py-1">
+                                                    {{ it.estoque_posterior }} un.
+                                                </span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAYLOAD ORIGINAL DO PEDIDO -->
+    {% if pedido.payload_original %}
+        <div class="col-12">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white py-3">
+                    <span class="fw-bold"><i class="bi bi-code-slash text-secondary me-2"></i>Payload Bruto Recebido (JSON)</span>
+                </div>
+                <div class="card-body p-3 bg-dark rounded-bottom font-monospace small" style="max-height: 350px; overflow-y: auto;">
+                    <pre class="mb-0 text-info"><code>{{ pedido.payload_original|pprint }}</code></pre>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

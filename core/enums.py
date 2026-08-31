@@ -50,6 +50,17 @@ class MarketplaceEnum(models.TextChoices):
     MAGALU = 'MAGALU', 'Magazine Luiza (Backlog)'
 
 
+class StatusPedidoEnum(models.TextChoices):
+    """
+    Status de processamento e faturamento de Pedidos de Venda recebidos via Webhook.
+    """
+    PAGO = 'PAGO', 'Pago / Confirmado'
+    CRIADO = 'CRIADO', 'Criado / Pendente de Pagamento'
+    CANCELADO = 'CANCELADO', 'Cancelado'
+    ENTREGUE = 'ENTREGUE', 'Entregue'
+    OUTRO = 'OUTRO', 'Outro Status'
+
+
 class EventoAuditoriaEnum(models.TextChoices):
     """
     Tipos de eventos para registro em LogAuditoria.
@@ -76,11 +87,15 @@ class EventoAuditoriaEnum(models.TextChoices):
     EDICAO_CATEGORIA = 'EDICAO_CATEGORIA', 'Edição de Categoria'
     EXCLUSAO_CATEGORIA = 'EXCLUSAO_CATEGORIA', 'Exclusão de Categoria'
 
-    # Integração Marketplaces (RF-05)
+    # Integração Marketplaces (RF-05 / RF-06 / RF-07)
     SYNC_PRECO_MELI = 'SYNC_PRECO_MELI', 'Sincronização de Preço (Mercado Livre)'
     SYNC_PRECO_LOTE_MELI = 'SYNC_PRECO_LOTE_MELI', 'Sincronização em Lote de Preços (Mercado Livre)'
     REFRESH_TOKEN_MELI = 'REFRESH_TOKEN_MELI', 'Renovação de Token OAuth (Mercado Livre)'
     CONFIG_CREDENCIAIS_MELI = 'CONFIG_CREDENCIAIS_MELI', 'Configuração de Credenciais de Integração'
     TESTE_CONEXAO_MELI = 'TESTE_CONEXAO_MELI', 'Teste de Conexão com Mercado Livre'
+    WEBHOOK_VENDA_MELI = 'WEBHOOK_VENDA_MELI', 'Processamento de Webhook de Venda'
+    BAIXA_ESTOQUE_VENDA = 'BAIXA_ESTOQUE_VENDA', 'Baixa Automática de Estoque por Venda'
+    ALERTA_ESTOQUE_NEGATIVO_VENDA = 'ALERTA_ESTOQUE_NEGATIVO_VENDA', 'Alerta de Ruptura / Estoque Negativo'
+
 
 

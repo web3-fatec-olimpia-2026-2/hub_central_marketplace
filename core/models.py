@@ -6,7 +6,8 @@ from django.core.exceptions import ValidationError
 
 from .enums import (
     PapelUsuarioEnum, EventoAuditoriaEnum, StatusProdutoEnum,
-    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum
+    StatusSincronizacaoEnum, TipoAjusteEstoqueEnum, MarketplaceEnum,
+    StatusPedidoEnum
 )
 
 
@@ -291,8 +292,6 @@ class Produto(models.Model):
         super().clean()
         if self.preco is not None and self.preco < Decimal('0.00'):
             raise ValidationError({'preco': 'O preço de venda não pode ser negativo (RN-06).'})
-        if self.estoque is not None and self.estoque < 0:
-            raise ValidationError({'estoque': 'O saldo de estoque não pode ser negativo (RN-06).'})
         if self.categoria_id and self.loja_id:
             if self.categoria.loja_id != self.loja_id:
                 raise ValidationError({'categoria': 'A categoria selecionada deve pertencer à mesma loja do produto.'})
@@ -394,6 +393,120 @@ class LogSincronizacao(models.Model):
         status_txt = "Sucesso" if self.sucesso else "Falha"
         prod_sku = self.produto.sku if self.produto else (self.item_id_externo or "Geral")
         return f"[{self.get_marketplace_display()}] {self.get_evento_display()} - {prod_sku} ({status_txt}, HTTP {self.status_http}) em {self.criado_em.strftime('%d/%m/%Y %H:%M:%S')}"
+
+
+class PedidoVenda(models.Model):
+    """
+    Registro estruturado de pedidos de venda recebidos de marketplaces externos (RF-06 / RF-07).
+    Possui restrição de unicidade ['loja', 'marketplace', 'pedido_id_externo'] para garantir Idempotência.
+    """
+    loja = models.ForeignKey(
+        Loja, on_delete=models.CASCADE, related_name='pedidos_venda', verbose_name="Loja (Tenant)"
+    )
+    marketplace = models.CharField(
+        max_length=30, choices=MarketplaceEnum.choices, default=MarketplaceEnum.MERCADO_LIVRE,
+        verbose_name="Marketplace de Origem"
+    )
+    pedido_id_externo = models.CharField(
+        max_length=64, db_index=True, verbose_name="ID do Pedido no Marketplace"
+    )
+    status_externo = models.CharField(
+        max_length=50, blank=True, null=True, verbose_name="Status Original no Marketplace"
+    )
+    status = models.CharField(
+        max_length=30, choices=StatusPedidoEnum.choices, default=StatusPedidoEnum.PAGO,
+        verbose_name="Status no Hub"
+    )
+    comprador_nome = models.CharField(
+        max_length=150, blank=True, null=True, verbose_name="Nome do Comprador / Apelido"
+    )
+    comprador_documento = models.CharField(
+        max_length=30, blank=True, null=True, verbose_name="CPF/CNPJ do Comprador"
+    )
+    valor_total = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'), verbose_name="Valor Total (R$)"
+    )
+    valor_frete = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'), verbose_name="Valor do Frete (R$)"
+    )
+    data_criacao_externa = models.DateTimeField(
+        null=True, blank=True, verbose_name="Data / Hora da Venda no Marketplace"
+    )
+    processado_com_sucesso = models.BooleanField(
+        default=False, verbose_name="Processado com Sucesso"
+    )
+    teve_ruptura_estoque = models.BooleanField(
+        default=False, verbose_name="Teve Ruptura de Estoque (Saldo Negativo)"
+    )
+    observacoes = models.TextField(
+        blank=True, null=True, verbose_name="Observações do Pedido / Diagnóstico"
+    )
+    payload_original = models.JSONField(
+        default=dict, blank=True, verbose_name="Payload Original do Webhook/Pedido (JSON)"
+    )
+    criado_em = models.DateTimeField(
+        auto_now_add=True, verbose_name="Recebido em"
+    )
+    atualizado_em = models.DateTimeField(
+        auto_now=True, verbose_name="Atualizado em"
+    )
+
+    class Meta:
+        verbose_name = "Pedido de Venda"
+        verbose_name_plural = "Pedidos de Venda"
+        unique_together = [['loja', 'marketplace', 'pedido_id_externo']]
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        return f"Pedido #{self.pedido_id_externo} ({self.get_marketplace_display()}) - R$ {self.valor_total} [{self.get_status_display()}]"
+
+
+class ItemPedidoVenda(models.Model):
+    """
+    Itens pertencentes a um PedidoVenda, com rastreabilidade detalhada do saldo de estoque anterior e posterior.
+    """
+    pedido = models.ForeignKey(
+        PedidoVenda, on_delete=models.CASCADE, related_name='itens', verbose_name="Pedido de Venda"
+    )
+    produto = models.ForeignKey(
+        Produto, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='itens_vendidos', verbose_name="Produto no Catálogo"
+    )
+    item_id_externo = models.CharField(
+        max_length=64, blank=True, null=True, verbose_name="ID do Anúncio (MLB...)"
+    )
+    sku_informado = models.CharField(
+        max_length=60, blank=True, null=True, verbose_name="SKU no Pedido"
+    )
+    titulo_anuncio = models.CharField(
+        max_length=255, verbose_name="Título do Anúncio"
+    )
+    quantidade = models.IntegerField(
+        default=1, verbose_name="Quantidade Vendida"
+    )
+    preco_unitario = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'), verbose_name="Preço Unitário (R$)"
+    )
+    estoque_baixado = models.BooleanField(
+        default=False, verbose_name="Estoque Foi Abatido"
+    )
+    estoque_anterior = models.IntegerField(
+        null=True, blank=True, verbose_name="Estoque Anterior"
+    )
+    estoque_posterior = models.IntegerField(
+        null=True, blank=True, verbose_name="Estoque Posterior"
+    )
+    ruptura_estoque = models.BooleanField(
+        default=False, verbose_name="Entrou em Ruptura (Saldo Negativo)"
+    )
+
+    class Meta:
+        verbose_name = "Item do Pedido de Venda"
+        verbose_name_plural = "Itens do Pedido de Venda"
+
+    def __str__(self):
+        return f"{self.quantidade}x {self.titulo_anuncio} (R$ {self.preco_unitario})"
+
 
 
 

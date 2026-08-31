@@ -55,9 +55,12 @@
                 {% if produto.estoque > 0 %}
                     <div class="display-6 fw-bold text-primary mb-2">{{ produto.estoque }} un.</div>
                     <span class="badge bg-success">Disponível para venda</span>
+                {% elif produto.estoque == 0 %}
+                    <div class="display-6 fw-bold text-warning text-dark mb-2">0 un.</div>
+                    <span class="badge bg-warning text-dark">Produto Esgotado / Zerado</span>
                 {% else %}
-                    <div class="display-6 fw-bold text-danger mb-2">0 un.</div>
-                    <span class="badge bg-danger">Produto Esgotado</span>
+                    <div class="display-6 fw-bold text-danger mb-2">{{ produto.estoque }} un.</div>
+                    <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Ruptura de Estoque (Negativo)</span>
                 {% endif %}
             </div>
         </div>
