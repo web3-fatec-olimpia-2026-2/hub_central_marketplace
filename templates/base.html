@@ -270,6 +270,14 @@
                     </li>
 
                     {% if user.is_authenticated %}
+                        {% if is_dev or user.perfil.is_dev or user.is_superuser %}
+                            <li class="nav-item me-2">
+                                <a class="btn btn-warning btn-sm fw-bold text-dark d-flex align-items-center gap-1 shadow-sm" href="{% url 'mockar_dados_dashboard' %}" title="Ambiente de Testes e Mock de Dados">
+                                    <i class="bi bi-database-fill-gear"></i>
+                                    <span class="d-none d-lg-inline">Mockar Dados</span>
+                                </a>
+                            </li>
+                        {% endif %}
                         <li class="nav-item me-2 d-none d-md-block">
                             {% if user.perfil %}
                                 <span class="badge badge-role-{{ user.perfil.papel|lower }} px-2 py-1">

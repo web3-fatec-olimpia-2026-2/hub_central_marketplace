@@ -26,5 +26,6 @@ urlpatterns = [
     path('', include('apps.catalogo.urls')),
     path('', include('apps.pedidos.urls')),
     path('', include('apps.financeiro.urls')),
+    path('mockar-dados/', include('apps.mockar_dados.urls')),
 ]
 

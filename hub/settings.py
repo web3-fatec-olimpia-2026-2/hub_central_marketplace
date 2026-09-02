@@ -34,6 +34,8 @@ environ.Env.read_env(BASE_DIR / '.env')
 SECRET_KEY = env('SECRET_KEY')
 # Lê DEBUG do .env (se não encontrar, assume False por segurança)
 DEBUG = env.bool('DEBUG', default=False)
+# Lê LOGIN_DEBUG do .env para injeção automática de credenciais em desenvolvimento
+LOGIN_DEBUG = env.bool('LOGIN_DEBUG', default=False)
 
 # Lê ALLOWED_HOSTS como lista separada por vírgulas do .env (ex: 127.0.0.1,localhost)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost', 'testserver'])
@@ -54,6 +56,9 @@ INSTALLED_APPS = [
     'apps.catalogo.apps.CatalogoConfig',
     'apps.pedidos.apps.PedidosConfig',
     'apps.financeiro.apps.FinanceiroConfig',
+
+    # Módulo Dedicado de Mock de Dados (Ambiente de Testes / Debug)
+    'apps.mockar_dados.apps.MockarDadosConfig',
 ]
 
 MIDDLEWARE = [
@@ -79,6 +84,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'apps.tenancy.context_processors.modulos_loja_context',
+                'apps.mockar_dados.context_processors.login_debug_context',
             ],
         },
     },

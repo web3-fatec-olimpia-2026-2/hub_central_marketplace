@@ -1,0 +1,220 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Painel de Mock de Dados — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Gestão de Dados Mockados de Teste{% endblock %}
+{% block page_subtitle %}Ambiente de Desenvolvimento, Demonstração e Restauração de Fábrica (Exclusivo DEV){% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- DISCLAIMER DIDÁTICO E DE SEGURANÇA -->
+    <div class="col-12">
+        <div class="alert alert-warning border-warning shadow-sm d-flex align-items-start gap-3 p-3">
+            <i class="bi bi-shield-exclamation fs-2 text-warning flex-shrink-0"></i>
+            <div>
+                <h5 class="alert-heading fw-bold mb-1">Aviso do Ambiente de Testes & Desenvolvimento</h5>
+                <p class="mb-0 small text-dark">
+                    Atenção: Este módulo é de uso estrito para testes e desenvolvimento. As lojas, parâmetros fiscais, anúncios e produtos gerados são entidades fictícias com identificadores sintéticos para demonstração visual das interfaces. Integrações reais via APIs oficiais e Webhooks ativos requerem credenciais de produção homologadas nos respectivos marketplaces.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAINEL DE CONTROLE DE AÇÕES RÁPIDAS -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm border-primary border-opacity-25 h-100">
+            <div class="card-header bg-primary bg-opacity-10 text-primary fw-bold d-flex align-items-center gap-2">
+                <i class="bi bi-database-fill-gear"></i> Ações Rápidas de Mock
+            </div>
+            <div class="card-body d-flex flex-column justify-content-between p-4">
+                <div>
+                    <h6 class="fw-bold mb-2">Controle da Base Sintética</h6>
+                    <p class="text-muted small mb-4">
+                        Provisione lojas completas com categorias, produtos com status alternados (Rascunho e Ativo), contas de canais e anúncios integrados.
+                    </p>
+
+                    <!-- STATUS ATUAL -->
+                    <div class="p-3 mb-4 rounded border {% if tem_dados_mockados %}bg-success bg-opacity-10 border-success{% else %}bg-light border-secondary border-opacity-25{% endif %}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="small fw-semibold">Status da Base:</span>
+                            {% if tem_dados_mockados %}
+                                <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Dados Presentes</span>
+                            {% else %}
+                                <span class="badge bg-secondary"><i class="bi bi-dash-circle me-1"></i>Base Limpa</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <!-- BOTÃO GERAR / RESTAURAR -->
+                    {% if tem_dados_mockados %}
+                        <button type="button" class="btn btn-primary btn-lg fw-bold" data-bs-toggle="modal" data-bs-target="#modalConfirmarGerar">
+                            <i class="bi bi-arrow-repeat me-1"></i> Gerar / Restaurar Dados Mockados
+                        </button>
+                    {% else %}
+                        <form method="post" action="{% url 'mockar_dados_dashboard' %}" class="d-grid">
+                            {% csrf_token %}
+                            <input type="hidden" name="acao" value="gerar">
+                            <button type="submit" class="btn btn-primary btn-lg fw-bold">
+                                <i class="bi bi-magic me-1"></i> Gerar Dados Mockados
+                            </button>
+                        </form>
+                    {% endif %}
+
+                    <!-- BOTÃO EXCLUIR -->
+                    {% if tem_dados_mockados %}
+                        <button type="button" class="btn btn-outline-danger fw-bold mt-2" data-bs-toggle="modal" data-bs-target="#modalConfirmarExcluir">
+                            <i class="bi bi-trash3-fill me-1"></i> Excluir Dados Mockados
+                        </button>
+                    {% else %}
+                        <button type="button" class="btn btn-outline-secondary fw-bold mt-2" disabled>
+                            <i class="bi bi-trash3 me-1"></i> Nenhum Dado para Excluir
+                        </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CARDS DE ESTATÍSTICAS E QUANTITATIVOS -->
+    <div class="col-lg-8">
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 bg-primary bg-opacity-10 text-primary p-3 text-center">
+                    <small class="fw-bold text-uppercase">Lojas Mockadas</small>
+                    <span class="display-6 fw-bold">{{ contadores.lojas }}</span>
+                    <small class="text-muted">Tenants de Teste</small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 bg-success bg-opacity-10 text-success p-3 text-center">
+                    <small class="fw-bold text-uppercase">Produtos Sintéticos</small>
+                    <span class="display-6 fw-bold">{{ contadores.produtos }}</span>
+                    <small class="text-muted">5 por loja (Rascunho/Ativo)</small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card shadow-sm border-0 bg-info bg-opacity-10 text-info p-3 text-center">
+                    <small class="fw-bold text-uppercase">Anúncios Vinculados</small>
+                    <span class="display-6 fw-bold">{{ contadores.anuncios }}</span>
+                    <small class="text-muted">ML, Shopee e Magalu</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- ESPECIFICAÇÃO DAS 3 LOJAS SINTÉTICAS -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-white fw-bold">
+                <i class="bi bi-shop me-2 text-primary"></i>Especificação dos Tenants Fictícios Anticoincidência
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small">
+                            <tr>
+                                <th>Loja / Tenant</th>
+                                <th>CNPJ Anticoincidência</th>
+                                <th>Segmento / Categoria</th>
+                                <th>Contas Vinculadas</th>
+                                <th>Usuários de Teste</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <strong class="d-block text-primary">TechZone Eletrônicos Mock</strong>
+                                    <small class="text-muted">São Paulo / SP</small>
+                                </td>
+                                <td class="font-monospace small">11.111.111/0001-11</td>
+                                <td><span class="badge bg-primary bg-opacity-10 text-primary">Eletrônicos & Informática</span></td>
+                                <td class="small">ML, Shopee, Magalu</td>
+                                <td class="small font-monospace">admin_techzone</td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <strong class="d-block text-info">Comfort Cama Mesa e Banho Mock</strong>
+                                    <small class="text-muted">Niterói / RJ</small>
+                                </td>
+                                <td class="font-monospace small">22.222.222/0001-22</td>
+                                <td><span class="badge bg-info bg-opacity-10 text-info">Cama, Mesa e Banho</span></td>
+                                <td class="small">ML, Shopee, Magalu</td>
+                                <td class="small font-monospace">admin_comfort</td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <strong class="d-block text-warning text-dark">Passo Firme Calçados Mock</strong>
+                                    <small class="text-muted">Belo Horizonte / MG</small>
+                                </td>
+                                <td class="font-monospace small">33.333.333/0001-33</td>
+                                <td><span class="badge bg-warning bg-opacity-10 text-dark">Calçados & Acessórios</span></td>
+                                <td class="small">ML, Shopee, Magalu</td>
+                                <td class="small font-monospace">admin_passofirme</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO: GERAR / RESTAURAR -->
+<div class="modal fade" id="modalConfirmarGerar" tabindex="-1" aria-labelledby="modalConfirmarGerarLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold" id="modalConfirmarGerarLabel">
+                    <i class="bi bi-arrow-repeat me-2"></i>Confirmar Restauração de Dados Mockados
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="mb-0">
+                    Esta ação substituirá todos os registros mockados existentes pelas configurações originais de teste. Todas as alterações manuais feitas sobre eles serão perdidas e restauradas ao padrão inicial de fábrica. Deseja prosseguir?
+                </p>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <form method="post" action="{% url 'mockar_dados_dashboard' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="gerar">
+                    <button type="submit" class="btn btn-primary fw-bold">
+                        <i class="bi bi-check2-circle me-1"></i> Confirmar e Substituir
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO: EXCLUIR -->
+<div class="modal fade" id="modalConfirmarExcluir" tabindex="-1" aria-labelledby="modalConfirmarExcluirLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold" id="modalConfirmarExcluirLabel">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Confirmar Exclusão Permanente de Mocks
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="mb-0">
+                    Esta ação apagará permanentemente todas as lojas de teste, seus produtos, categorias, taxas e anúncios mockados. O usuário DEV mestre (devmaster) não será alterado nem excluído. Deseja realmente excluir?
+                </p>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <form method="post" action="{% url 'mockar_dados_dashboard' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="excluir">
+                    <button type="submit" class="btn btn-danger fw-bold">
+                        <i class="bi bi-trash3-fill me-1"></i> Confirmar Exclusão
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
