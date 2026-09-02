@@ -1,0 +1,101 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}
+    {% if modo_edicao %}Editar Conta: {{ conta.apelido_conta }}{% else %}Conectar Conta de Marketplace{% endif %}
+{% endblock %}
+
+{% block page_title %}
+    {% if modo_edicao %}Editar Conta: {{ conta.apelido_conta }}{% else %}Conectar Nova Conta de Marketplace{% endif %}
+{% endblock %}
+{% block page_subtitle %}Gestão de Credenciais e Conectores de Canal{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'canal_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar à Lista de Canais
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-link-45deg me-2 text-primary"></i>Configuração de Canal e Credenciais
+            </div>
+            <div class="card-body p-4">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Canal de Marketplace *</label>
+                            {{ form.canal }}
+                            {% if form.canal.errors %}<div class="text-danger small mt-1">{{ form.canal.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Apelido da Conta *</label>
+                            {{ form.apelido_conta }}
+                            {% if form.apelido_conta.errors %}<div class="text-danger small mt-1">{{ form.apelido_conta.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Loja (Tenant) *</label>
+                            {{ form.loja }}
+                            {% if form.loja.errors %}<div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Seller ID / User ID Externo</label>
+                            {{ form.seller_id_externo }}
+                            {% if form.seller_id_externo.errors %}<div class="text-danger small mt-1">{{ form.seller_id_externo.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <hr class="my-3">
+                        <h6 class="fw-bold text-secondary mb-2">Credenciais de Autenticação / OAuth</h6>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Client ID / Application ID</label>
+                            {{ form.client_id }}
+                            {% if form.client_id.errors %}<div class="text-danger small mt-1">{{ form.client_id.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Client Secret / Chave Secreta</label>
+                            {{ form.client_secret }}
+                            {% if form.client_secret.errors %}<div class="text-danger small mt-1">{{ form.client_secret.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Access Token (Bearer)</label>
+                            {{ form.access_token }}
+                            {% if form.access_token.errors %}<div class="text-danger small mt-1">{{ form.access_token.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Refresh Token</label>
+                            {{ form.refresh_token }}
+                            {% if form.refresh_token.errors %}<div class="text-danger small mt-1">{{ form.refresh_token.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-12 mt-3">
+                            <div class="form-check form-switch">
+                                {{ form.ativo }}
+                                <label class="form-check-label fw-bold" for="{{ form.ativo.id_for_label }}">Integração Ativa</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                        <a href="{% url 'canal_list' %}" class="btn btn-outline-secondary">Cancelar</a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check-lg"></i> Salvar Conexão
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,106 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Lojas (Tenants) — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Lojas (Tenants){% endblock %}
+{% block page_subtitle %}Gestão global de inquilinos e feature flags de módulos{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'loja_create' %}" class="btn btn-primary">
+        <i class="bi bi-plus-lg"></i> Nova Loja
+    </a>
+{% endblock %}
+
+{% block content %}
+<!-- FILTROS E BUSCA -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-body py-3">
+        <form method="get" class="row g-2 align-items-center">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" value="{{ termo_busca }}" class="form-control" placeholder="Buscar por nome, CNPJ, cidade ou e-mail...">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <select name="status" class="form-select">
+                    <option value="">Todos os status</option>
+                    <option value="ativo" {% if status_filtro == 'ativo' %}selected{% endif %}>Apenas Ativas</option>
+                    <option value="inativo" {% if status_filtro == 'inativo' %}selected{% endif %}>Apenas Inativas</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-secondary w-100"><i class="bi bi-funnel"></i> Filtrar</button>
+                {% if termo_busca or status_filtro %}
+                    <a href="{% url 'loja_list' %}" class="btn btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- TABELA DE LOJAS -->
+<div class="card shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Nome da Loja</th>
+                    <th>CNPJ</th>
+                    <th>Cidade / UF</th>
+                    <th class="text-center">Usuários</th>
+                    <th class="text-center">Módulos Ativos</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-end">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for loja in lojas %}
+                    <tr>
+                        <td>
+                            <div class="fw-bold"><a href="{% url 'loja_detail' slug=loja.slug %}" class="text-decoration-none text-dark">{{ loja.nome }}</a></div>
+                            <small class="text-muted font-monospace">{{ loja.slug }}</small>
+                        </td>
+                        <td><span class="font-monospace small">{{ loja.cnpj }}</span></td>
+                        <td>{{ loja.cidade|default:"—" }}{% if loja.estado %}/{{ loja.estado }}{% endif %}</td>
+                        <td class="text-center"><span class="badge bg-secondary rounded-pill">{{ loja.total_usuarios|default:0 }}</span></td>
+                        <td class="text-center">
+                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1">
+                                <i class="bi bi-toggles me-1"></i> {{ loja.total_modulos_ativos|default:0 }}/4
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            {% if loja.ativo %}
+                                <span class="badge bg-success">Ativa</span>
+                            {% else %}
+                                <span class="badge bg-danger">Inativa</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="btn-group btn-group-sm">
+                                <a href="{% url 'loja_modulos' slug=loja.slug %}" class="btn btn-outline-warning" title="Gerenciar Módulos">
+                                    <i class="bi bi-toggles"></i> Módulos
+                                </a>
+                                <a href="{% url 'loja_detail' slug=loja.slug %}" class="btn btn-outline-secondary" title="Ver Detalhes">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <a href="{% url 'loja_update' slug=loja.slug %}" class="btn btn-outline-primary" title="Editar">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                            Nenhuma loja encontrada.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

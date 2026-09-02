@@ -1,0 +1,187 @@
+# Os códigos foram gerados com auxilio de I.A.
+import json
+from decimal import Decimal
+from django.test import TestCase, Client
+from django.contrib.auth.models import User
+from django.urls import reverse
+
+from apps.tenancy.models import Loja, PerfilUsuario
+from apps.tenancy.enums import PapelUsuarioEnum
+from apps.marketplaces.models import ContaMarketplace, LogAuditoria
+from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
+from apps.catalogo.models import Categoria, Produto, AnuncioMarketplace
+from apps.pedidos.models import PedidoVenda, ItemPedidoVenda
+from apps.pedidos.services import ProcessamentoPedidoService
+
+
+class PedidosAndAtomicStockTestCase(TestCase):
+    """
+    O QUE FAZ: Suíte de testes automatizados para processamento de pedidos, baixa atômica de estoque e detecção de rupturas (RN-05).
+    POR QUE FAZ: Valida concorrência, idempotência e geração de alertas de saldo negativo.
+    PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO.
+    MULTI-TENANCY: Escopo por loja.
+    """
+
+    def setUp(self):
+        self.client = Client()
+
+        self.loja = Loja.objects.create(
+            nome="Loja Pedidos",
+            slug="loja-pedidos",
+            cnpj="55.555.555/0001-55"
+        )
+        self.loja.garantir_modulos_padrao()
+
+        self.categoria = Categoria.objects.create(
+            loja=self.loja,
+            nome="Geral",
+            slug="geral"
+        )
+
+        self.produto = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="TECLADO-RGB-PRO",
+            nome="Teclado Mecânico RGB Pro",
+            preco=Decimal('250.00'),
+            estoque=5
+        )
+
+        self.conta_ml = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Pedidos",
+            seller_id_externo="999888"
+        )
+
+        self.anuncio = AnuncioMarketplace.objects.create(
+            produto=self.produto,
+            conta_marketplace=self.conta_ml,
+            item_id_externo="MLB776655",
+            preco_sincronizado=Decimal('250.00')
+        )
+
+    def test_processamento_pedido_atomic_stock_deduction(self):
+        """Valida que o processamento do pedido deduz o saldo de estoque físico com sucesso."""
+        payload = {
+            'order_id': 'ORD-1001',
+            'total_amount': 500.00,
+            'buyer': {'nickname': 'comprador_teste'},
+            'items': [
+                {
+                    'item': {'id': 'MLB776655', 'title': 'Teclado Mecânico RGB Pro'},
+                    'quantity': 2,
+                    'unit_price': 250.00
+                }
+            ]
+        }
+
+        sucesso, msg, pedido = ProcessamentoPedidoService.processar_pedido_venda(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            pedido_id_externo="ORD-1001",
+            dados_pedido=payload,
+            conta=self.conta_ml
+        )
+
+        self.assertTrue(sucesso)
+        self.assertIsNotNone(pedido)
+        self.assertEqual(pedido.itens.count(), 1)
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.estoque, 3)  # 5 - 2 = 3
+        self.assertFalse(pedido.teve_ruptura_estoque)
+
+    def test_idempotency_prevents_duplicate_deduction(self):
+        """Valida que reprocessar o mesmo pedido não duplica o débito de estoque."""
+        payload = {
+            'order_id': 'ORD-IDEMPOTENTE',
+            'total_amount': 250.00,
+            'items': [{'item': {'id': 'MLB776655'}, 'quantity': 1, 'unit_price': 250.00}]
+        }
+
+        # Primeiro processamento: estoque 5 -> 4
+        ProcessamentoPedidoService.processar_pedido_venda(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            pedido_id_externo="ORD-IDEMPOTENTE",
+            dados_pedido=payload
+        )
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.estoque, 4)
+
+        # Segundo processamento (mesmo ID): ignora e mantém estoque em 4
+        ProcessamentoPedidoService.processar_pedido_venda(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            pedido_id_externo="ORD-IDEMPOTENTE",
+            dados_pedido=payload
+        )
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.estoque, 4)
+
+    def test_stock_rupture_detection_and_audit_alert(self):
+        """Valida que venda com quantidade superior ao saldo gera alerta de ruptura e flag de saldo negativo (RN-05)."""
+        payload = {
+            'order_id': 'ORD-RUPTURA',
+            'total_amount': 2000.00,
+            'items': [{'item': {'id': 'MLB776655'}, 'quantity': 8, 'unit_price': 250.00}]
+        }
+
+        sucesso, msg, pedido = ProcessamentoPedidoService.processar_pedido_venda(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            pedido_id_externo="ORD-RUPTURA",
+            dados_pedido=payload
+        )
+
+        self.assertTrue(sucesso)
+        self.assertTrue(pedido.teve_ruptura_estoque)
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.estoque, -3)  # 5 - 8 = -3
+
+        # Verifica se foi gerado o LogAuditoria com o evento ALERTA_RUPTURA_ESTOQUE
+        log_ruptura = LogAuditoria.objects.filter(
+            loja=self.loja, evento=EventoAuditoriaEnum.ALERTA_RUPTURA_ESTOQUE
+        ).exists()
+        self.assertTrue(log_ruptura)
+
+    def test_webhook_mercadolivre_view_endpoint(self):
+        """Valida o recebimento HTTP no endpoint de Webhook."""
+        payload = {
+            'resource': '/orders/999111222',
+            'topic': 'orders_v2',
+            'id': '999111222',
+            'user_id': '999888',
+            'total_amount': 250.00,
+            'items': [{'item': {'id': 'MLB776655'}, 'quantity': 1, 'unit_price': 250.00}]
+        }
+
+        response = self.client.post(
+            reverse('webhook_mercadolivre'),
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        self.assertEqual(response.status_code, 200)
+
+        # Confirma que o pedido foi gravado
+        self.assertTrue(PedidoVenda.objects.filter(pedido_id_externo='999111222').exists())
+
+    def test_webhook_shopee_and_magalu_endpoints(self):
+        """Valida os endpoints de webhooks dos canais Shopee e Magalu."""
+        res_shopee = self.client.post(
+            reverse('webhook_shopee'),
+            data=json.dumps({'order_sn': 'SHP_ORDER_99', 'total_amount': 150.00}),
+            content_type='application/json'
+        )
+        self.assertEqual(res_shopee.status_code, 200)
+        self.assertTrue(PedidoVenda.objects.filter(pedido_id_externo='SHP_ORDER_99').exists())
+
+        res_magalu = self.client.post(
+            reverse('webhook_magalu'),
+            data=json.dumps({'code': 'MAG_ORDER_88', 'total_amount': 300.00}),
+            content_type='application/json'
+        )
+        self.assertEqual(res_magalu.status_code, 200)
+        self.assertTrue(PedidoVenda.objects.filter(pedido_id_externo='MAG_ORDER_88').exists())

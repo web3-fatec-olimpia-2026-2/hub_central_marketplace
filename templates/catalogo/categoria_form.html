@@ -1,0 +1,73 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}
+    {% if modo_edicao %}Editar Categoria: {{ form.instance.nome }}{% else %}Nova Categoria{% endif %}
+{% endblock %}
+
+{% block page_title %}
+    {% if modo_edicao %}Editar Categoria: {{ form.instance.nome }}{% else %}Nova Categoria de Catálogo{% endif %}
+{% endblock %}
+{% block page_subtitle %}Estruturação de Categorias de Produtos{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'categoria_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar à Lista
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-tag me-2 text-primary"></i>Dados da Categoria
+            </div>
+            <div class="card-body p-4">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Nome da Categoria *</label>
+                            {{ form.nome }}
+                            {% if form.nome.errors %}<div class="text-danger small mt-1">{{ form.nome.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Identificador (Slug)</label>
+                            {{ form.slug }}
+                            {% if form.slug.errors %}<div class="text-danger small mt-1">{{ form.slug.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Loja (Tenant) *</label>
+                            {{ form.loja }}
+                            {% if form.loja.errors %}<div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Descrição</label>
+                            {{ form.descricao }}
+                        </div>
+
+                        <div class="col-12 mt-3">
+                            <div class="form-check form-switch">
+                                {{ form.ativo }}
+                                <label class="form-check-label fw-bold" for="{{ form.ativo.id_for_label }}">Categoria Ativa</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                        <a href="{% url 'categoria_list' %}" class="btn btn-outline-secondary">Cancelar</a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check-lg"></i> Salvar Categoria
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

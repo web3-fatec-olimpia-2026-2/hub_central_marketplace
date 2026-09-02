@@ -1,0 +1,129 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Logs de Integração — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Logs de Integração e Telemetria{% endblock %}
+{% block page_subtitle %}Histórico de chamadas, respostas HTTP e auditoria técnica de marketplaces{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'canal_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar aos Canais
+    </a>
+{% endblock %}
+
+{% block content %}
+<!-- FILTROS -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-body py-3">
+        <form method="get" class="row g-2 align-items-center">
+            <div class="col-md-4">
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" value="{{ termo_busca }}" class="form-control" placeholder="Buscar por ID externo, mensagem de erro ou evento...">
+                </div>
+            </div>
+            {% if is_dev %}
+                <div class="col-md-3">
+                    <select name="loja" class="form-select">
+                        <option value="">Todas as Lojas</option>
+                        {% for l in lojas_disponiveis %}
+                            <option value="{{ l.id }}" {% if loja_filtro == l.id|stringformat:"s" %}selected{% endif %}>{{ l.nome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+            <div class="col-md-2">
+                <select name="canal" class="form-select">
+                    <option value="">Todos os Canais</option>
+                    {% for c_val, c_lbl in canais_disponiveis %}
+                        <option value="{{ c_val }}" {% if canal_filtro == c_val %}selected{% endif %}>{{ c_lbl }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select name="sucesso" class="form-select">
+                    <option value="">Todos os Resultados</option>
+                    <option value="1" {% if sucesso_filtro == '1' %}selected{% endif %}>Apenas Sucessos</option>
+                    <option value="0" {% if sucesso_filtro == '0' %}selected{% endif %}>Apenas Falhas / Erros</option>
+                </select>
+            </div>
+            <div class="col-md-1 d-flex gap-1">
+                <button type="submit" class="btn btn-secondary w-100"><i class="bi bi-funnel"></i></button>
+                {% if termo_busca or canal_filtro or sucesso_filtro or loja_filtro %}
+                    <a href="{% url 'log_sincronizacao_list' %}" class="btn btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- TABELA DE LOGS -->
+<div class="card shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" style="font-size: 0.875rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Data / Hora</th>
+                    <th>Marketplace</th>
+                    <th>Operação / Evento</th>
+                    <th>ID Externo</th>
+                    {% if is_dev %}<th>Loja</th>{% endif %}
+                    <th class="text-center">Status HTTP</th>
+                    <th class="text-center">Resultado</th>
+                    <th>Tempo</th>
+                    <th>Mensagem / Diagnóstico</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                    <tr>
+                        <td class="text-nowrap text-muted">{{ log.criado_em|date:"d/m/Y H:i:s" }}</td>
+                        <td>
+                            <span class="badge {% if log.canal == 'mercadolivre' %}bg-warning text-dark{% elif log.canal == 'shopee' %}bg-danger{% elif log.canal == 'magalu' %}bg-primary{% else %}bg-dark{% endif %}">
+                                {{ log.get_canal_display }}
+                            </span>
+                        </td>
+                        <td><span class="fw-bold">{{ log.get_evento_display }}</span></td>
+                        <td><code>{{ log.item_id_externo|default:"—" }}</code></td>
+                        {% if is_dev %}<td>{{ log.loja.nome }}</td>{% endif %}
+                        <td class="text-center">
+                            {% if log.status_http %}
+                                <span class="badge {% if log.status_http >= 200 and log.status_http < 300 %}bg-success{% elif log.status_http == 401 %}bg-warning text-dark{% else %}bg-danger{% endif %} font-monospace">
+                                    HTTP {{ log.status_http }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if log.sucesso %}
+                                <span class="badge bg-success"><i class="bi bi-check-lg"></i> OK</span>
+                            {% else %}
+                                <span class="badge bg-danger"><i class="bi bi-x-lg"></i> Falha</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-nowrap text-muted">{% if log.tempo_resposta_ms %}{{ log.tempo_resposta_ms }} ms{% else %}—{% endif %}</td>
+                        <td>
+                            {% if log.mensagem_erro %}
+                                <span class="text-danger small">{{ log.mensagem_erro }}</span>
+                            {% elif log.sucesso %}
+                                <span class="text-success small">Operação concluída com êxito</span>
+                            {% else %}
+                                <span class="text-muted small">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                            Nenhum log de sincronização registrado.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

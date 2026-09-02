@@ -1,0 +1,153 @@
+# Os códigos foram gerados com auxilio de I.A.
+from decimal import Decimal
+from unittest.mock import patch, MagicMock
+from django.test import TestCase, Client
+from django.contrib.auth.models import User
+from django.urls import reverse
+from django.db import IntegrityError
+
+from apps.tenancy.models import Loja, PerfilUsuario
+from apps.tenancy.enums import PapelUsuarioEnum
+from apps.marketplaces.models import ContaMarketplace, LogSincronizacao
+from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
+from apps.marketplaces.connectors.factory import get_connector_for_conta
+from apps.marketplaces.connectors.mercadolivre import MercadoLivreConnector
+from apps.marketplaces.connectors.shopee import ShopeeConnector
+from apps.marketplaces.connectors.magalu import MagaluConnector
+
+
+class MarketplacesHubTestCase(TestCase):
+    """
+    O QUE FAZ: Suíte de testes automatizados para o Hub Multicanal de Marketplaces e Conectores.
+    POR QUE FAZ: Valida o isolamento multi-contas por loja, execução de conectores desacoplados e clamping de estoque.
+    PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
+    MULTI-TENANCY: Isolamento horizontal de credenciais e contas.
+    """
+
+    def setUp(self):
+        self.loja = Loja.objects.create(
+            nome="Loja Matriz",
+            slug="loja-matriz",
+            cnpj="33.333.333/0001-33"
+        )
+        self.loja.garantir_modulos_padrao()
+
+        self.user_admin = User.objects.create_user(username='admin_loja', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_admin, papel=PapelUsuarioEnum.ADMIN, loja=self.loja)
+
+        # 1. Conta Mercado Livre
+        self.conta_meli = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Oficial",
+            client_id="APP_MELI_123",
+            client_secret="SECRET_123",
+            access_token="APP_USR_TEST_TOKEN",
+            refresh_token="REFRESH_TEST_TOKEN",
+            seller_id_externo="123456789"
+        )
+
+        # 2. Conta Shopee
+        self.conta_shopee = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.SHOPEE,
+            apelido_conta="Shopee Oficial",
+            access_token="SHOPEE_TOKEN",
+            seller_id_externo="987654"
+        )
+
+    def test_multi_account_unique_constraint(self):
+        """Valida que não é permitido duplicar o mesmo canal e seller_id na mesma loja."""
+        with self.assertRaises(IntegrityError):
+            ContaMarketplace.objects.create(
+                loja=self.loja,
+                canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                apelido_conta="ML Duplicado",
+                seller_id_externo="123456789"
+            )
+
+    def test_connector_factory_resolution(self):
+        """Valida que o Factory resolve o conector correto para cada conta."""
+        connector_meli = get_connector_for_conta(self.conta_meli)
+        self.assertIsInstance(connector_meli, MercadoLivreConnector)
+        self.assertEqual(connector_meli.canal_nome, CanalMarketplaceEnum.MERCADOLIVRE)
+
+        connector_shopee = get_connector_for_conta(self.conta_shopee)
+        self.assertIsInstance(connector_shopee, ShopeeConnector)
+        self.assertEqual(connector_shopee.canal_nome, CanalMarketplaceEnum.SHOPEE)
+
+    @patch('requests.put')
+    def test_mercadolivre_connector_price_update_and_logging(self, mock_put):
+        """Valida o envio de PUT /items/{id} e gravação de telemetria no conector do Mercado Livre."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'id': 'MLB12345678', 'price': 99.90}
+        mock_put.return_value = mock_response
+
+        connector = get_connector_for_conta(self.conta_meli)
+        sucesso, msg, log = connector.atualizar_preco("MLB12345678", Decimal('99.90'), usuario=self.user_admin)
+
+        self.assertTrue(sucesso)
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status_http, 200)
+        self.assertTrue(log.sucesso)
+        self.assertEqual(log.item_id_externo, "MLB12345678")
+        self.assertEqual(log.evento, EventoAuditoriaEnum.SYNC_PRECO)
+
+    @patch('requests.put')
+    def test_mercadolivre_connector_stock_clamping(self, mock_put):
+        """Valida que o conector aplica clamping max(0, estoque) para saldos negativos (RN-06)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'id': 'MLB12345678', 'available_quantity': 0}
+        mock_put.return_value = mock_response
+
+        connector = get_connector_for_conta(self.conta_meli)
+        # Tenta enviar saldo negativo (-5)
+        sucesso, msg, log = connector.atualizar_estoque("MLB12345678", -5, usuario=self.user_admin)
+
+        self.assertTrue(sucesso)
+        # Verifica que o payload enviado conteve 0 e não -5
+        mock_put.assert_called_once()
+        args, kwargs = mock_put.call_args
+        self.assertEqual(kwargs['json']['available_quantity'], 0)
+
+    def test_shopee_connector_stub_execution(self):
+        """Valida a execução do conector didático da Shopee."""
+        connector = get_connector_for_conta(self.conta_shopee)
+        sucesso, msg, log = connector.atualizar_preco("SHOPEE_ITEM_1", Decimal('150.00'), usuario=self.user_admin)
+        self.assertTrue(sucesso)
+        self.assertEqual(log.canal, CanalMarketplaceEnum.SHOPEE)
+
+    def test_magalu_and_amazon_connectors(self):
+        """Valida a execução dos conectores de Magalu e Amazon."""
+        conta_magalu = ContaMarketplace.objects.create(
+            loja=self.loja, canal=CanalMarketplaceEnum.MAGALU, apelido_conta="Magalu Loja", access_token="MAG_TOKEN"
+        )
+        conn_mag = get_connector_for_conta(conta_magalu)
+        suc_mag, _, log_mag = conn_mag.atualizar_estoque("SKU_MAG_1", 10)
+        self.assertTrue(suc_mag)
+        self.assertEqual(log_mag.canal, CanalMarketplaceEnum.MAGALU)
+
+        conta_amz = ContaMarketplace.objects.create(
+            loja=self.loja, canal=CanalMarketplaceEnum.AMAZON, apelido_conta="Amazon Loja", access_token="AMZ_TOKEN"
+        )
+        conn_amz = get_connector_for_conta(conta_amz)
+        suc_amz, _, log_amz = conn_amz.atualizar_preco("B00123", Decimal('89.90'))
+        self.assertTrue(suc_amz)
+        self.assertEqual(log_amz.canal, CanalMarketplaceEnum.AMAZON)
+
+    def test_conta_marketplace_views_and_test_connection(self):
+        """Valida a criação e teste de conexão de contas de marketplace via views."""
+        client = Client()
+        client.login(username='admin_loja', password='password123')
+
+        # Teste de conexão via view
+        res_test = client.post(reverse('conta_marketplace_testar', kwargs={'pk': self.conta_shopee.pk}))
+        self.assertEqual(res_test.status_code, 302)
+
+        # Listagem de canais
+        res_list = client.get(reverse('canal_list'))
+        self.assertEqual(res_list.status_code, 200)
+        self.assertContains(res_list, "ML Oficial")
+        self.assertContains(res_list, "Shopee Oficial")

@@ -173,48 +173,54 @@
                         <a class="nav-link" href="{% url 'home' %}"><i class="bi bi-house-door"></i> Início</a>
                     </li>
                     {% if user.is_authenticated %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'produto_list' %}">
-                                <i class="bi bi-box-seam"></i> Produtos
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'categoria_list' %}">
-                                <i class="bi bi-tags"></i> Categorias
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'pedido_list' %}">
-                                <i class="bi bi-cart-check"></i> Vendas / Pedidos
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{% url 'log_sincronizacao_list' %}">
-                                <i class="bi bi-journal-text"></i> Logs de Integração
-                            </a>
-                        </li>
-                        {% if user.perfil.is_admin or user.perfil.is_dev or user.is_superuser %}
+                        {% if modulos_ativos.catalogo or is_dev %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'loja_integracao_meli' %}">
-                                    <i class="bi bi-link-45deg text-warning"></i> Mercado Livre
+                                <a class="nav-link" href="{% url 'produto_list' %}">
+                                    <i class="bi bi-box-seam"></i> Produtos
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'categoria_list' %}">
+                                    <i class="bi bi-tags"></i> Categorias
                                 </a>
                             </li>
                         {% endif %}
-                        {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
+                        {% if modulos_ativos.pedidos or is_dev %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'pedido_list' %}">
+                                    <i class="bi bi-cart-check"></i> Vendas / Pedidos
+                                </a>
+                            </li>
+                        {% endif %}
+                        {% if modulos_ativos.marketplaces or is_dev %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'canal_list' %}">
+                                    <i class="bi bi-diagram-3-fill text-warning"></i> Marketplaces
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'log_sincronizacao_list' %}">
+                                    <i class="bi bi-journal-text"></i> Logs de Integração
+                                </a>
+                            </li>
+                        {% endif %}
+                        {% if modulos_ativos.financeiro or is_dev %}
+                            {% if is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'simulador_promocional' %}">
+                                        <i class="bi bi-calculator"></i> Simulador Promoções
+                                    </a>
+                                </li>
+                            {% endif %}
+                        {% endif %}
+                        {% if is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'usuario_list' %}">
                                     <i class="bi bi-people"></i> Usuários
                                 </a>
                             </li>
                         {% endif %}
-                        {% if user.perfil.is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'simulador_promocional' %}">
-                                    <i class="bi bi-calculator"></i> Simulador Promoções
-                                </a>
-                            </li>
-                        {% endif %}
-                        {% if user.perfil.is_dev or user.is_superuser %}
+                        {% if is_dev or user.is_superuser %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'loja_list' %}">
                                     <i class="bi bi-buildings"></i> Lojas (Tenants)

@@ -1,4 +1,4 @@
-﻿# Os códigos foram gerados com auxilio de I.A.
+# Os códigos foram gerados com auxilio de I.A.
 import sys
 import os
 from pathlib import Path
@@ -78,7 +78,7 @@ def apply_ai_header(file_path: Path) -> bool:
 
 def check_all_files(target_dirs=None, auto_apply=False):
     if target_dirs is None:
-        target_dirs = ["core", "hub", "templates", "scripts", "manage.py"]
+        target_dirs = ["apps", "hub", "templates", "scripts", "manage.py"]
 
     missing = []
     applied = []

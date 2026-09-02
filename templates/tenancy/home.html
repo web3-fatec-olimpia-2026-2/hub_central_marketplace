@@ -1,0 +1,229 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Visão Geral{% endblock %}
+{% block page_subtitle %}
+    {% if is_dev %}
+        Painel Global de Desenvolvimento e Tenants
+    {% else %}
+        Gestão Operacional — {{ minha_loja.nome|default:"Minha Loja" }}
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="row g-4 mb-4">
+    {% if is_dev %}
+        <!-- CARDS DEV (GLOBAL) -->
+        <div class="col-md-3">
+            <div class="card h-100 shadow-sm border-primary border-opacity-25">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small fw-semibold">TOTAL DE LOJAS</span>
+                        <div class="badge bg-primary bg-opacity-10 text-primary p-2">
+                            <i class="bi bi-buildings fs-5"></i>
+                        </div>
+                    </div>
+                    <h2 class="h3 fw-bold mb-0">{{ total_lojas|default:0 }}</h2>
+                    <small class="text-success fw-semibold"><i class="bi bi-check-circle"></i> {{ lojas_ativas|default:0 }} ativas</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card h-100 shadow-sm border-info border-opacity-25">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small fw-semibold">TOTAL DE USUÁRIOS</span>
+                        <div class="badge bg-info bg-opacity-10 text-info p-2">
+                            <i class="bi bi-people fs-5"></i>
+                        </div>
+                    </div>
+                    <h2 class="h3 fw-bold mb-0">{{ total_usuarios|default:0 }}</h2>
+                    <small class="text-muted">Em todas as lojas</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card h-100 shadow-sm border-success border-opacity-25">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small fw-semibold">STATUS DO SISTEMA</span>
+                        <div class="badge bg-success bg-opacity-10 text-success p-2">
+                            <i class="bi bi-shield-check fs-5"></i>
+                        </div>
+                    </div>
+                    <h2 class="h4 fw-bold text-success mb-0">Operacional</h2>
+                    <small class="text-muted">Arquitetura Modular Ativa</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card h-100 shadow-sm border-warning border-opacity-25">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small fw-semibold">GESTÃO DE MÓDULOS</span>
+                        <div class="badge bg-warning bg-opacity-10 text-warning p-2">
+                            <i class="bi bi-toggles fs-5"></i>
+                        </div>
+                    </div>
+                    <h2 class="h4 fw-bold mb-0">Feature Flags</h2>
+                    <small class="text-muted">Controle por Loja</small>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <!-- CARDS LOJISTA (TENANT) -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-primary border-opacity-25">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small fw-semibold">MINHA LOJA</span>
+                        <div class="badge bg-primary bg-opacity-10 text-primary p-2">
+                            <i class="bi bi-shop fs-5"></i>
+                        </div>
+                    </div>
+                    <h2 class="h4 fw-bold mb-0">{{ minha_loja.nome }}</h2>
+                    <small class="text-muted font-monospace">{{ minha_loja.cnpj }}</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-info border-opacity-25">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small fw-semibold">USUÁRIOS DA LOJA</span>
+                        <div class="badge bg-info bg-opacity-10 text-info p-2">
+                            <i class="bi bi-people fs-5"></i>
+                        </div>
+                    </div>
+                    <h2 class="h3 fw-bold mb-0">{{ total_usuarios_loja|default:1 }}</h2>
+                    <small class="text-muted">Equipe vinculada</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-success border-opacity-25">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small fw-semibold">MÓDULOS ATIVOS</span>
+                        <div class="badge bg-success bg-opacity-10 text-success p-2">
+                            <i class="bi bi-check2-all fs-5"></i>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                        {% for mod in modulos_loja %}
+                            <span class="badge {% if mod.ativo %}bg-success{% else %}bg-secondary opacity-50{% endif %}">
+                                {{ mod.get_modulo_display }}
+                            </span>
+                        {% empty %}
+                            <span class="text-muted small">Nenhum módulo configurado</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<!-- AÇÕES RÁPIDAS E ATALHOS -->
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="fw-bold"><i class="bi bi-grid-fill text-primary me-2"></i>Módulos e Acessos Rápidos</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {% if modulos_ativos.catalogo or is_dev %}
+                        <div class="col-md-6">
+                            <a href="{% url 'produto_list' %}" class="text-decoration-none">
+                                <div class="p-3 border rounded h-100 hover-shadow bg-light bg-opacity-50">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="p-3 bg-primary text-white rounded"><i class="bi bi-box-seam fs-4"></i></div>
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-1">Catálogo de Produtos</h6>
+                                            <small class="text-muted">Gerenciar produtos, categorias e anúncios</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                    {% endif %}
+
+                    {% if modulos_ativos.pedidos or is_dev %}
+                        <div class="col-md-6">
+                            <a href="{% url 'pedido_list' %}" class="text-decoration-none">
+                                <div class="p-3 border rounded h-100 hover-shadow bg-light bg-opacity-50">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="p-3 bg-success text-white rounded"><i class="bi bi-cart-check fs-4"></i></div>
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-1">Vendas & Pedidos</h6>
+                                            <small class="text-muted">Acompanhar pedidos e baixa atômica de estoque</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                    {% endif %}
+
+                    {% if modulos_ativos.marketplaces or is_dev %}
+                        <div class="col-md-6">
+                            <a href="{% url 'canal_list' %}" class="text-decoration-none">
+                                <div class="p-3 border rounded h-100 hover-shadow bg-light bg-opacity-50">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="p-3 bg-warning text-dark rounded"><i class="bi bi-diagram-3-fill fs-4"></i></div>
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-1">Hub Marketplaces</h6>
+                                            <small class="text-muted">Conectores multicanal e credenciais de contas</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                    {% endif %}
+
+                    {% if modulos_ativos.financeiro or is_dev %}
+                        <div class="col-md-6">
+                            <a href="{% url 'simulador_promocional' %}" class="text-decoration-none">
+                                <div class="p-3 border rounded h-100 hover-shadow bg-light bg-opacity-50">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="p-3 bg-info text-white rounded"><i class="bi bi-calculator fs-4"></i></div>
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-1">Simulador Financeiro</h6>
+                                            <small class="text-muted">Viabilidade promocional e formação de preço</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-info-circle me-2"></i>Informações do Perfil
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><strong>Usuário:</strong> {{ user.username }}</li>
+                    <li class="mb-2"><strong>Nome:</strong> {{ user.get_full_name|default:user.username }}</li>
+                    <li class="mb-2"><strong>Papel RBAC:</strong> <span class="badge badge-role-{{ user.perfil.papel|lower }}">{{ user.perfil.get_papel_display|default:"DEV / Superuser" }}</span></li>
+                    {% if user.perfil.loja %}
+                        <li class="mb-2"><strong>Loja Vinculada:</strong> {{ user.perfil.loja.nome }}</li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

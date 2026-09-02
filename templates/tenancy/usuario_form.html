@@ -1,0 +1,99 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}
+    {% if modo_edicao %}Editar Usuário: {{ usuario_alvo.username }}{% else %}Novo Usuário{% endif %}
+{% endblock %}
+
+{% block page_title %}
+    {% if modo_edicao %}Editar Usuário: {{ usuario_alvo.username }}{% else %}Novo Usuário{% endif %}
+{% endblock %}
+{% block page_subtitle %}Gestão de Acesso e Papéis RBAC{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'usuario_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar à Lista
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-person-gear me-2 text-primary"></i>Dados do Usuário
+            </div>
+            <div class="card-body p-4">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Nome de Usuário (Login) *</label>
+                            {{ form.username }}
+                            {% if form.username.errors %}<div class="text-danger small mt-1">{{ form.username.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">E-mail</label>
+                            {{ form.email }}
+                            {% if form.email.errors %}<div class="text-danger small mt-1">{{ form.email.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Primeiro Nome</label>
+                            {{ form.first_name }}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Sobrenome</label>
+                            {{ form.last_name }}
+                        </div>
+
+                        {% if not modo_edicao %}
+                            <div class="col-md-6">
+                                <label class="form-label">Senha *</label>
+                                {{ form.password1 }}
+                                {% if form.password1.errors %}<div class="text-danger small mt-1">{{ form.password1.errors.0 }}</div>{% endif %}
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Confirmação de Senha *</label>
+                                {{ form.password2 }}
+                                {% if form.password2.errors %}<div class="text-danger small mt-1">{{ form.password2.errors.0 }}</div>{% endif %}
+                            </div>
+                        {% endif %}
+
+                        <div class="col-md-6">
+                            <label class="form-label">Papel de Acesso (RBAC) *</label>
+                            {{ form.papel }}
+                            {% if form.papel.errors %}<div class="text-danger small mt-1">{{ form.papel.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Loja (Tenant)</label>
+                            {{ form.loja }}
+                            {% if form.loja.help_text %}<small class="text-muted d-block mt-1">{{ form.loja.help_text }}</small>{% endif %}
+                            {% if form.loja.errors %}<div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-12 mt-3">
+                            <div class="form-check form-switch">
+                                {{ form.is_active }}
+                                <label class="form-check-label fw-bold" for="{{ form.is_active.id_for_label }}">Conta Ativa</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                        <a href="{% url 'usuario_list' %}" class="btn btn-outline-secondary">Cancelar</a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check-lg"></i> Salvar Usuário
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

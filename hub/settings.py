@@ -10,11 +10,17 @@ https://docs.djangoproject.com/en/6.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
+import sys
 import environ
 from pathlib import Path
 
 # Define a raiz do projeto (onde está o arquivo .env)
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Adiciona o diretório apps ao sys.path para resolução transparente de módulos
+APPS_DIR = BASE_DIR / 'apps'
+if str(APPS_DIR) not in sys.path:
+    sys.path.insert(0, str(APPS_DIR))
 
 # Inicializa o leitor de variáveis de ambiente com tipo booleano padrão para o DEBUG
 env = environ.Env(
@@ -42,8 +48,12 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     
-    # Apps do Projeto
-    'core.apps.CoreConfig',
+    # Novos Apps Modulares Desacoplados
+    'apps.tenancy.apps.TenancyConfig',
+    'apps.marketplaces.apps.MarketplacesConfig',
+    'apps.catalogo.apps.CatalogoConfig',
+    'apps.pedidos.apps.PedidosConfig',
+    'apps.financeiro.apps.FinanceiroConfig',
 ]
 
 MIDDLEWARE = [
@@ -68,6 +78,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'apps.tenancy.context_processors.modulos_loja_context',
             ],
         },
     },

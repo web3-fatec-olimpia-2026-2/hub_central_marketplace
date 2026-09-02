@@ -1,0 +1,195 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}{{ produto.sku }} — {{ produto.nome }} — Hub Marketplaces{% endblock %}
+
+{% block page_title %}{{ produto.nome }}{% endblock %}
+{% block page_subtitle %}Código SKU: {{ produto.sku }} | Loja: {{ produto.loja.nome }}{% endblock %}
+
+{% block toolbar_actions %}
+    {% if pode_alterar_preco or pode_ajustar_estoque_geral %}
+        <form method="post" action="{% url 'produto_sincronizar_preco' pk=produto.pk %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-warning" title="Sincronizar Preço nos Marketplaces">
+                <i class="bi bi-arrow-repeat"></i> Sincronizar Preços
+            </button>
+        </form>
+    {% endif %}
+    {% if pode_ajustar_estoque_geral %}
+        <a href="{% url 'produto_ajuste_estoque' pk=produto.pk %}" class="btn btn-outline-primary">
+            <i class="bi bi-sliders"></i> Ajuste Geral de Estoque
+        </a>
+    {% endif %}
+    {% if pode_dar_baixa_avaria %}
+        <a href="{% url 'produto_baixa_avaria' pk=produto.pk %}" class="btn btn-outline-warning">
+            <i class="bi bi-box-arrow-down"></i> Baixa por Avaria
+        </a>
+    {% endif %}
+    <a href="{% url 'produto_update' pk=produto.pk %}" class="btn btn-primary">
+        <i class="bi bi-pencil"></i> Editar
+    </a>
+    <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- COLUNA ESQUERDA: ANÚNCIOS MULTICANAL E HISTÓRICO -->
+    <div class="col-lg-8">
+        <!-- ANÚNCIOS MULTICANAL VINCULADOS -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="fw-bold"><i class="bi bi-diagram-3-fill text-primary me-2"></i>Anúncios em Marketplaces Conectados</span>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive mb-3">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Canal</th>
+                                <th>Conta</th>
+                                <th>ID Externo</th>
+                                <th>Último Preço Sincronizado</th>
+                                <th>Status</th>
+                                <th class="text-end">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for a in anuncios %}
+                                <tr>
+                                    <td>
+                                        <span class="badge {% if a.conta_marketplace.canal == 'mercadolivre' %}bg-warning text-dark{% elif a.conta_marketplace.canal == 'shopee' %}bg-danger{% elif a.conta_marketplace.canal == 'magalu' %}bg-primary{% else %}bg-dark{% endif %}">
+                                            {{ a.conta_marketplace.get_canal_display }}
+                                        </span>
+                                    </td>
+                                    <td><strong>{{ a.conta_marketplace.apelido_conta }}</strong></td>
+                                    <td><code>{{ a.item_id_externo }}</code></td>
+                                    <td class="font-monospace">{% if a.preco_sincronizado %}R$ {{ a.preco_sincronizado|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                                    <td><span class="badge bg-success">{{ a.status_anuncio }}</span></td>
+                                    <td class="text-end">
+                                        <form method="post" action="{% url 'anuncio_marketplace_delete' pk=a.pk %}" class="d-inline">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Desvincular Anúncio">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center py-3 text-muted">
+                                        Nenhum anúncio externo vinculado a este produto.
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- FORM VINCULAR NOVO ANÚNCIO -->
+                <div class="p-3 bg-light rounded border">
+                    <h6 class="fw-bold mb-2"><i class="bi bi-plus-circle me-1"></i>Vincular Novo Anúncio de Marketplace</h6>
+                    <form method="post" action="{% url 'anuncio_marketplace_create' pk=produto.pk %}" class="row g-2 align-items-end">
+                        {% csrf_token %}
+                        <div class="col-md-5">
+                            <label class="form-label small">Conta do Marketplace</label>
+                            {{ form_anuncio.conta_marketplace }}
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small">ID Externo (MLB..., Shopee ID...)</label>
+                            {{ form_anuncio.item_id_externo }}
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary w-100"><i class="bi bi-link"></i> Vincular</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- HISTÓRICO DE PREÇOS -->
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-clock-history text-primary me-2"></i>Histórico de Mutações de Preço (RN-04)
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" style="font-size: 0.875rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Data / Hora</th>
+                            <th>Preço Anterior</th>
+                            <th>Novo Preço</th>
+                            <th>Responsável</th>
+                            <th>Motivo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for h in historicos %}
+                            <tr>
+                                <td class="text-muted">{{ h.criado_em|date:"d/m/Y H:i:s" }}</td>
+                                <td class="font-monospace text-muted">R$ {{ h.preco_anterior|floatformat:2 }}</td>
+                                <td class="font-monospace fw-bold text-success">R$ {{ h.preco_novo|floatformat:2 }}</td>
+                                <td>{{ h.usuario.username|default:"Sistema" }}</td>
+                                <td>{{ h.motivo|default:"—" }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center py-3 text-muted">Nenhum histórico de alteração registrado.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- COLUNA DIREITA: DADOS DO PRODUTO E CUSTOS -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">
+                <i class="bi bi-info-circle me-2"></i>Informações Principais
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><strong>SKU:</strong> <span class="font-monospace fw-bold">{{ produto.sku }}</span></li>
+                    <li class="mb-2"><strong>Categoria:</strong> {{ produto.categoria.nome }}</li>
+                    <li class="mb-2">
+                        <strong>Preço de Venda:</strong>
+                        <span class="h5 fw-bold text-success font-monospace">R$ {{ produto.preco|floatformat:2 }}</span>
+                    </li>
+                    <li class="mb-2">
+                        <strong>Estoque Físico:</strong>
+                        <span class="badge {% if produto.estoque > 5 %}bg-success{% elif produto.estoque > 0 %}bg-warning text-dark{% else %}bg-danger{% endif %} font-monospace">
+                            {{ produto.estoque }} unidades
+                        </span>
+                    </li>
+                    <li class="mb-2"><strong>Status:</strong> <span class="badge bg-secondary">{{ produto.get_status_display }}</span></li>
+                    <li class="mb-2"><strong>Status Sincronização:</strong> <span class="badge bg-info text-dark">{{ produto.get_status_sincronizacao_display }}</span></li>
+                    <li class="mb-0 text-muted small"><strong>Criado em:</strong> {{ produto.criado_em|date:"d/m/Y H:i" }}</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-calculator me-2"></i>Parâmetros Financeiros
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><strong>Custo de Aquisição (CMV):</strong> <span class="font-monospace">R$ {{ produto.custo_aquisicao|floatformat:2 }}</span></li>
+                    <li class="mb-2"><strong>Custo de Embalagem:</strong> <span class="font-monospace">R$ {{ produto.custo_embalagem|floatformat:2 }}</span></li>
+                    <li class="mb-0">
+                        <strong>Modalidade Full:</strong>
+                        {% if produto.modalidade_full %}
+                            <span class="badge bg-primary"><i class="bi bi-check-lg"></i> Sim (Fulfillment)</span>
+                        {% else %}
+                            <span class="badge bg-light text-dark border">Não (Logística Própria)</span>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
