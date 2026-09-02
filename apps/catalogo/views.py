@@ -25,7 +25,7 @@ from .models import Categoria, Produto, AnuncioMarketplace, HistoricoPreco
 from .enums import StatusProdutoEnum, TipoAjusteEstoqueEnum
 from .forms import (
     CategoriaForm, ProdutoForm, AnuncioMarketplaceForm, ProdutoBaixaAvariaForm,
-    ProdutoAjusteEstoqueForm, ProdutoSincronizacaoLoteForm
+    ProdutoAjusteEstoqueForm, ProdutoSincronizacaoLoteForm, PublicarAnuncioForm
 )
 
 
@@ -698,3 +698,122 @@ class ProdutoSincronizarPrecoLoteView(LoginRequiredMixin, ModuloRequeridoMixin, 
     def form_invalid(self, form):
         messages.error(self.request, "Nenhum produto válido selecionado para sincronização.")
         return redirect('produto_list')
+
+
+# ==============================================================================
+# PUBLICAÇÃO DE ANÚNCIOS EM MARKETPLACES (RF-04)
+# ==============================================================================
+
+class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
+    """
+    O QUE FAZ: Publica um produto do catálogo como anúncio ativo em uma conta de marketplace (RF-04).
+    POR QUE FAZ: Conecta o produto do Hub à API do marketplace de destino, registrando o ID externo e telemetria.
+    PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR (USUARIO bloqueado com 403 Forbidden).
+    MULTI-TENANCY: Restrito à loja do produto e conta do usuário (DEV com bypass global).
+    """
+    modulo_requerido = 'marketplaces'
+    template_name = 'catalogo/anuncio_publicar_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not pode_disparar_sincronizacao(request.user):
+            raise PermissionDenied("Acesso negado: o perfil USUARIO não possui permissão para publicar anúncios em marketplaces.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_object(self):
+        user = self.request.user
+        produto_id = self.kwargs.get('pk')
+        if usuario_is_dev(user):
+            return get_object_or_404(Produto, pk=produto_id)
+        perfil = getattr(user, 'perfil', None)
+        if not perfil or not perfil.loja:
+            raise PermissionDenied("Usuário sem loja vinculada.")
+        return get_object_or_404(Produto, pk=produto_id, loja=perfil.loja)
+
+    def get(self, request, *args, **kwargs):
+        produto = self.get_object()
+        form = PublicarAnuncioForm(produto=produto, autor=request.user)
+        context = {
+            'produto': produto,
+            'form': form,
+            'is_dev': usuario_is_dev(request.user),
+        }
+        return render(request, self.template_name, context)
+
+    def post(self, request, *args, **kwargs):
+        produto = self.get_object()
+        form = PublicarAnuncioForm(request.POST, produto=produto, autor=request.user)
+
+        if not form.is_valid():
+            context = {
+                'produto': produto,
+                'form': form,
+                'is_dev': usuario_is_dev(request.user),
+            }
+            return render(request, self.template_name, context)
+
+        conta = form.cleaned_data['conta_marketplace']
+        listing_type_id = form.cleaned_data['listing_type_id']
+        preco = form.cleaned_data['preco']
+        category_id = form.cleaned_data['category_id']
+
+        # Validação multi-tenant rigorosa (produto e conta devem ser da mesma loja, a menos que DEV)
+        if not usuario_is_dev(request.user) and produto.loja_id != conta.loja_id:
+            raise PermissionDenied("A conta de marketplace selecionada pertence a outra loja.")
+
+        dados_extras = {
+            'preco': preco,
+            'listing_type_id': listing_type_id,
+            'category_id': category_id,
+        }
+
+        connector = get_connector_for_conta(conta)
+        sucesso, mensagem, dados_retorno, log = connector.publicar_anuncio(
+            produto=produto,
+            conta=conta,
+            dados_extras=dados_extras,
+            usuario=request.user
+        )
+
+        if sucesso:
+            item_id_externo = dados_retorno.get('item_id_externo', f"MLB-{produto.sku}")
+            link_anuncio = dados_retorno.get('link_anuncio', '')
+            preco_sincronizado = dados_retorno.get('preco_sincronizado', preco)
+            status_anuncio = dados_retorno.get('status_anuncio', 'ativo')
+
+            # Cria ou atualiza o registro AnuncioMarketplace
+            anuncio, created = AnuncioMarketplace.objects.update_or_create(
+                produto=produto,
+                conta_marketplace=conta,
+                defaults={
+                    'item_id_externo': item_id_externo,
+                    'link_anuncio': link_anuncio,
+                    'preco_sincronizado': preco_sincronizado,
+                    'status_anuncio': status_anuncio,
+                }
+            )
+
+            # Grava Log de Auditoria
+            LogAuditoria.objects.create(
+                loja=produto.loja,
+                autor=request.user,
+                evento=EventoAuditoriaEnum.PUBLICACAO_ANUNCIO,
+                detalhes=(
+                    f"Anúncio publicado com sucesso no canal {conta.get_canal_display()} "
+                    f"para o produto '{produto.sku}'. ID Externo: {item_id_externo}."
+                )
+            )
+
+            messages.success(
+                request,
+                f"Anúncio publicado com sucesso no {conta.get_canal_display()}! "
+                f"Identificador: {item_id_externo} — Preço: R$ {preco_sincronizado:.2f}"
+            )
+            return redirect('produto_detail', pk=produto.pk)
+        else:
+            messages.error(request, f"Falha na publicação do anúncio: {mensagem}")
+            context = {
+                'produto': produto,
+                'form': form,
+                'is_dev': usuario_is_dev(request.user),
+            }
+            return render(request, self.template_name, context)

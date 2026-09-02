@@ -8,6 +8,9 @@
 
 {% block toolbar_actions %}
     {% if pode_alterar_preco or pode_ajustar_estoque_geral %}
+        <a href="{% url 'anuncio_marketplace_publicar' pk=produto.pk %}" class="btn btn-success" title="Publicar Anúncio no Marketplace">
+            <i class="bi bi-cloud-upload"></i> Publicar Anúncio
+        </a>
         <form method="post" action="{% url 'produto_sincronizar_preco' pk=produto.pk %}" class="d-inline">
             {% csrf_token %}
             <button type="submit" class="btn btn-warning" title="Sincronizar Preço nos Marketplaces">
@@ -41,6 +44,9 @@
         <div class="card shadow-sm mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span class="fw-bold"><i class="bi bi-diagram-3-fill text-primary me-2"></i>Anúncios em Marketplaces Conectados</span>
+                <a href="{% url 'anuncio_marketplace_publicar' pk=produto.pk %}" class="btn btn-sm btn-primary">
+                    <i class="bi bi-cloud-upload me-1"></i> Publicar Anúncio
+                </a>
             </div>
             <div class="card-body">
                 <div class="table-responsive mb-3">

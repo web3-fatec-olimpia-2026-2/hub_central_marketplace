@@ -406,3 +406,70 @@ class ProdutoSincronizacaoLoteForm(forms.Form):
         if not ids:
             raise ValidationError("Nenhum produto válido selecionado.")
         return ids
+
+
+class PublicarAnuncioForm(forms.Form):
+    """
+    O QUE FAZ: Formulário de publicação de anúncio em marketplace para um produto do catálogo (RF-04).
+    POR QUE FAZ: Permite ao operador selecionar a conta de destino, tipo de listagem (Clássico/Premium) e preço de envio.
+    PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR (USUARIO bloqueado).
+    MULTI-TENANCY: Filtra apenas contas da loja do produto / usuário (DEV pode ver todas com identificador da loja).
+    """
+    LISTING_TYPES = [
+        ('gold_special', 'Clássico (gold_special) — Menor taxa de comissão'),
+        ('gold_pro', 'Premium (gold_pro) — Parcelamento sem juros / Maior visibilidade'),
+    ]
+
+    conta_marketplace = forms.ModelChoiceField(
+        label="Conta de Marketplace de Destino *",
+        queryset=ContaMarketplace.objects.none(),
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        help_text="Selecione a conta integrada onde o anúncio será publicado."
+    )
+    listing_type_id = forms.ChoiceField(
+        label="Tipo de Listagem / Exposição",
+        choices=LISTING_TYPES,
+        initial='gold_special',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        help_text="Modalidade de anúncio no canal (ex: Clássico ou Premium no Mercado Livre)."
+    )
+    preco = forms.DecimalField(
+        label="Preço de Publicação (R$) *",
+        max_digits=10,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={'class': 'form-control font-monospace', 'step': '0.01'}),
+        help_text="Preço inicial com o qual o anúncio será publicado no marketplace."
+    )
+    category_id = forms.CharField(
+        label="ID da Categoria Externa (Opcional)",
+        required=False,
+        initial="MLB3530",
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ex: MLB3530'}),
+        help_text="Identificador da folha de categoria no canal de destino (fallback: MLB3530)."
+    )
+
+    def __init__(self, *args, produto=None, autor=None, **kwargs):
+        self.produto = produto
+        self.autor = autor
+        super().__init__(*args, **kwargs)
+
+        if produto:
+            self.fields['preco'].initial = produto.preco
+
+        if usuario_is_dev(autor):
+            if produto and produto.loja:
+                self.fields['conta_marketplace'].queryset = ContaMarketplace.objects.filter(
+                    loja=produto.loja, ativo=True
+                ).order_by('canal', 'apelido_conta')
+            else:
+                self.fields['conta_marketplace'].queryset = ContaMarketplace.objects.filter(
+                    ativo=True
+                ).select_related('loja').order_by('loja__nome', 'canal')
+        else:
+            perfil = getattr(autor, 'perfil', None)
+            if perfil and perfil.loja:
+                self.fields['conta_marketplace'].queryset = ContaMarketplace.objects.filter(
+                    loja=perfil.loja, ativo=True
+                ).order_by('canal', 'apelido_conta')
+            else:
+                self.fields['conta_marketplace'].queryset = ContaMarketplace.objects.none()

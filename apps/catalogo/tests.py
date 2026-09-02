@@ -161,3 +161,62 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         })
         self.assertEqual(res.status_code, 302)
         self.assertTrue(AnuncioMarketplace.objects.filter(item_id_externo='MLB_NOVO_123').exists())
+
+    def test_publicar_anuncio_view_blocked_for_usuario_role(self):
+        """Valida que o papel USUARIO é bloqueado com 403 ao tentar publicar anúncio (RF-04 / RBAC)."""
+        self.client.login(username='usuario_cat', password='password123')
+        res_get = self.client.get(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}))
+        self.assertEqual(res_get.status_code, 403)
+
+        res_post = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}), {
+            'conta_marketplace': self.conta_ml.pk,
+            'listing_type_id': 'gold_special',
+            'preco': '5000.00',
+            'category_id': 'MLB3530'
+        })
+        self.assertEqual(res_post.status_code, 403)
+
+    def test_publicar_anuncio_view_success_and_telemetry(self):
+        """Valida a publicação de anúncio com criação em AnuncioMarketplace e telemetria (RF-04)."""
+        self.client.login(username='admin_cat', password='password123')
+        res_get = self.client.get(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}))
+        self.assertEqual(res_get.status_code, 200)
+        self.assertContains(res_get, "Parâmetros de Publicação no Marketplace")
+
+        res_post = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}), {
+            'conta_marketplace': self.conta_ml.pk,
+            'listing_type_id': 'gold_special',
+            'preco': '4950.00',
+            'category_id': 'MLB3530'
+        })
+        self.assertEqual(res_post.status_code, 302)
+
+        # Valida que o AnuncioMarketplace foi criado/atualizado
+        anuncio = AnuncioMarketplace.objects.get(produto=self.produto, conta_marketplace=self.conta_ml)
+        self.assertEqual(anuncio.preco_sincronizado, Decimal('4950.00'))
+        self.assertEqual(anuncio.status_anuncio, 'ativo')
+        self.assertTrue(anuncio.item_id_externo.startswith('MLB'))
+
+    def test_publicar_anuncio_multi_tenant_isolation(self):
+        """Valida que uma loja não pode publicar na conta de outra loja (Isolamento Multi-tenant)."""
+        loja_alheia = Loja.objects.create(
+            nome="Loja Alheia",
+            slug="loja-alheia",
+            cnpj="88.888.888/0001-88"
+        )
+        conta_alheia = ContaMarketplace.objects.create(
+            loja=loja_alheia,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Alheio",
+            seller_id_externo="8888"
+        )
+
+        self.client.login(username='admin_cat', password='password123')
+        res_cross = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}), {
+            'conta_marketplace': conta_alheia.pk,
+            'listing_type_id': 'gold_special',
+            'preco': '5000.00'
+        })
+        # Formulário deve rejeitar ou view bloquear com 403
+        self.assertIn(res_cross.status_code, [200, 403])
+        self.assertFalse(AnuncioMarketplace.objects.filter(produto=self.produto, conta_marketplace=conta_alheia).exists())

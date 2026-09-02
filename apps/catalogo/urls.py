@@ -21,7 +21,8 @@ urlpatterns = [
     path('produtos/sincronizar-lote/', views.ProdutoSincronizarPrecoLoteView.as_view(), name='produto_sincronizar_lote'),
     path('produtos/sincronizar-lote-meli/', views.ProdutoSincronizarPrecoLoteView.as_view(), name='produto_sincronizar_lote_meli'),
 
-    # Vínculo de Anúncios Multicanal
+    # Vínculo e Publicação de Anúncios Multicanal (RF-04)
+    path('produtos/<int:pk>/publicar-anuncio/', views.PublicarAnuncioView.as_view(), name='anuncio_marketplace_publicar'),
     path('produtos/<int:pk>/anuncios/novo/', views.AnuncioMarketplaceCreateView.as_view(), name='anuncio_marketplace_create'),
     path('anuncios/<int:pk>/excluir/', views.AnuncioMarketplaceDeleteView.as_view(), name='anuncio_marketplace_delete'),
 

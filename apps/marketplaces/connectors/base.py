@@ -59,14 +59,14 @@ class BaseMarketplaceConnector(abc.ABC):
 
     @abc.abstractmethod
     def publicar_anuncio(
-        self, dados_anuncio: Dict[str, Any], usuario=None
-    ) -> Tuple[bool, str, Dict[str, Any]]:
+        self, produto, conta: Optional[ContaMarketplace] = None, dados_extras: Optional[Dict[str, Any]] = None, usuario=None
+    ) -> Tuple[bool, str, Dict[str, Any], Optional[LogSincronizacao]]:
         """
-        O QUE FAZ: Cria e publica um novo anúncio no marketplace a partir dos dados do produto no Hub (RF-04).
-        POR QUE FAZ: Automatiza o onboarding de produtos em múltiplos canais.
-        RETORNO: (sucesso: bool, mensagem: str, dados_anuncio_criado: dict)
+        O QUE FAZ: Submete o produto à API do canal e retorna o identificador externo e URL do anúncio (RF-04).
+        POR QUE FAZ: Automatiza o onboarding e publicação de produtos em múltiplos canais de marketplaces.
+        RETORNO: (sucesso: bool, mensagem: str, dados_resposta: dict, log: LogSincronizacao)
         """
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def buscar_pedidos(

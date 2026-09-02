@@ -151,3 +151,43 @@ class MarketplacesHubTestCase(TestCase):
         self.assertEqual(res_list.status_code, 200)
         self.assertContains(res_list, "ML Oficial")
         self.assertContains(res_list, "Shopee Oficial")
+
+    def test_connectors_publicar_anuncio_contracts(self):
+        """Valida que todos os conectores suportam publicar_anuncio() gerando telemetria e IDs externos (RF-04)."""
+        produto_dict = {
+            'nome': 'Teclado Mecânico RGB',
+            'sku': 'KB-RGB-01',
+            'preco': Decimal('299.90'),
+            'estoque': 25,
+        }
+
+        # 1. Mercado Livre
+        conn_ml = get_connector_for_conta(self.conta_meli)
+        suc_ml, msg_ml, ret_ml, log_ml = conn_ml.publicar_anuncio(
+            produto_dict, conta=self.conta_meli, dados_extras={'listing_type_id': 'gold_special', 'category_id': 'MLB3530'}
+        )
+        self.assertTrue(suc_ml)
+        self.assertTrue(ret_ml['item_id_externo'].startswith('MLB'))
+        self.assertEqual(log_ml.evento, EventoAuditoriaEnum.PUBLICACAO_ANUNCIO)
+
+        # 2. Shopee
+        conn_shopee = get_connector_for_conta(self.conta_shopee)
+        suc_shp, msg_shp, ret_shp, log_shp = conn_shopee.publicar_anuncio(
+            produto_dict, conta=self.conta_shopee
+        )
+        self.assertTrue(suc_shp)
+        self.assertTrue(ret_shp['item_id_externo'].startswith('SHP'))
+        self.assertEqual(log_shp.canal, CanalMarketplaceEnum.SHOPEE)
+
+        # 3. Magalu
+        conta_magalu = ContaMarketplace.objects.create(
+            loja=self.loja, canal=CanalMarketplaceEnum.MAGALU, apelido_conta="Magalu Loja", access_token="MAG_TOKEN"
+        )
+        conn_mag = get_connector_for_conta(conta_magalu)
+        suc_mag, msg_mag, ret_mag, log_mag = conn_mag.publicar_anuncio(
+            produto_dict, conta=conta_magalu
+        )
+        self.assertTrue(suc_mag)
+        self.assertTrue(ret_mag['item_id_externo'].startswith('MGL'))
+        self.assertEqual(log_mag.canal, CanalMarketplaceEnum.MAGALU)
+

@@ -135,8 +135,15 @@ class AnuncioMarketplace(models.Model):
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Vinculado ao Produto e à ContaMarketplace da mesma Loja.
     """
+    STATUS_CHOICES = [
+        ('ativo', 'Ativo'),
+        ('pausado', 'Pausado'),
+        ('finalizado', 'Finalizado'),
+        ('pendente', 'Pendente'),
+    ]
+
     produto = models.ForeignKey(
-        Produto, on_delete=models.CASCADE, related_name='anuncios', verbose_name="Produto no Hub"
+        Produto, on_delete=models.CASCADE, related_name='anuncios', verbose_name="Produto"
     )
     conta_marketplace = models.ForeignKey(
         ContaMarketplace, on_delete=models.CASCADE, related_name='anuncios', verbose_name="Conta do Canal"
@@ -145,7 +152,7 @@ class AnuncioMarketplace(models.Model):
         max_length=100, db_index=True, verbose_name="ID Externo no Marketplace (MLB... / Shopee ID / Magalu SKU)"
     )
     status_anuncio = models.CharField(
-        max_length=30, default='ativo', verbose_name="Status do Anúncio no Canal"
+        max_length=30, default='ativo', choices=STATUS_CHOICES, verbose_name="Status do Anúncio no Canal"
     )
     preco_sincronizado = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Último Preço Sincronizado (R$)"
@@ -153,13 +160,16 @@ class AnuncioMarketplace(models.Model):
     link_anuncio = models.URLField(
         max_length=500, blank=True, null=True, verbose_name="URL Pública do Anúncio"
     )
+    ultima_sincronizacao = models.DateTimeField(
+        auto_now=True, verbose_name="Última Sincronização"
+    )
     criado_em = models.DateTimeField(auto_now_add=True, verbose_name="Criado em")
     atualizado_em = models.DateTimeField(auto_now=True, verbose_name="Atualizado em")
 
     class Meta:
         verbose_name = "Anúncio no Marketplace"
         verbose_name_plural = "Anúncios nos Marketplaces"
-        unique_together = ('conta_marketplace', 'item_id_externo')
+        unique_together = ('produto', 'conta_marketplace')
         ordering = ['-criado_em']
 
     def __str__(self):
