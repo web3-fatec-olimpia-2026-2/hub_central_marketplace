@@ -22,6 +22,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/', include('django.contrib.auth.urls')),
     path('', include('apps.tenancy.urls')),
+    path('', include(('apps.tenancy.urls', 'core'), namespace='core')),
     path('', include('apps.marketplaces.urls')),
     path('', include('apps.catalogo.urls')),
     path('', include('apps.pedidos.urls')),

@@ -10,6 +10,7 @@ https://docs.djangoproject.com/en/6.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
+import os
 import sys
 import environ
 from pathlib import Path
@@ -38,7 +39,8 @@ DEBUG = env.bool('DEBUG', default=False)
 LOGIN_DEBUG = env.bool('LOGIN_DEBUG', default=False)
 
 # Lê ALLOWED_HOSTS como lista separada por vírgulas do .env (ex: 127.0.0.1,localhost)
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost', 'testserver'])
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost', 'testserver', 'material-playing-outshoot.ngrok-free.dev', '.ngrok-free.dev'])
+CSRF_TRUSTED_ORIGINS = ['https://material-playing-outshoot.ngrok-free.dev']
 
 # Application definition
 
@@ -59,6 +61,9 @@ INSTALLED_APPS = [
 
     # Módulo Dedicado de Mock de Dados (Ambiente de Testes / Debug)
     'apps.mockar_dados.apps.MockarDadosConfig',
+    
+    # bibliotecas de terceiros
+    'django_extensions',
 ]
 
 MIDDLEWARE = [
@@ -155,3 +160,15 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+# ==============================================================================
+# MERCADO LIVRE - OAUTH 2.0 & CRIPTOGRAFIA DE DADOS EM REPOUSO
+# ==============================================================================
+MERCADOLIVRE_CORE_CLIENT_ID = os.getenv("MERCADOLIVRE_CORE_CLIENT_ID", "")
+MERCADOLIVRE_CORE_CLIENT_SECRET = os.getenv("MERCADOLIVRE_CORE_CLIENT_SECRET", "")
+MERCADOLIVRE_REDIRECT_URI = os.getenv(
+    "MERCADOLIVRE_REDIRECT_URI",
+    "https://oauth.pstmn.io/v1/callback"
+)
+FIELD_ENCRYPTION_KEY = os.getenv("FIELD_ENCRYPTION_KEY", "")
+

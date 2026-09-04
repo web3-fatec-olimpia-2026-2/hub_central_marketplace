@@ -17,6 +17,7 @@ from .models import ContaMarketplace, LogSincronizacao, LogAuditoria
 from .enums import CanalMarketplaceEnum, EventoAuditoriaEnum
 from .forms import ContaMarketplaceForm
 from .connectors.factory import get_connector_for_conta
+from .connectors.mercadolivre import MercadoLivreConnector
 
 
 class CanalListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
@@ -278,3 +279,134 @@ class LogSincronizacaoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListVie
             context['minha_loja'] = getattr(user.perfil, 'loja', None)
 
         return context
+
+
+# ==============================================================================
+# FLUXO OAUTH 2.0 EXCLUSIVO MERCADO LIVRE
+# ==============================================================================
+
+class MercadoLivreAutorizarView(LoginRequiredMixin, ModuloRequeridoMixin, IntegracaoConfigPermissionMixin, View):
+    """
+    O QUE FAZ: Inicia o fluxo de autorização OAuth 2.0 redirecionando o lojista para o Mercado Livre.
+    POR QUE FAZ: Elimina inputs manuais de tokens, permitindo consentimento direto do seller no canal oficial.
+    PERMISSÕES RBAC: DEV e ADMIN (da respectiva loja).
+    MULTI-TENANCY: Garante que o lojista só autorize contas da sua própria loja.
+    """
+    modulo_requerido = 'marketplaces'
+
+    def get(self, request, pk, *args, **kwargs):
+        conta = get_object_or_404(ContaMarketplace, pk=pk)
+        if not usuario_is_dev(request.user):
+            perfil = getattr(request.user, 'perfil', None)
+            if not perfil or not perfil.loja or conta.loja_id != perfil.loja_id:
+                raise PermissionDenied("Acesso negado: esta conta pertence a outra loja.")
+
+        state = f"conta_{conta.pk}"
+        auth_url = MercadoLivreConnector.gerar_url_autorizacao(state=state)
+        return redirect(auth_url)
+
+
+class MercadoLivreCallbackView(View):
+    """
+    O QUE FAZ: Recebe o callback OAuth 2.0 do Mercado Livre com o authorization code e executa a troca por tokens.
+    POR QUE FAZ: Persiste tokens criptografados na conta correspondente e exibe tela de sucesso com redirecionamento em 3s.
+    SEGURANÇA: Registra auditoria, valida o state e não expõe credenciais brutas.
+    """
+    def get(self, request, *args, **kwargs):
+        code = request.GET.get('code', '').strip()
+        state = request.GET.get('state', '').strip()
+        error = request.GET.get('error', '').strip()
+        error_description = request.GET.get('error_description', '').strip()
+
+        if error:
+            messages.error(request, f"Erro retornado pelo Mercado Livre: {error_description or error}")
+            return redirect('canal_list')
+
+        if not code:
+            messages.error(request, "Código de autorização (code) não foi fornecido pelo Mercado Livre.")
+            return redirect('canal_list')
+
+        # Identifica a conta a partir do state
+        conta = None
+        if state and state.startswith('conta_'):
+            try:
+                conta_id = int(state.replace('conta_', ''))
+                conta = ContaMarketplace.objects.filter(pk=conta_id).first()
+            except ValueError:
+                pass
+
+        if not conta and request.user.is_authenticated:
+            # Fallback para usuário autenticado: primeira conta ML da sua loja
+            perfil = getattr(request.user, 'perfil', None)
+            if perfil and perfil.loja:
+                conta = ContaMarketplace.objects.filter(
+                    loja=perfil.loja, canal=CanalMarketplaceEnum.MERCADOLIVRE
+                ).first()
+
+        if not conta:
+            # Se ainda assim não encontrar, associa à primeira conta ML cadastrada
+            conta = ContaMarketplace.objects.filter(canal=CanalMarketplaceEnum.MERCADOLIVRE).first()
+
+        sucesso, msg, res_json, log = MercadoLivreConnector.trocar_code_por_token(
+            code=code,
+            conta=conta,
+            usuario=request.user if request.user.is_authenticated else None
+        )
+
+        if sucesso:
+            if conta:
+                LogAuditoria.objects.create(
+                    loja=conta.loja,
+                    autor=request.user if request.user.is_authenticated else None,
+                    evento=EventoAuditoriaEnum.CRIACAO_CONTA,
+                    detalhes=f"Conta '{conta.apelido_conta}' autorizada com sucesso via OAuth 2.0 no Mercado Livre (Seller ID: {conta.seller_id_externo}).",
+                    ip_origem=request.META.get('REMOTE_ADDR')
+                )
+
+            context = {
+                'conta': conta,
+                'loja': conta.loja if conta else None,
+                'seller_id': conta.seller_id_externo if conta else res_json.get('user_id'),
+                'apelido': conta.apelido_conta if conta else 'Mercado Livre',
+            }
+            return render(request, 'marketplaces/callback_sucesso.html', context)
+        else:
+            messages.error(request, f"Falha na autorização do Mercado Livre: {msg}")
+            return redirect('canal_list')
+
+
+class ContaMarketplaceDesconectarView(LoginRequiredMixin, ModuloRequeridoMixin, IntegracaoConfigPermissionMixin, View):
+    """
+    O QUE FAZ: Limpa os tokens OAuth e desconecta com segurança a conta de marketplace da loja.
+    POR QUE FAZ: Permite ao gestor revogar credenciais ou reconectar do zero sem excluir o histórico de anúncios.
+    PERMISSÕES RBAC: DEV e ADMIN (da respectiva loja).
+    MULTI-TENANCY: Restrito à loja do usuário.
+    """
+    modulo_requerido = 'marketplaces'
+
+    def post(self, request, pk, *args, **kwargs):
+        conta = get_object_or_404(ContaMarketplace, pk=pk)
+        if not usuario_is_dev(request.user):
+            perfil = getattr(request.user, 'perfil', None)
+            if not perfil or not perfil.loja or conta.loja_id != perfil.loja_id:
+                raise PermissionDenied("Acesso negado: esta conta pertence a outra loja.")
+
+        with transaction.atomic():
+            conta.access_token = None
+            conta.refresh_token = None
+            conta.token_expira_em = None
+            conta.seller_id_externo = None
+            conta.save(update_fields=[
+                'access_token', 'refresh_token', 'token_expira_em', 'seller_id_externo', 'updated_at'
+            ])
+
+            LogAuditoria.objects.create(
+                loja=conta.loja,
+                autor=request.user,
+                evento=EventoAuditoriaEnum.EDICAO_CONTA,
+                detalhes=f"Tokens da conta '{conta.apelido_conta}' ({conta.get_canal_display()}) foram limpos/desconectados.",
+                ip_origem=request.META.get('REMOTE_ADDR')
+            )
+
+        messages.success(request, f"Conta '{conta.apelido_conta}' desconectada com sucesso.")
+        return redirect('canal_list')

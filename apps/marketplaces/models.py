@@ -4,13 +4,14 @@ from django.contrib.auth.models import User
 
 from apps.tenancy.models import Loja
 from .enums import CanalMarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum
+from .fields import EncryptedTextField
 
 
 class ContaMarketplace(models.Model):
     """
     O QUE FAZ: Representa a conexão e credenciais de uma conta de Marketplace vinculada a uma Loja (Tenant).
-    POR QUE FAZ: Desacopla a integração de canais específicos (ex: campos fixos do Mercado Livre em Loja), viabilizando arquitetura multicanal e múltiplas contas por loja (ex: duas contas Mercado Livre ou contas em Mercado Livre, Shopee, Magalu e Amazon).
-    PERMISSÕES RBAC: DEV (qualquer loja); ADMIN (sua própria loja); SUPERVISOR e USUARIO não gerenciam credenciais.
+    POR QUE FAZ: Desacopla a integração de canais específicos, viabilizando arquitetura multicanal com persistência criptografada de tokens OAuth.
+    PERMISSÕES RBAC: DEV (qualquer loja); ADMIN (sua própria loja); SUPERVISOR e USUARIO não gerenciam conexões.
     MULTI-TENANCY: FK obrigatória para Loja e restrição de unicidade ('loja', 'canal', 'seller_id_externo').
     """
     loja = models.ForeignKey(
@@ -27,21 +28,18 @@ class ContaMarketplace(models.Model):
         default=True, verbose_name="Integração Ativa"
     )
 
-    # Credenciais de Integração OAuth / API
-    client_id = models.CharField(
-        max_length=150, blank=True, null=True, verbose_name="Client ID / App ID"
-    )
-    client_secret = models.CharField(
-        max_length=255, blank=True, null=True, verbose_name="Client Secret / Chave Secreta"
-    )
-    access_token = models.TextField(
+    # Credenciais de Integração OAuth / API (Criptografadas em Repouso via Fernet)
+    access_token = EncryptedTextField(
         blank=True, null=True, verbose_name="Access Token"
     )
-    refresh_token = models.TextField(
+    refresh_token = EncryptedTextField(
         blank=True, null=True, verbose_name="Refresh Token"
     )
     token_expira_em = models.DateTimeField(
         blank=True, null=True, verbose_name="Token Expira Em"
+    )
+    ultima_sincronizacao = models.DateTimeField(
+        blank=True, null=True, verbose_name="Última Sincronização"
     )
     seller_id_externo = models.CharField(
         max_length=100, blank=True, null=True, verbose_name="Seller ID Externo / User ID"
@@ -61,8 +59,8 @@ class ContaMarketplace(models.Model):
 
     @property
     def has_credentials(self) -> bool:
-        """Verifica se possui credenciais mínimas configuradas."""
-        return bool(self.access_token or (self.client_id and self.client_secret))
+        """Verifica se a conta possui Access Token configurado."""
+        return bool(self.access_token)
 
 
 # Alias de modelo conforme especificação

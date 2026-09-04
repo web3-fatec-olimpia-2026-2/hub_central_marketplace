@@ -40,8 +40,6 @@ class MarketplacesHubTestCase(TestCase):
             loja=self.loja,
             canal=CanalMarketplaceEnum.MERCADOLIVRE,
             apelido_conta="ML Oficial",
-            client_id="APP_MELI_123",
-            client_secret="SECRET_123",
             access_token="APP_USR_TEST_TOKEN",
             refresh_token="REFRESH_TEST_TOKEN",
             seller_id_externo="123456789"
@@ -190,4 +188,77 @@ class MarketplacesHubTestCase(TestCase):
         self.assertTrue(suc_mag)
         self.assertTrue(ret_mag['item_id_externo'].startswith('MGL'))
         self.assertEqual(log_mag.canal, CanalMarketplaceEnum.MAGALU)
+
+    def test_encrypted_text_field_encryption_at_rest(self):
+        """Valida que tokens são cifrados com Fernet no banco e decifrados transparentemente pelo ORM."""
+        from django.db import connection
+
+        raw_secret_token = "APP_USR_SUPER_SECRET_OAUTH_TOKEN_XYZ_12345"
+        conta = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="Conta Criptografada",
+            access_token=raw_secret_token,
+            seller_id_externo="999888"
+        )
+
+        # 1. Consulta SQL direta na coluna do banco para verificar que NÃO está em texto claro
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT access_token FROM marketplaces_contamarketplace WHERE id = %s", [conta.id])
+            db_value = cursor.fetchone()[0]
+
+        self.assertNotEqual(db_value, raw_secret_token)
+        self.assertTrue(db_value.startswith("gAAAAA"), "O valor salvo no banco deve ser um ciphertext Fernet")
+
+        # 2. Leitura via ORM do Django deve retornar o valor original decifrado
+        conta_loaded = ContaMarketplace.objects.get(id=conta.id)
+        self.assertEqual(conta_loaded.access_token, raw_secret_token)
+
+    def test_mercadolivre_gerar_url_autorizacao_dynamic_settings(self):
+        """Valida que a URL de autorização OAuth é construída dinamicamente sem hardcode."""
+        url = MercadoLivreConnector.gerar_url_autorizacao(state="conta_42")
+        self.assertIn("https://auth.mercadolivre.com.br/authorization?", url)
+        self.assertIn("response_type=code", url)
+        self.assertIn("client_id=", url)
+        self.assertIn("redirect_uri=", url)
+        self.assertIn("state=conta_42", url)
+
+    def test_mercadolivre_callback_view_success_and_logging(self):
+        """Valida a view de callback do OAuth 2.0 salvando tokens e renderizando template de sucesso."""
+        client = Client()
+        res = client.get(reverse('mercadolivre_callback'), {
+            'code': 'TEST_MOCK_CODE_123',
+            'state': f'conta_{self.conta_meli.pk}'
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "Mercado Livre Conectado com Sucesso!")
+        self.assertContains(res, "ML Oficial")
+
+        self.conta_meli.refresh_from_db()
+        self.assertTrue(self.conta_meli.access_token)
+        self.assertTrue(self.conta_meli.refresh_token)
+        self.assertIsNotNone(self.conta_meli.token_expira_em)
+        self.assertIsNotNone(self.conta_meli.ultima_sincronizacao)
+
+        # Log de sincronização criado
+        self.assertTrue(
+            LogSincronizacao.objects.filter(
+                conta_marketplace=self.conta_meli, evento=EventoAuditoriaEnum.CRIACAO_CONTA
+            ).exists()
+        )
+
+    def test_conta_marketplace_desconectar_view(self):
+        """Valida a ação de desconectar e limpar tokens de uma conta com segurança."""
+        client = Client()
+        client.login(username='admin_loja', password='password123')
+
+        res = client.post(reverse('conta_marketplace_desconectar', kwargs={'pk': self.conta_meli.pk}))
+        self.assertEqual(res.status_code, 302)
+
+        self.conta_meli.refresh_from_db()
+        self.assertIsNone(self.conta_meli.access_token)
+        self.assertIsNone(self.conta_meli.refresh_token)
+        self.assertIsNone(self.conta_meli.token_expira_em)
+        self.assertIsNone(self.conta_meli.seller_id_externo)
+
 

@@ -25,9 +25,7 @@ class ContaMarketplaceForm(forms.ModelForm):
     class Meta:
         model = ContaMarketplace
         fields = [
-            'loja', 'canal', 'apelido_conta', 'ativo',
-            'client_id', 'client_secret', 'access_token', 'refresh_token',
-            'seller_id_externo'
+            'loja', 'canal', 'apelido_conta', 'ativo'
         ]
         widgets = {
             'canal': forms.Select(attrs={'class': 'form-select'}),
@@ -35,26 +33,6 @@ class ContaMarketplaceForm(forms.ModelForm):
                 'class': 'form-control',
                 'placeholder': 'Ex: Loja Principal ML, Shopee Oficial...',
                 'autofocus': 'autofocus'
-            }),
-            'client_id': forms.TextInput(attrs={
-                'class': 'form-control font-monospace',
-                'placeholder': 'App ID / Client ID'
-            }),
-            'client_secret': forms.PasswordInput(render_value=True, attrs={
-                'class': 'form-control font-monospace',
-                'placeholder': 'Client Secret / Chave Secreta'
-            }),
-            'access_token': forms.TextInput(attrs={
-                'class': 'form-control font-monospace',
-                'placeholder': 'Bearer Access Token...'
-            }),
-            'refresh_token': forms.TextInput(attrs={
-                'class': 'form-control font-monospace',
-                'placeholder': 'Refresh Token...'
-            }),
-            'seller_id_externo': forms.TextInput(attrs={
-                'class': 'form-control font-monospace',
-                'placeholder': 'ID do Vendedor no Marketplace (Ex: 12345678)'
             }),
             'ativo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }

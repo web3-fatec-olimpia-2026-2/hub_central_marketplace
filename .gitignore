@@ -1,5 +1,15 @@
+# Python & Ambiente Virtual
 .venv/
-.env
 *.pyc
 __pycache__/
 db.sqlite3
+
+# Certificados SSL/TLS locais e chaves privadas
+*.pem
+*.key
+*.crt
+*.csr
+
+# Variáveis de ambiente
+.env
+.env.local

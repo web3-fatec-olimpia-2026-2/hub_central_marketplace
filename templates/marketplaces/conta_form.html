@@ -2,13 +2,13 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {% if modo_edicao %}Editar Conta: {{ conta.apelido_conta }}{% else %}Conectar Conta de Marketplace{% endif %}
+    {% if modo_edicao %}Conta: {{ conta.apelido_conta }}{% else %}Conectar Conta de Marketplace{% endif %}
 {% endblock %}
 
 {% block page_title %}
-    {% if modo_edicao %}Editar Conta: {{ conta.apelido_conta }}{% else %}Conectar Nova Conta de Marketplace{% endif %}
+    {% if modo_edicao %}Conta: {{ conta.apelido_conta }}{% else %}Conectar Nova Conta de Marketplace{% endif %}
 {% endblock %}
-{% block page_subtitle %}Gestão de Credenciais e Conectores de Canal{% endblock %}
+{% block page_subtitle %}Gestão Desacoplada de Conexões e Autenticação OAuth 2.0{% endblock %}
 
 {% block toolbar_actions %}
     <a href="{% url 'canal_list' %}" class="btn btn-outline-secondary">
@@ -19,9 +19,71 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-lg-8">
+        <!-- PAINEL DE STATUS DA CONEXÃO OAUTH (EM MODO DE EDIÇÃO) -->
+        {% if modo_edicao %}
+            <div class="card shadow-sm mb-4 border-start border-4 {% if conta.access_token %}border-success{% else %}border-danger{% endif %}">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <span class="fw-bold"><i class="bi bi-shield-lock me-2 text-primary"></i>Status da Conexão OAuth 2.0</span>
+                    {% if conta.access_token %}
+                        <span class="badge bg-success px-3 py-2"><i class="bi bi-shield-check me-1"></i> Conectado</span>
+                    {% else %}
+                        <span class="badge bg-danger px-3 py-2"><i class="bi bi-shield-x me-1"></i> Desconectado</span>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <small class="text-muted d-block">Canal:</small>
+                            <span class="badge {% if conta.canal == 'mercadolivre' %}bg-warning text-dark{% elif conta.canal == 'shopee' %}bg-danger{% elif conta.canal == 'magalu' %}bg-primary{% else %}bg-dark{% endif %} px-2 py-1">
+                                {{ conta.get_canal_display }}
+                            </span>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted d-block">Seller ID Externo:</small>
+                            <span class="font-monospace fw-bold">{{ conta.seller_id_externo|default:"Não vinculado" }}</span>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted d-block">Última Sincronização / Conexão:</small>
+                            <span>{{ conta.ultima_sincronizacao|date:"d/m/Y H:i:s"|default:"—" }}</span>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted d-block">Criptografia em Repouso:</small>
+                            <span class="text-success small fw-semibold"><i class="bi bi-lock-fill"></i> Fernet AES-128 Criptografado</span>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top justify-content-between align-items-center">
+                        <div>
+                            {% if conta.canal == 'mercadolivre' %}
+                                {% if conta.access_token %}
+                                    <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-outline-warning btn-sm">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Reconectar Conta
+                                    </a>
+                                {% else %}
+                                    <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-warning fw-bold">
+                                        <i class="bi bi-box-arrow-up-right me-1"></i> Conectar com Mercado Livre
+                                    </a>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+
+                        {% if conta.access_token %}
+                            <form method="post" action="{% url 'conta_marketplace_desconectar' pk=conta.pk %}" class="d-inline" onsubmit="return confirm('Tem certeza que deseja desconectar esta conta? Os tokens serão removidos.');">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-outline-danger btn-sm">
+                                    <i class="bi bi-power me-1"></i> Desconectar Conta
+                                </button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- FORMULÁRIO DE DADOS GERAIS DA CONTA -->
         <div class="card shadow-sm">
-            <div class="card-header fw-bold">
-                <i class="bi bi-link-45deg me-2 text-primary"></i>Configuração de Canal e Credenciais
+            <div class="card-header fw-bold bg-white">
+                <i class="bi bi-sliders me-2 text-primary"></i>Dados da Conta no Hub
             </div>
             <div class="card-body p-4">
                 <form method="post" novalidate>
@@ -29,54 +91,21 @@
 
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label">Canal de Marketplace *</label>
+                            <label class="form-label fw-semibold">Canal de Marketplace *</label>
                             {{ form.canal }}
                             {% if form.canal.errors %}<div class="text-danger small mt-1">{{ form.canal.errors.0 }}</div>{% endif %}
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label">Apelido da Conta *</label>
+                            <label class="form-label fw-semibold">Apelido da Conta *</label>
                             {{ form.apelido_conta }}
                             {% if form.apelido_conta.errors %}<div class="text-danger small mt-1">{{ form.apelido_conta.errors.0 }}</div>{% endif %}
                         </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label">Loja (Tenant) *</label>
+                        <div class="col-md-12">
+                            <label class="form-label fw-semibold">Loja (Tenant) *</label>
                             {{ form.loja }}
                             {% if form.loja.errors %}<div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>{% endif %}
-                        </div>
-
-                        <div class="col-md-6">
-                            <label class="form-label">Seller ID / User ID Externo</label>
-                            {{ form.seller_id_externo }}
-                            {% if form.seller_id_externo.errors %}<div class="text-danger small mt-1">{{ form.seller_id_externo.errors.0 }}</div>{% endif %}
-                        </div>
-
-                        <hr class="my-3">
-                        <h6 class="fw-bold text-secondary mb-2">Credenciais de Autenticação / OAuth</h6>
-
-                        <div class="col-md-6">
-                            <label class="form-label">Client ID / Application ID</label>
-                            {{ form.client_id }}
-                            {% if form.client_id.errors %}<div class="text-danger small mt-1">{{ form.client_id.errors.0 }}</div>{% endif %}
-                        </div>
-
-                        <div class="col-md-6">
-                            <label class="form-label">Client Secret / Chave Secreta</label>
-                            {{ form.client_secret }}
-                            {% if form.client_secret.errors %}<div class="text-danger small mt-1">{{ form.client_secret.errors.0 }}</div>{% endif %}
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label">Access Token (Bearer)</label>
-                            {{ form.access_token }}
-                            {% if form.access_token.errors %}<div class="text-danger small mt-1">{{ form.access_token.errors.0 }}</div>{% endif %}
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label">Refresh Token</label>
-                            {{ form.refresh_token }}
-                            {% if form.refresh_token.errors %}<div class="text-danger small mt-1">{{ form.refresh_token.errors.0 }}</div>{% endif %}
                         </div>
 
                         <div class="col-12 mt-3">
@@ -89,8 +118,8 @@
 
                     <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
                         <a href="{% url 'canal_list' %}" class="btn btn-outline-secondary">Cancelar</a>
-                        <button type="submit" class="btn btn-success">
-                            <i class="bi bi-check-lg"></i> Salvar Conexão
+                        <button type="submit" class="btn btn-primary fw-bold">
+                            <i class="bi bi-check-lg me-1"></i> Salvar Dados
                         </button>
                     </div>
                 </form>
