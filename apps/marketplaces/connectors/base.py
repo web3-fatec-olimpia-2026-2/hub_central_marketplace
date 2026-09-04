@@ -27,7 +27,7 @@ class BaseMarketplaceConnector(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def autenticar(self) -> Tuple[bool, str, Dict[str, Any]]:
+    def autenticar(self, request=None) -> Tuple[bool, str, Dict[str, Any]]:
         """
         O QUE FAZ: Valida credenciais ou testa conectividade com a API externa (ex: GET /users/me).
         POR QUE FAZ: Confirma se a conta está ativa e autorizada antes de sincronizar dados.

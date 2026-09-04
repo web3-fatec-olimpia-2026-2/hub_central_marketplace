@@ -51,13 +51,17 @@ def login_debug_context(request):
         except Exception:
             pass
 
+        from .services import is_simular_rotas_mock_ativo
         return {
             'login_debug': True,
             'dev_debug_user': DEV_HARDCODED_USER,
             'dev_debug_pass': DEV_HARDCODED_PASS,
+            'simular_rotas_mock': is_simular_rotas_mock_ativo(request),
         }
+    from .services import is_simular_rotas_mock_ativo
     return {
         'login_debug': False,
         'dev_debug_user': '',
         'dev_debug_pass': '',
+        'simular_rotas_mock': is_simular_rotas_mock_ativo(request),
     }

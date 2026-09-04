@@ -81,7 +81,7 @@
 
                     <div class="small text-muted mb-3 flex-grow-1">
                         <div><strong>Seller ID:</strong> <span class="font-monospace fw-bold">{{ conta.seller_id_externo|default:"Não vinculado" }}</span></div>
-                        <div><strong>Última Conexão:</strong> <span>{{ conta.ultima_sincronizacao|date:"d/m/Y H:i"|default:"—" }}</span></div>
+                        <div><strong>Última Conexão:</strong> <span>{{ conta.ultima_sincronizacao|date:"d/m/Y H:i:s"|default:"—" }}</span></div>
                         <div><strong>Criptografia:</strong> <span class="text-success"><i class="bi bi-lock-fill"></i> Ativa (Fernet)</span></div>
                     </div>
 
@@ -108,7 +108,7 @@
 
                         {% if pode_configurar %}
                             <div class="btn-group btn-group-sm">
-                                {% if conta.access_token and conta.canal == 'mercadolivre' %}
+                                {% if conta.ultima_sincronizacao and conta.canal == 'mercadolivre' %}
                                     <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-outline-warning" title="Reconectar Conta">
                                         <i class="bi bi-arrow-repeat"></i>
                                     </a>

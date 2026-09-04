@@ -1,6 +1,9 @@
 # Os códigos foram gerados com auxilio de I.A.
+import time
+import requests
 from decimal import Decimal
 from typing import Tuple, Dict, Any, List, Optional
+from django.utils import timezone
 
 from apps.marketplaces.models import ContaMarketplace, LogSincronizacao
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
@@ -9,32 +12,132 @@ from .base import BaseMarketplaceConnector
 
 class ShopeeConnector(BaseMarketplaceConnector):
     """
-    O QUE FAZ: Conector stub didático para integração com o marketplace Shopee (OpenAPI v2).
+    O QUE FAZ: Conector para integração com o marketplace Shopee (OpenAPI v2).
     POR QUE FAZ: Implementa o contrato BaseMarketplaceConnector demonstrando a extensibilidade da arquitetura multicanal sem impactar os demais canais.
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Parametrizado com a ContaMarketplace da Shopee da loja.
     """
+    BASE_URL = "https://partner.shopeemobile.com/api/v2"
+    TIMEOUT_SEGUNDOS = 10
+
     @property
     def canal_nome(self) -> str:
         return CanalMarketplaceEnum.SHOPEE
 
-    def autenticar(self) -> Tuple[bool, str, Dict[str, Any]]:
-        """Validação simulada de credenciais da Shopee com telemetria."""
+    def autenticar(self, request=None) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        O QUE FAZ: Valida credenciais na API Shopee OpenAPI v2 ou simula conforme flag de mock.
+        POR QUE FAZ: Confirma a operacionalidade das credenciais e atualiza a telemetria.
+        """
+        from apps.mockar_dados.services import is_simular_rotas_mock_ativo
+        simular = is_simular_rotas_mock_ativo(request)
+        is_conta_mock = getattr(self.conta, 'is_mock', False) if self.conta else False
+
+        now = timezone.now()
+        data_formatada = now.strftime("%d/%m/%Y às %H:%M:%S")
+
+        # CENÁRIO A: CONTAS MOCKADAS (is_mock = True)
+        if is_conta_mock:
+            if simular:
+                if self.conta:
+                    self.conta.ultima_sincronizacao = now
+                    self.conta.save(update_fields=['ultima_sincronizacao', 'updated_at'])
+
+                LogSincronizacao.objects.create(
+                    loja=self.conta.loja if self.conta else None,
+                    conta_marketplace=self.conta,
+                    canal=CanalMarketplaceEnum.SHOPEE,
+                    evento=EventoAuditoriaEnum.TESTE_CONEXAO,
+                    payload_enviado={"simulado": True},
+                    resposta_recebida={"status": "authenticated", "shop_id": self.conta.seller_id_externo or "SHOPEE_MOCK_SHOP", "status_conexao": "Ativo"},
+                    status_http=200,
+                    sucesso=True,
+                    tempo_resposta_ms=45,
+                )
+                return True, f"Conexão simulada com sucesso em {data_formatada}", {"status": "ok"}
+            else:
+                # Simulação DESATIVADA: Recusa HTTP 401 legítima sem alterar ultima_sincronizacao
+                LogSincronizacao.objects.create(
+                    loja=self.conta.loja if self.conta else None,
+                    conta_marketplace=self.conta,
+                    canal=CanalMarketplaceEnum.SHOPEE,
+                    evento=EventoAuditoriaEnum.TESTE_CONEXAO,
+                    payload_enviado={},
+                    resposta_recebida={"error": "unauthorized", "message": "Não autorizado: credenciais ausentes ou inválidas no marketplace"},
+                    status_http=401,
+                    sucesso=False,
+                    mensagem_erro="Não autorizado: credenciais ausentes ou inválidas no marketplace",
+                    tempo_resposta_ms=115,
+                )
+                return False, "Erro HTTP 401: Não autorizado: credenciais ausentes ou inválidas no marketplace", {"status_code": 401}
+
+        # CENÁRIO B: CONTAS MANUAIS / REAIS (is_mock = False)
         if not self.conta or not self.conta.access_token:
             return False, "Conta Shopee sem Access Token configurado.", {}
 
-        log = LogSincronizacao.objects.create(
-            loja=self.conta.loja,
-            conta_marketplace=self.conta,
-            canal=CanalMarketplaceEnum.SHOPEE,
-            evento=EventoAuditoriaEnum.TESTE_CONEXAO,
-            payload_enviado={},
-            resposta_recebida={"status": "authenticated", "shop_id": self.conta.seller_id_externo or "SHOPEE_SHOP_1"},
-            status_http=200,
-            sucesso=True,
-            tempo_resposta_ms=50,
-        )
-        return True, "Conexão ativa com a API Shopee OpenAPI v2!", {"status": "ok"}
+        url = f"{self.BASE_URL}/shop/get_shop_info"
+        headers = {
+            "Authorization": f"Bearer {self.conta.access_token.strip()}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        inicio = time.time()
+        try:
+            response = requests.get(url, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
+            tempo_ms = int((time.time() - inicio) * 1000)
+            status_code = response.status_code
+
+            try:
+                res_json = response.json()
+            except Exception:
+                res_json = {"raw_text": response.text}
+
+            if status_code in (200, 201):
+                self.conta.ultima_sincronizacao = now
+                self.conta.save(update_fields=['ultima_sincronizacao', 'updated_at'])
+
+                LogSincronizacao.objects.create(
+                    loja=self.conta.loja,
+                    conta_marketplace=self.conta,
+                    canal=CanalMarketplaceEnum.SHOPEE,
+                    evento=EventoAuditoriaEnum.TESTE_CONEXAO,
+                    payload_enviado={},
+                    resposta_recebida=res_json,
+                    status_http=status_code,
+                    sucesso=True,
+                    tempo_resposta_ms=tempo_ms,
+                )
+                return True, "Conexão ativa com a API Shopee OpenAPI v2!", res_json
+            else:
+                msg_erro = res_json.get('message') or f"Status HTTP {status_code}"
+                LogSincronizacao.objects.create(
+                    loja=self.conta.loja,
+                    conta_marketplace=self.conta,
+                    canal=CanalMarketplaceEnum.SHOPEE,
+                    evento=EventoAuditoriaEnum.TESTE_CONEXAO,
+                    payload_enviado={},
+                    resposta_recebida=res_json,
+                    status_http=status_code,
+                    sucesso=False,
+                    mensagem_erro=msg_erro,
+                    tempo_resposta_ms=tempo_ms,
+                )
+                return False, f"Erro HTTP {status_code}: Falha de autenticação com a API Shopee", res_json
+        except Exception as exc:
+            tempo_ms = int((time.time() - inicio) * 1000)
+            LogSincronizacao.objects.create(
+                loja=self.conta.loja if self.conta else None,
+                conta_marketplace=self.conta,
+                canal=CanalMarketplaceEnum.SHOPEE,
+                evento=EventoAuditoriaEnum.TESTE_CONEXAO,
+                payload_enviado={},
+                resposta_recebida={"erro_comunicacao": str(exc)},
+                status_http=500,
+                sucesso=False,
+                mensagem_erro=str(exc),
+                tempo_resposta_ms=tempo_ms,
+            )
+            return False, f"Erro de comunicação com a API Shopee: {str(exc)}", {}
 
     def atualizar_preco(
         self, item_id_externo: str, novo_preco: Decimal, usuario=None

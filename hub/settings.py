@@ -172,3 +172,8 @@ MERCADOLIVRE_REDIRECT_URI = os.getenv(
 )
 FIELD_ENCRYPTION_KEY = os.getenv("FIELD_ENCRYPTION_KEY", "")
 
+# ==============================================================================
+# FEATURE FLAG: SIMULAÇÃO DE ROTAS MOCK (OAUTH & APIS DE MARKETPLACES)
+# ==============================================================================
+SIMULAR_ROTAS_MOCK = os.getenv("SIMULAR_ROTAS_MOCK", "True").lower() in ("true", "1", "yes")
+

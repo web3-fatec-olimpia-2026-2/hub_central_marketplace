@@ -55,7 +55,7 @@
                     <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top justify-content-between align-items-center">
                         <div>
                             {% if conta.canal == 'mercadolivre' %}
-                                {% if conta.access_token %}
+                                {% if conta.ultima_sincronizacao %}
                                     <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-outline-warning btn-sm">
                                         <i class="bi bi-arrow-repeat me-1"></i> Reconectar Conta
                                     </a>

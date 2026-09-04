@@ -59,3 +59,30 @@ class MockarDadosDashboardView(LoginRequiredMixin, View):
             messages.error(request, "Ação não reconhecida.")
 
         return redirect('mockar_dados_dashboard')
+
+
+class AlternarSimulacaoMockView(LoginRequiredMixin, View):
+    """
+    O QUE FAZ: Alterna a feature flag SIMULAR_ROTAS_MOCK na sessão do usuário.
+    POR QUE FAZ: Permite ao desenvolvedor alternar em 1 clique entre respostas de sucesso simuladas (HTTP 200) e recusa legítima (HTTP 401).
+    PERMISSÕES RBAC: DEV e Superusuário.
+    """
+    def post(self, request, *args, **kwargs):
+        if not usuario_is_dev(request.user):
+            raise PermissionDenied("Acesso negado: controle de simulação mock exclusivo para perfil DEV.")
+
+        from .services import alternar_simulacao_mock
+        novo_estado = alternar_simulacao_mock(request)
+        if novo_estado:
+            messages.success(
+                request,
+                "Simulação de Rotas Mock ATIVADA: Conexões de contas mockadas responderão com HTTP 200 (Sucesso Simulado)."
+            )
+        else:
+            messages.warning(
+                request,
+                "Simulação de Rotas Mock DESATIVADA: Contas mockadas sem credenciais legítimas retornarão recusa HTTP 401 (Não Autorizado)."
+            )
+
+        next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or 'mockar_dados_dashboard'
+        return redirect(next_url)

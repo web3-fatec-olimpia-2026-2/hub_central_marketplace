@@ -206,7 +206,7 @@ class ContaMarketplaceTestarView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
                 raise PermissionDenied("Acesso negado.")
 
         connector = get_connector_for_conta(conta)
-        sucesso, msg, _ = connector.autenticar()
+        sucesso, msg, _ = connector.autenticar(request=request)
 
         if sucesso:
             messages.success(request, f"[{conta.get_canal_display()}] {msg}")
@@ -301,6 +301,30 @@ class MercadoLivreAutorizarView(LoginRequiredMixin, ModuloRequeridoMixin, Integr
             if not perfil or not perfil.loja or conta.loja_id != perfil.loja_id:
                 raise PermissionDenied("Acesso negado: esta conta pertence a outra loja.")
 
+        # Se for conta mockada, respeita a feature flag de simulação
+        if conta.is_mock:
+            from apps.mockar_dados.services import is_simular_rotas_mock_ativo
+            if is_simular_rotas_mock_ativo(request):
+                state = f"conta_{conta.pk}"
+                code = f"MOCK_CODE_{conta.pk}"
+                callback_url = f"{reverse('mercadolivre_callback')}?code={code}&state={state}"
+                return redirect(callback_url)
+            else:
+                LogSincronizacao.objects.create(
+                    loja=conta.loja,
+                    conta_marketplace=conta,
+                    canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                    evento=EventoAuditoriaEnum.TESTE_CONEXAO,
+                    payload_enviado={"conta_id": conta.pk},
+                    resposta_recebida={"error": "unauthorized", "message": "Não autorizado: credenciais ausentes ou inválidas no marketplace"},
+                    status_http=401,
+                    sucesso=False,
+                    mensagem_erro="Não autorizado: credenciais ausentes ou inválidas no marketplace",
+                    tempo_resposta_ms=110,
+                )
+                messages.error(request, "[Mercado Livre] Erro HTTP 401: Não autorizado: credenciais ausentes ou inválidas no marketplace")
+                return redirect('canal_list')
+
         state = f"conta_{conta.pk}"
         auth_url = MercadoLivreConnector.gerar_url_autorizacao(state=state)
         return redirect(auth_url)
@@ -350,7 +374,8 @@ class MercadoLivreCallbackView(View):
         sucesso, msg, res_json, log = MercadoLivreConnector.trocar_code_por_token(
             code=code,
             conta=conta,
-            usuario=request.user if request.user.is_authenticated else None
+            usuario=request.user if request.user.is_authenticated else None,
+            request=request,
         )
 
         if sucesso:

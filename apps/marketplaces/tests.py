@@ -261,4 +261,111 @@ class MarketplacesHubTestCase(TestCase):
         self.assertIsNone(self.conta_meli.token_expira_em)
         self.assertIsNone(self.conta_meli.seller_id_externo)
 
+    def test_mock_toggle_mercadolivre_simulation(self):
+        """Valida o comportamento de simulação mock ativa (200) vs desativada (401) no Mercado Livre."""
+        conta_mock = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Mock Teste",
+            is_mock=True,
+            seller_id_externo="86176658"
+        )
+        conn = get_connector_for_conta(conta_mock)
+
+        # 1. Simulação ATIVA (padrão)
+        with patch('apps.mockar_dados.services.is_simular_rotas_mock_ativo', return_value=True):
+            sucesso, msg, _ = conn.autenticar()
+            self.assertTrue(sucesso)
+            self.assertIn("Conexão simulada com sucesso", msg)
+            conta_mock.refresh_from_db()
+            self.assertIsNotNone(conta_mock.ultima_sincronizacao)
+            timestamp_anterior = conta_mock.ultima_sincronizacao
+
+            # Telemetria 200
+            ultimo_log = LogSincronizacao.objects.filter(conta_marketplace=conta_mock).latest('criado_em')
+            self.assertEqual(ultimo_log.status_http, 200)
+            self.assertTrue(ultimo_log.sucesso)
+
+        # 2. Simulação DESATIVADA (recusa legítima 401 sem alterar timestamp)
+        with patch('apps.mockar_dados.services.is_simular_rotas_mock_ativo', return_value=False):
+            sucesso, msg, _ = conn.autenticar()
+            self.assertFalse(sucesso)
+            self.assertIn("401", msg)
+            conta_mock.refresh_from_db()
+            self.assertEqual(conta_mock.ultima_sincronizacao, timestamp_anterior)
+
+            # Telemetria 401
+            ultimo_log = LogSincronizacao.objects.filter(conta_marketplace=conta_mock).latest('criado_em')
+            self.assertEqual(ultimo_log.status_http, 401)
+            self.assertFalse(ultimo_log.sucesso)
+            self.assertIn("Não autorizado", ultimo_log.mensagem_erro)
+
+    def test_mock_toggle_magalu_and_shopee_simulation(self):
+        """Valida o comportamento de alternância mock em Magalu e Shopee."""
+        conta_magalu_mock = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MAGALU,
+            apelido_conta="Magalu Mock Teste",
+            is_mock=True
+        )
+        conta_shopee_mock = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.SHOPEE,
+            apelido_conta="Shopee Mock Teste",
+            is_mock=True
+        )
+
+        conn_mag = get_connector_for_conta(conta_magalu_mock)
+        conn_shp = get_connector_for_conta(conta_shopee_mock)
+
+        # Simulação ATIVA
+        with patch('apps.mockar_dados.services.is_simular_rotas_mock_ativo', return_value=True):
+            suc_mag, msg_mag, _ = conn_mag.autenticar()
+            suc_shp, msg_shp, _ = conn_shp.autenticar()
+            self.assertTrue(suc_mag)
+            self.assertTrue(suc_shp)
+            conta_magalu_mock.refresh_from_db()
+            conta_shopee_mock.refresh_from_db()
+            self.assertIsNotNone(conta_magalu_mock.ultima_sincronizacao)
+            self.assertIsNotNone(conta_shopee_mock.ultima_sincronizacao)
+
+        # Simulação DESATIVADA -> 401
+        with patch('apps.mockar_dados.services.is_simular_rotas_mock_ativo', return_value=False):
+            suc_mag, msg_mag, _ = conn_mag.autenticar()
+            suc_shp, msg_shp, _ = conn_shp.autenticar()
+            self.assertFalse(suc_mag)
+            self.assertFalse(suc_shp)
+            self.assertIn("401", msg_mag)
+            self.assertIn("401", msg_shp)
+
+    def test_reconnect_button_visibility_rules(self):
+        """Valida que o botão Reconectar Conta é exibido estritamente quando ultima_sincronizacao não é nula."""
+        client = Client()
+        client.login(username='admin_loja', password='password123')
+
+        # 1. Conta ML sem sincronização prévia
+        conta_nova_ml = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Sem Conexao",
+            ultima_sincronizacao=None
+        )
+
+        res_list = client.get(reverse('canal_list'))
+        self.assertEqual(res_list.status_code, 200)
+        # Não deve haver botão de reconectar para a conta sem sincronização
+        res_form = client.get(reverse('conta_marketplace_update', kwargs={'pk': conta_nova_ml.pk}))
+        self.assertEqual(res_form.status_code, 200)
+        self.assertNotContains(res_form, "Reconectar Conta")
+        self.assertContains(res_form, "Conectar com Mercado Livre")
+
+        # 2. Agora marcamos ultima_sincronizacao
+        from django.utils import timezone
+        conta_nova_ml.ultima_sincronizacao = timezone.now()
+        conta_nova_ml.save()
+
+        res_form_apos = client.get(reverse('conta_marketplace_update', kwargs={'pk': conta_nova_ml.pk}))
+        self.assertEqual(res_form_apos.status_code, 200)
+        self.assertContains(res_form_apos, "Reconectar Conta")
+
 

@@ -22,6 +22,32 @@ from apps.financeiro.models import ConfiguracaoTaxasLoja, ParametroCanalMarketpl
 from .conf import DEV_HARDCODED_USER, DEV_HARDCODED_PASS, DEV_HARDCODED_EMAIL
 
 
+def is_simular_rotas_mock_ativo(request=None) -> bool:
+    """
+    O QUE FAZ: Verifica se a feature flag SIMULAR_ROTAS_MOCK está habilitada.
+    POR QUE FAZ: Controla se as ações em contas mockadas retornam sucesso simulado (HTTP 200) ou recusa (HTTP 401).
+    PRIORIDADE: request.session['SIMULAR_ROTAS_MOCK'] > settings.SIMULAR_ROTAS_MOCK > True.
+    """
+    from django.conf import settings
+    if request and hasattr(request, 'session'):
+        val = request.session.get('SIMULAR_ROTAS_MOCK')
+        if val is not None:
+            return bool(val)
+    return getattr(settings, 'SIMULAR_ROTAS_MOCK', True)
+
+
+def alternar_simulacao_mock(request) -> bool:
+    """
+    O QUE FAZ: Inverte o estado da flag SIMULAR_ROTAS_MOCK na sessão do usuário.
+    POR QUE FAZ: Permite alternar rapidamente entre modo Simulado e modo Recusa (HTTP 401) pela interface.
+    """
+    atual = is_simular_rotas_mock_ativo(request)
+    novo = not atual
+    if request and hasattr(request, 'session'):
+        request.session['SIMULAR_ROTAS_MOCK'] = novo
+    return novo
+
+
 class MockDataService:
     """
     Serviço centralizado de gestão de dados sintéticos para testes e desenvolvimento.
@@ -282,7 +308,8 @@ class MockDataService:
                 apelido_conta=f'ML - {loja.nome[:15]}',
                 seller_id_externo=f'ML_{spec["cnpj"][:8]}',
                 access_token=f'MOCK_TOKEN_ML_{loja.id}',
-                ativo=True
+                ativo=True,
+                is_mock=True
             )
             conta_shopee = ContaMarketplace.objects.create(
                 loja=loja,
@@ -290,7 +317,8 @@ class MockDataService:
                 apelido_conta=f'Shopee - {loja.nome[:15]}',
                 seller_id_externo=f'SHP_{spec["cnpj"][:8]}',
                 access_token=f'MOCK_TOKEN_SHP_{loja.id}',
-                ativo=True
+                ativo=True,
+                is_mock=True
             )
             conta_magalu = ContaMarketplace.objects.create(
                 loja=loja,
@@ -298,7 +326,8 @@ class MockDataService:
                 apelido_conta=f'Magalu - {loja.nome[:15]}',
                 seller_id_externo=f'MGL_{spec["cnpj"][:8]}',
                 access_token=f'MOCK_TOKEN_MGL_{loja.id}',
-                ativo=True
+                ativo=True,
+                is_mock=True
             )
 
             # F. Criação da Categoria Mestre da Loja

@@ -27,6 +27,10 @@ class ContaMarketplace(models.Model):
     ativo = models.BooleanField(
         default=True, verbose_name="Integração Ativa"
     )
+    is_mock = models.BooleanField(
+        default=False, verbose_name="Conta Simulada / Mock",
+        help_text="Indica se a conta pertence ao conjunto de lojas e dados fictícios de teste."
+    )
 
     # Credenciais de Integração OAuth / API (Criptografadas em Repouso via Fernet)
     access_token = EncryptedTextField(
@@ -56,6 +60,12 @@ class ContaMarketplace(models.Model):
 
     def __str__(self):
         return f"[{self.get_canal_display()}] {self.apelido_conta} — {self.loja.nome}"
+
+    def save(self, *args, **kwargs):
+        """Identifica automaticamente contas pertencentes às lojas mockadas."""
+        if self.loja and getattr(self.loja, 'slug', None) in ['techzone-mock', 'comfort-mock', 'passofirme-mock']:
+            self.is_mock = True
+        super().save(*args, **kwargs)
 
     @property
     def has_credentials(self) -> bool:
