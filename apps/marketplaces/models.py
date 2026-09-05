@@ -1,6 +1,7 @@
 # Os códigos foram gerados com auxilio de I.A.
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 
 from apps.tenancy.models import Loja
 from .enums import CanalMarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum
@@ -55,14 +56,78 @@ class ContaMarketplace(models.Model):
     class Meta:
         verbose_name = "Conta de Marketplace"
         verbose_name_plural = "Contas de Marketplaces"
-        unique_together = ('loja', 'canal', 'seller_id_externo')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['loja', 'canal'],
+                name='unique_conta_loja_canal'
+            ),
+            models.UniqueConstraint(
+                fields=['loja', 'apelido_conta'],
+                name='unique_conta_loja_apelido'
+            ),
+            models.UniqueConstraint(
+                fields=['canal', 'seller_id_externo'],
+                condition=models.Q(seller_id_externo__isnull=False) & ~models.Q(seller_id_externo=''),
+                name='unique_conta_canal_seller_id'
+            ),
+        ]
         ordering = ['loja', 'canal', 'apelido_conta']
 
     def __str__(self):
         return f"[{self.get_canal_display()}] {self.apelido_conta} — {self.loja.nome}"
 
+    def clean(self):
+        super().clean()
+
+        # 1. Imutabilidade na edição: canal e loja não podem ser alterados
+        if self.pk:
+            original = ContaMarketplace.objects.filter(pk=self.pk).only('loja_id', 'canal').first()
+            if original:
+                if original.loja_id != self.loja_id:
+                    raise ValidationError({'loja': "A loja (tenant) vinculada é imutável após a conexão."})
+                if original.canal != self.canal:
+                    raise ValidationError({'canal': "O canal de marketplace é imutável após a conexão."})
+
+        # 2. Trava Loja + Canal (apenas 1 conexão ativa por canal por loja)
+        if self.loja_id and self.canal:
+            qs = ContaMarketplace.objects.filter(loja_id=self.loja_id, canal=self.canal)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({
+                    'canal': f"A loja selecionada já possui uma conexão para o canal {self.get_canal_display()}."
+                })
+
+        # 3. Trava Canal + Seller ID Externo (não pode ser reaproveitado por outra loja)
+        if self.canal and self.seller_id_externo:
+            qs = ContaMarketplace.objects.filter(canal=self.canal, seller_id_externo=self.seller_id_externo)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({
+                    'seller_id_externo': f"O Seller ID Externo '{self.seller_id_externo}' já está em uso por outra conta no canal {self.get_canal_display()}."
+                })
+
+        # 4. Trava Loja + Apelido da Conta (único dentro da loja)
+        if self.loja_id and self.apelido_conta:
+            qs = ContaMarketplace.objects.filter(loja_id=self.loja_id, apelido_conta=self.apelido_conta)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({
+                    'apelido_conta': f"Já existe uma conta com o apelido '{self.apelido_conta}' cadastrada para esta loja."
+                })
+
     def save(self, *args, **kwargs):
-        """Identifica automaticamente contas pertencentes às lojas mockadas."""
+        """Valida imutabilidade e identifica automaticamente contas pertencentes às lojas mockadas."""
+        if self.pk:
+            original = ContaMarketplace.objects.filter(pk=self.pk).only('loja_id', 'canal').first()
+            if original:
+                if original.loja_id != self.loja_id:
+                    raise ValidationError({'loja': "A loja (tenant) vinculada é imutável após a conexão."})
+                if original.canal != self.canal:
+                    raise ValidationError({'canal': "O canal de marketplace é imutável após a conexão."})
+
         if self.loja and getattr(self.loja, 'slug', None) in ['techzone-mock', 'comfort-mock', 'passofirme-mock']:
             self.is_mock = True
         super().save(*args, **kwargs)

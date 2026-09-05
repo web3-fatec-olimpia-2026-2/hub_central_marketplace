@@ -7,7 +7,8 @@ REGRAS DE SEGURANÇA E AMBIENTE:
 - Em qualquer outro cenário, retorna login_debug=False e strings vazias.
 """
 from django.conf import settings
-from .conf import DEV_HARDCODED_USER, DEV_HARDCODED_PASS, DEV_HARDCODED_EMAIL
+from .conf import get_dev_debug_username, get_dev_debug_password
+from .services import garantir_usuario_devmaster, is_simular_rotas_mock_ativo
 
 
 def login_debug_context(request):
@@ -15,50 +16,19 @@ def login_debug_context(request):
     is_login_debug = getattr(settings, 'LOGIN_DEBUG', False)
 
     if is_debug and is_login_debug:
-        # Garante a existência do usuário devmaster no banco caso ainda não tenha sido criado
+        # Garante a existência e sincronização do usuário devmaster no banco a partir do .env
         try:
-            from django.contrib.auth.models import User
-            from apps.tenancy.models import PerfilUsuario
-            from apps.tenancy.enums import PapelUsuarioEnum
-
-            user, created = User.objects.get_or_create(
-                username=DEV_HARDCODED_USER,
-                defaults={
-                    'email': DEV_HARDCODED_EMAIL,
-                    'is_staff': True,
-                    'is_superuser': True,
-                    'is_active': True,
-                }
-            )
-            if created or not user.check_password(DEV_HARDCODED_PASS):
-                user.set_password(DEV_HARDCODED_PASS)
-                user.is_staff = True
-                user.is_superuser = True
-                user.is_active = True
-                user.save()
-
-            perfil, _ = PerfilUsuario.objects.get_or_create(
-                usuario=user,
-                defaults={
-                    'papel': PapelUsuarioEnum.DEV,
-                    'loja': None,
-                }
-            )
-            if perfil.papel != PapelUsuarioEnum.DEV or perfil.loja is not None:
-                perfil.papel = PapelUsuarioEnum.DEV
-                perfil.loja = None
-                perfil.save()
+            garantir_usuario_devmaster()
         except Exception:
             pass
 
-        from .services import is_simular_rotas_mock_ativo
         return {
             'login_debug': True,
-            'dev_debug_user': DEV_HARDCODED_USER,
-            'dev_debug_pass': DEV_HARDCODED_PASS,
+            'dev_debug_user': get_dev_debug_username(),
+            'dev_debug_pass': get_dev_debug_password(),
             'simular_rotas_mock': is_simular_rotas_mock_ativo(request),
         }
-    from .services import is_simular_rotas_mock_ativo
+
     return {
         'login_debug': False,
         'dev_debug_user': '',

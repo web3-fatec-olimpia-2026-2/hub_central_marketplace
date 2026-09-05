@@ -37,6 +37,9 @@ SECRET_KEY = env('SECRET_KEY')
 DEBUG = env.bool('DEBUG', default=False)
 # Lê LOGIN_DEBUG do .env para injeção automática de credenciais em desenvolvimento
 LOGIN_DEBUG = env.bool('LOGIN_DEBUG', default=False)
+LOGIN_DEBUG_USERNAME = env.str('LOGIN_DEBUG_USERNAME', default='devmaster')
+LOGIN_DEBUG_PASSWORD = env.str('LOGIN_DEBUG_PASSWORD', default='')
+LOGIN_DEBUG_EMAIL = env.str('LOGIN_DEBUG_EMAIL', default='devmaster@hub.local')
 
 # Lê ALLOWED_HOSTS como lista separada por vírgulas do .env (ex: 127.0.0.1,localhost)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost', 'testserver', 'material-playing-outshoot.ngrok-free.dev', '.ngrok-free.dev'])

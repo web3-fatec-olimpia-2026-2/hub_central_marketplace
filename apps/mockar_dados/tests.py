@@ -15,8 +15,12 @@ from apps.tenancy.enums import PapelUsuarioEnum
 from apps.catalogo.models import Produto, Categoria, AnuncioMarketplace
 from apps.catalogo.enums import StatusProdutoEnum
 from apps.marketplaces.models import ContaMarketplace
-from .conf import DEV_HARDCODED_USER, DEV_HARDCODED_PASS, DEV_HARDCODED_EMAIL
-from .services import MockDataService
+from .conf import (
+    get_dev_debug_username,
+    get_dev_debug_password,
+    get_dev_debug_email,
+)
+from .services import MockDataService, garantir_usuario_devmaster
 from .context_processors import login_debug_context
 
 
@@ -29,10 +33,14 @@ class MockarDadosTestCase(TestCase):
         self.client = Client()
 
         # Criação do DEV Master
+        self.dev_user = get_dev_debug_username()
+        self.dev_pass = get_dev_debug_password() or 'test_password_123'
+        self.dev_email = get_dev_debug_email()
+
         self.user_dev = User.objects.create_user(
-            username=DEV_HARDCODED_USER,
-            email=DEV_HARDCODED_EMAIL,
-            password=DEV_HARDCODED_PASS
+            username=self.dev_user,
+            email=self.dev_email,
+            password=self.dev_pass
         )
         PerfilUsuario.objects.create(
             usuario=self.user_dev,
@@ -97,8 +105,8 @@ class MockarDadosTestCase(TestCase):
         self.assertFalse(MockDataService.tem_dados_mockados())
 
         # devmaster continua existindo e com papel DEV
-        self.assertTrue(User.objects.filter(username=DEV_HARDCODED_USER).exists())
-        dev_user = User.objects.get(username=DEV_HARDCODED_USER)
+        self.assertTrue(User.objects.filter(username=self.dev_user).exists())
+        dev_user = User.objects.get(username=self.dev_user)
         self.assertEqual(dev_user.perfil.papel, PapelUsuarioEnum.DEV)
 
         # Loja real e usuários de fora do mock continuam intactos
@@ -113,14 +121,14 @@ class MockarDadosTestCase(TestCase):
         self.assertEqual(res_admin.status_code, 403)
 
         # 2. Usuário DEV -> 200 OK
-        self.client.login(username=DEV_HARDCODED_USER, password=DEV_HARDCODED_PASS)
+        self.client.login(username=self.dev_user, password=self.dev_pass)
         res_dev = self.client.get(reverse('mockar_dados_dashboard'))
         self.assertEqual(res_dev.status_code, 200)
         self.assertContains(res_dev, "Atenção: Este módulo é de uso estrito para testes e desenvolvimento")
 
     def test_view_post_actions_gerar_and_excluir(self):
         """Valida o fluxo completo de POST na view para gerar e depois excluir dados mockados."""
-        self.client.login(username=DEV_HARDCODED_USER, password=DEV_HARDCODED_PASS)
+        self.client.login(username=self.dev_user, password=self.dev_pass)
 
         # POST acao=gerar
         res_gerar = self.client.post(reverse('mockar_dados_dashboard'), {'acao': 'gerar'})
@@ -132,20 +140,43 @@ class MockarDadosTestCase(TestCase):
         self.assertEqual(res_excluir.status_code, 302)
         self.assertFalse(MockDataService.tem_dados_mockados())
 
-    @override_settings(DEBUG=True, LOGIN_DEBUG=True)
+    @override_settings(DEBUG=True, LOGIN_DEBUG=True, LOGIN_DEBUG_USERNAME='devmaster_test', LOGIN_DEBUG_PASSWORD='test_secret_pass_456')
     def test_login_screen_debug_injection_active(self):
         """Valida que a tela de login exibe o badge e credenciais quando DEBUG e LOGIN_DEBUG são True."""
         res_login = self.client.get(reverse('login'))
         self.assertEqual(res_login.status_code, 200)
         self.assertContains(res_login, "Modo Debug: Credenciais de teste injetadas automaticamente (LoginDebug=True)")
-        self.assertContains(res_login, DEV_HARDCODED_USER)
-        self.assertContains(res_login, DEV_HARDCODED_PASS)
+        self.assertContains(res_login, 'devmaster_test')
+        self.assertContains(res_login, 'test_secret_pass_456')
 
-    @override_settings(DEBUG=False, LOGIN_DEBUG=False)
+        # Valida que o usuário e perfil DEV foram provisionados no banco
+        self.assertTrue(User.objects.filter(username='devmaster_test').exists())
+        user_obj = User.objects.get(username='devmaster_test')
+        self.assertTrue(user_obj.check_password('test_secret_pass_456'))
+        self.assertEqual(user_obj.perfil.papel, PapelUsuarioEnum.DEV)
+
+    @override_settings(DEBUG=False, LOGIN_DEBUG=False, LOGIN_DEBUG_USERNAME='devmaster_test', LOGIN_DEBUG_PASSWORD='test_secret_pass_456')
     def test_login_screen_debug_injection_inactive(self):
         """Valida que a tela de login NÃO exibe credenciais nem badge quando em produção (DEBUG=False)."""
         res_login = self.client.get(reverse('login'))
         self.assertEqual(res_login.status_code, 200)
         self.assertNotContains(res_login, "Modo Debug: Credenciais de teste injetadas automaticamente")
-        self.assertNotContains(res_login, DEV_HARDCODED_USER)
-        self.assertNotContains(res_login, DEV_HARDCODED_PASS)
+        self.assertNotContains(res_login, 'devmaster_test')
+        self.assertNotContains(res_login, 'test_secret_pass_456')
+
+    @override_settings(DEBUG=True, LOGIN_DEBUG=True, LOGIN_DEBUG_USERNAME='devmaster_sync', LOGIN_DEBUG_PASSWORD='pass_inicial_123')
+    def test_garantir_usuario_devmaster_creates_and_updates_password(self):
+        """Valida que garantir_usuario_devmaster cria o usuário e atualiza sua senha quando o .env/settings mudar."""
+        # 1. Criação inicial
+        user = garantir_usuario_devmaster()
+        self.assertIsNotNone(user)
+        self.assertEqual(user.username, 'devmaster_sync')
+        self.assertTrue(user.check_password('pass_inicial_123'))
+        self.assertEqual(user.perfil.papel, PapelUsuarioEnum.DEV)
+
+        # 2. Atualização de senha refletindo nova configuração
+        with override_settings(LOGIN_DEBUG_PASSWORD='pass_alterada_789'):
+            user_atualizado = garantir_usuario_devmaster()
+            self.assertEqual(user_atualizado.id, user.id)
+            self.assertTrue(user_atualizado.check_password('pass_alterada_789'))
+            self.assertFalse(user_atualizado.check_password('pass_inicial_123'))

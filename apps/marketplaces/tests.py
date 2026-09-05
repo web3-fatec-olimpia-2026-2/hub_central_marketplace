@@ -196,7 +196,7 @@ class MarketplacesHubTestCase(TestCase):
         raw_secret_token = "APP_USR_SUPER_SECRET_OAUTH_TOKEN_XYZ_12345"
         conta = ContaMarketplace.objects.create(
             loja=self.loja,
-            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            canal=CanalMarketplaceEnum.AMAZON,
             apelido_conta="Conta Criptografada",
             access_token=raw_secret_token,
             seller_id_externo="999888"
@@ -263,8 +263,15 @@ class MarketplacesHubTestCase(TestCase):
 
     def test_mock_toggle_mercadolivre_simulation(self):
         """Valida o comportamento de simulação mock ativa (200) vs desativada (401) no Mercado Livre."""
+        loja_mock = Loja.objects.create(
+            nome="Loja Mock Teste",
+            slug="loja-mock-teste",
+            cnpj="44.444.444/0001-44"
+        )
+        loja_mock.garantir_modulos_padrao()
+
         conta_mock = ContaMarketplace.objects.create(
-            loja=self.loja,
+            loja=loja_mock,
             canal=CanalMarketplaceEnum.MERCADOLIVRE,
             apelido_conta="ML Mock Teste",
             is_mock=True,
@@ -308,12 +315,9 @@ class MarketplacesHubTestCase(TestCase):
             apelido_conta="Magalu Mock Teste",
             is_mock=True
         )
-        conta_shopee_mock = ContaMarketplace.objects.create(
-            loja=self.loja,
-            canal=CanalMarketplaceEnum.SHOPEE,
-            apelido_conta="Shopee Mock Teste",
-            is_mock=True
-        )
+        self.conta_shopee.is_mock = True
+        self.conta_shopee.save()
+        conta_shopee_mock = self.conta_shopee
 
         conn_mag = get_connector_for_conta(conta_magalu_mock)
         conn_shp = get_connector_for_conta(conta_shopee_mock)
@@ -340,12 +344,21 @@ class MarketplacesHubTestCase(TestCase):
 
     def test_reconnect_button_visibility_rules(self):
         """Valida que o botão Reconectar Conta é exibido estritamente quando ultima_sincronizacao não é nula."""
+        loja_recon = Loja.objects.create(
+            nome="Loja Reconexao",
+            slug="loja-reconexao",
+            cnpj="55.555.555/0001-55"
+        )
+        loja_recon.garantir_modulos_padrao()
+        user_recon = User.objects.create_user(username='admin_recon', password='password123')
+        PerfilUsuario.objects.create(usuario=user_recon, papel=PapelUsuarioEnum.ADMIN, loja=loja_recon)
+
         client = Client()
-        client.login(username='admin_loja', password='password123')
+        client.login(username='admin_recon', password='password123')
 
         # 1. Conta ML sem sincronização prévia
         conta_nova_ml = ContaMarketplace.objects.create(
-            loja=self.loja,
+            loja=loja_recon,
             canal=CanalMarketplaceEnum.MERCADOLIVRE,
             apelido_conta="ML Sem Conexao",
             ultima_sincronizacao=None
@@ -367,5 +380,141 @@ class MarketplacesHubTestCase(TestCase):
         res_form_apos = client.get(reverse('conta_marketplace_update', kwargs={'pk': conta_nova_ml.pk}))
         self.assertEqual(res_form_apos.status_code, 200)
         self.assertContains(res_form_apos, "Reconectar Conta")
+
+    def test_bloqueio_duplicidade_loja_canal(self):
+        """Valida que uma mesma loja não pode ter mais de uma conta para o mesmo canal de marketplace."""
+        from django.core.exceptions import ValidationError
+        # self.conta_meli já existe para self.loja com MERCADOLIVRE
+        conta_duplicada = ContaMarketplace(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="Outra Conta ML"
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            conta_duplicada.full_clean()
+        self.assertIn('canal', ctx.exception.message_dict)
+
+        with self.assertRaises(IntegrityError):
+            ContaMarketplace.objects.create(
+                loja=self.loja,
+                canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                apelido_conta="Outra Conta ML DB"
+            )
+
+    def test_bloqueio_duplicidade_canal_seller_id_externo_entre_lojas(self):
+        """Valida que um mesmo seller_id_externo no mesmo canal não pode ser reaproveitado por outra loja."""
+        from django.core.exceptions import ValidationError
+        outra_loja = Loja.objects.create(
+            nome="Loja Concorrente",
+            slug="loja-concorrente",
+            cnpj="66.666.666/0001-66"
+        )
+        # self.conta_meli já usa seller_id_externo="123456789" no MERCADOLIVRE
+        conta_conflito = ContaMarketplace(
+            loja=outra_loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Concorrente",
+            seller_id_externo="123456789"
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            conta_conflito.full_clean()
+        self.assertIn('seller_id_externo', ctx.exception.message_dict)
+
+        with self.assertRaises(IntegrityError):
+            ContaMarketplace.objects.create(
+                loja=outra_loja,
+                canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                apelido_conta="ML Concorrente DB",
+                seller_id_externo="123456789"
+            )
+
+    def test_bloqueio_duplicidade_loja_apelido_conta(self):
+        """Valida que o apelido da conta deve ser único dentro da mesma loja."""
+        from django.core.exceptions import ValidationError
+        # self.conta_meli tem apelido "ML Oficial"
+        conta_mesmo_apelido = ContaMarketplace(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MAGALU,
+            apelido_conta="ML Oficial"
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            conta_mesmo_apelido.full_clean()
+        self.assertIn('apelido_conta', ctx.exception.message_dict)
+
+        with self.assertRaises(IntegrityError):
+            ContaMarketplace.objects.create(
+                loja=self.loja,
+                canal=CanalMarketplaceEnum.MAGALU,
+                apelido_conta="ML Oficial"
+            )
+
+    def test_imutabilidade_loja_e_canal_na_edicao_model(self):
+        """Valida que alterar loja ou canal de uma conta existente gera ValidationError no modelo."""
+        from django.core.exceptions import ValidationError
+        outra_loja = Loja.objects.create(
+            nome="Loja Destino",
+            slug="loja-destino",
+            cnpj="77.777.777/0001-77"
+        )
+
+        # 1. Tentativa de alterar a Loja
+        self.conta_meli.loja = outra_loja
+        with self.assertRaises(ValidationError) as ctx:
+            self.conta_meli.clean()
+        self.assertIn('loja', ctx.exception.message_dict)
+
+        with self.assertRaises(ValidationError):
+            self.conta_meli.save()
+
+        # Restaura loja e tenta alterar o Canal
+        self.conta_meli.refresh_from_db()
+        self.conta_meli.canal = CanalMarketplaceEnum.MAGALU
+        with self.assertRaises(ValidationError) as ctx:
+            self.conta_meli.clean()
+        self.assertIn('canal', ctx.exception.message_dict)
+
+        with self.assertRaises(ValidationError):
+            self.conta_meli.save()
+
+    def test_imutabilidade_loja_e_canal_no_formulario(self):
+        """Valida que o formulário de edição desabilita os campos canal e loja e preserva os valores originais."""
+        from apps.marketplaces.forms import ContaMarketplaceForm
+        outra_loja = Loja.objects.create(
+            nome="Loja Invasora",
+            slug="loja-invasora",
+            cnpj="88.888.888/0001-88"
+        )
+
+        form = ContaMarketplaceForm(instance=self.conta_meli, autor=self.user_admin)
+        self.assertTrue(form.fields['canal'].disabled)
+        self.assertTrue(form.fields['loja'].disabled)
+
+        # Simula tentativa de envio POST com canal e loja modificados
+        post_data = {
+            'loja': outra_loja.id,
+            'canal': CanalMarketplaceEnum.MAGALU,
+            'apelido_conta': 'Novo Apelido Permitido',
+            'ativo': True
+        }
+        form_post = ContaMarketplaceForm(data=post_data, instance=self.conta_meli, autor=self.user_admin)
+        self.assertTrue(form_post.is_valid())
+        conta_salva = form_post.save()
+
+        # Confirma que canal e loja continuam estritamente os originais
+        self.assertEqual(conta_salva.canal, CanalMarketplaceEnum.MERCADOLIVRE)
+        self.assertEqual(conta_salva.loja, self.loja)
+        self.assertEqual(conta_salva.apelido_conta, 'Novo Apelido Permitido')
+
+    def test_bloqueio_duplicidade_cnpj_loja_mesmos_digitos(self):
+        """Valida que cada loja deve ter CNPJ estritamente único, mesmo com variações de pontuação."""
+        from django.core.exceptions import ValidationError
+        # self.loja possui cnpj="33.333.333/0001-33"
+        loja_duplicada = Loja(
+            nome="Loja Clone CNPJ",
+            cnpj="33333333000133"
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            loja_duplicada.clean()
+        self.assertIn('cnpj', ctx.exception.message_dict)
 
 

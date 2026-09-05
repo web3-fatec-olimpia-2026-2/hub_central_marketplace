@@ -75,8 +75,14 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     "refresh_token": f"TG_MOCK_REFRESH_{int(time.time())}",
                 }
 
-                log = None
                 if conta:
+                    conflito = ContaMarketplace.objects.filter(
+                        canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                        seller_id_externo=user_id
+                    ).exclude(pk=conta.pk).exists()
+                    if conflito:
+                        return False, f"Conflito: O Seller ID Externo '{user_id}' retornado pelo Mercado Livre já está em uso por outra conta no sistema.", {}, None
+
                     with transaction.atomic():
                         conta.access_token = res_json['access_token']
                         conta.refresh_token = res_json['refresh_token']
@@ -145,8 +151,14 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 "user_id": user_id,
                 "refresh_token": f"TG_MOCK_REFRESH_{int(time.time())}",
             }
-            log = None
             if conta:
+                conflito = ContaMarketplace.objects.filter(
+                    canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                    seller_id_externo=user_id
+                ).exclude(pk=conta.pk).exists()
+                if conflito:
+                    return False, f"Conflito: O Seller ID Externo '{user_id}' retornado pelo Mercado Livre já está em uso por outra conta no sistema.", {}, None
+
                 with transaction.atomic():
                     conta.access_token = res_json['access_token']
                     conta.refresh_token = res_json['refresh_token']
@@ -183,14 +195,23 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 res_json = {"raw_text": response.text}
 
             if status_code in (200, 201) and 'access_token' in res_json:
+                user_id_ext = str(res_json['user_id']) if 'user_id' in res_json else None
+                if conta and user_id_ext:
+                    conflito = ContaMarketplace.objects.filter(
+                        canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                        seller_id_externo=user_id_ext
+                    ).exclude(pk=conta.pk).exists()
+                    if conflito:
+                        return False, f"Conflito: O Seller ID Externo '{user_id_ext}' retornado pelo Mercado Livre já está em uso por outra conta no sistema.", res_json, None
+
                 log = None
                 if conta:
                     with transaction.atomic():
                         conta.access_token = res_json['access_token']
                         conta.refresh_token = res_json.get('refresh_token', conta.refresh_token)
                         conta.token_expira_em = now + datetime.timedelta(seconds=res_json.get('expires_in', 21600))
-                        if 'user_id' in res_json:
-                            conta.seller_id_externo = str(res_json['user_id'])
+                        if user_id_ext:
+                            conta.seller_id_externo = user_id_ext
                         conta.ultima_sincronizacao = now
                         conta.save(update_fields=[
                             'access_token', 'refresh_token', 'token_expira_em',

@@ -93,6 +93,9 @@
                         <div class="col-md-6">
                             <label class="form-label fw-semibold">Canal de Marketplace *</label>
                             {{ form.canal }}
+                            {% if modo_edicao %}
+                                <div class="form-text text-muted small"><i class="bi bi-lock-fill text-secondary"></i> O canal de marketplace é imutável após a conexão.</div>
+                            {% endif %}
                             {% if form.canal.errors %}<div class="text-danger small mt-1">{{ form.canal.errors.0 }}</div>{% endif %}
                         </div>
 
@@ -105,6 +108,9 @@
                         <div class="col-md-12">
                             <label class="form-label fw-semibold">Loja (Tenant) *</label>
                             {{ form.loja }}
+                            {% if modo_edicao %}
+                                <div class="form-text text-muted small"><i class="bi bi-lock-fill text-secondary"></i> A loja (tenant) vinculada é imutável após a conexão.</div>
+                            {% endif %}
                             {% if form.loja.errors %}<div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>{% endif %}
                         </div>
 

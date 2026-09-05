@@ -15,43 +15,12 @@ def provisionar_devmaster_hook(sender, **kwargs):
     """
     Hook executado após migrações para assegurar que o usuário devmaster exista quando em modo debug.
     """
-    if getattr(settings, 'DEBUG', False) and getattr(settings, 'LOGIN_DEBUG', False):
-        try:
-            from django.contrib.auth.models import User
-            from apps.tenancy.models import PerfilUsuario
-            from apps.tenancy.enums import PapelUsuarioEnum
-            from .conf import DEV_HARDCODED_USER, DEV_HARDCODED_PASS, DEV_HARDCODED_EMAIL
-
-            user, created = User.objects.get_or_create(
-                username=DEV_HARDCODED_USER,
-                defaults={
-                    'email': DEV_HARDCODED_EMAIL,
-                    'is_staff': True,
-                    'is_superuser': True,
-                    'is_active': True,
-                }
-            )
-            if created or not user.check_password(DEV_HARDCODED_PASS):
-                user.set_password(DEV_HARDCODED_PASS)
-                user.is_staff = True
-                user.is_superuser = True
-                user.is_active = True
-                user.save()
-
-            perfil, _ = PerfilUsuario.objects.get_or_create(
-                usuario=user,
-                defaults={
-                    'papel': PapelUsuarioEnum.DEV,
-                    'loja': None,
-                }
-            )
-            if perfil.papel != PapelUsuarioEnum.DEV or perfil.loja is not None:
-                perfil.papel = PapelUsuarioEnum.DEV
-                perfil.loja = None
-                perfil.save()
-        except Exception:
-            # Em fases iniciais de migração ou build, ignora graciosamente
-            pass
+    try:
+        from .services import garantir_usuario_devmaster
+        garantir_usuario_devmaster()
+    except Exception:
+        # Em fases iniciais de migração ou build, ignora graciosamente
+        pass
 
 
 class MockarDadosConfig(AppConfig):

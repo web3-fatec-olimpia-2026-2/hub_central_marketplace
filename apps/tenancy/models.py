@@ -57,6 +57,15 @@ class Loja(models.Model):
 
     def __str__(self):
         return f"{self.nome} ({self.cnpj})"
+    def clean(self):
+        super().clean()
+        if self.cnpj:
+            import re
+            cnpj_digits = re.sub(r'\D', '', self.cnpj)
+            if cnpj_digits:
+                for outra in Loja.objects.exclude(pk=self.pk).only('cnpj', 'nome'):
+                    if re.sub(r'\D', '', outra.cnpj) == cnpj_digits:
+                        raise ValidationError({'cnpj': f"Já existe uma loja cadastrada com este CNPJ ({outra.nome})."})
 
     def save(self, *args, **kwargs):
         if not self.slug:

@@ -19,7 +19,74 @@ from apps.catalogo.enums import StatusProdutoEnum
 from apps.marketplaces.models import ContaMarketplace
 from apps.marketplaces.enums import CanalMarketplaceEnum
 from apps.financeiro.models import ConfiguracaoTaxasLoja, ParametroCanalMarketplace
-from .conf import DEV_HARDCODED_USER, DEV_HARDCODED_PASS, DEV_HARDCODED_EMAIL
+from .conf import (
+    get_dev_debug_username,
+    get_dev_debug_password,
+    get_dev_debug_email,
+)
+
+
+def garantir_usuario_devmaster():
+    """
+    O QUE FAZ: Garante a existência do usuário DEV mestre no banco de dados com as credenciais do .env/settings.
+    POR QUE FAZ: Inicializa e sincroniza o superusuário de testes sem senhas estáticas no código-fonte.
+    REGRAS DE SEGURANÇA E AMBIENTE:
+    - Executa APENAS quando settings.DEBUG=True e settings.LOGIN_DEBUG=True.
+    - Atualiza a senha no banco se a variável LOGIN_DEBUG_PASSWORD for alterada no .env.
+    - Garante os privilégios de superuser e vínculo de PerfilUsuario com papel DEV.
+    """
+    from django.conf import settings
+    if not (getattr(settings, 'DEBUG', False) and getattr(settings, 'LOGIN_DEBUG', False)):
+        return None
+
+    username = get_dev_debug_username()
+    password = get_dev_debug_password()
+    email = get_dev_debug_email()
+
+    if not username:
+        return None
+
+    user, created = User.objects.get_or_create(
+        username=username,
+        defaults={
+            'email': email,
+            'is_staff': True,
+            'is_superuser': True,
+            'is_active': True,
+        }
+    )
+
+    alterou = False
+    if email and user.email != email:
+        user.email = email
+        alterou = True
+
+    if not user.is_staff or not user.is_superuser or not user.is_active:
+        user.is_staff = True
+        user.is_superuser = True
+        user.is_active = True
+        alterou = True
+
+    if password and (created or not user.check_password(password)):
+        user.set_password(password)
+        alterou = True
+
+    if alterou:
+        user.save()
+
+    perfil, _ = PerfilUsuario.objects.get_or_create(
+        usuario=user,
+        defaults={
+            'papel': PapelUsuarioEnum.DEV,
+            'loja': None,
+        }
+    )
+    if perfil.papel != PapelUsuarioEnum.DEV or perfil.loja is not None:
+        perfil.papel = PapelUsuarioEnum.DEV
+        perfil.loja = None
+        perfil.save()
+
+    return user
 
 
 def is_simular_rotas_mock_ativo(request=None) -> bool:
@@ -108,9 +175,10 @@ class MockDataService:
             lojas.delete()
 
         # 2. Exclui os usuários mockados secundários (NUNCA devmaster)
+        dev_username = get_dev_debug_username()
         usuarios_para_excluir = User.objects.filter(
             username__in=cls.MOCK_USERNAMES
-        ).exclude(username=DEV_HARDCODED_USER)
+        ).exclude(username=dev_username)
         qtd_usuarios = usuarios_para_excluir.count()
         usuarios_para_excluir.delete()
 
@@ -129,27 +197,8 @@ class MockDataService:
         # 1. Limpa registros mockados pré-existentes para garantir padrão de fábrica
         cls.excluir_dados_mockados()
 
-        # 2. Assegura a existência do DEV Master intacto
-        user_dev, _ = User.objects.get_or_create(
-            username=DEV_HARDCODED_USER,
-            defaults={
-                'email': DEV_HARDCODED_EMAIL,
-                'is_staff': True,
-                'is_superuser': True,
-                'is_active': True,
-            }
-        )
-        if not user_dev.check_password(DEV_HARDCODED_PASS):
-            user_dev.set_password(DEV_HARDCODED_PASS)
-            user_dev.save()
-
-        perfil_dev, _ = PerfilUsuario.objects.get_or_create(
-            usuario=user_dev,
-            defaults={'papel': PapelUsuarioEnum.DEV, 'loja': None}
-        )
-        perfil_dev.papel = PapelUsuarioEnum.DEV
-        perfil_dev.loja = None
-        perfil_dev.save()
+        # 2. Assegura a existência do DEV Master intacto com credenciais do .env
+        garantir_usuario_devmaster()
 
         # 3. Definição das 3 Lojas Mockadas
         lojas_especificacao = [
