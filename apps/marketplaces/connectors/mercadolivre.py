@@ -97,7 +97,12 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         # CENÁRIO A: CONTAS MOCKADAS (is_mock = True)
         if is_conta_mock:
             if simular:
-                user_id = str(conta.seller_id_externo or '86176658') if conta else '86176658'
+                if code.startswith('TEST_SELLER_'):
+                    user_id = code.replace('TEST_SELLER_', '').strip()
+                elif code.startswith('MOCK_SELLER_'):
+                    user_id = code.replace('MOCK_SELLER_', '').strip()
+                else:
+                    user_id = str(conta.seller_id_externo or '86176658') if conta else '86176658'
                 res_json = {
                     "access_token": f"APP_USR_MOCK_TOKEN_{int(time.time())}",
                     "token_type": "bearer",
@@ -113,7 +118,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                         seller_id_externo=user_id
                     ).exclude(pk=conta.pk).exists()
                     if conflito:
-                        return False, f"Conflito: O Seller ID Externo '{user_id}' retornado pelo Mercado Livre já está em uso por outra conta no sistema.", {}, None
+                        return False, f"Falha na reconexão: Você autorizou com a conta do Mercado Livre (ID: {user_id}), que já pertence a outro card no sistema. Faça logout no Mercado Livre e repita o processo com a conta correta.", res_json, None
 
                     with transaction.atomic():
                         conta.access_token = res_json['access_token']
@@ -174,7 +179,14 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         # Reconhece códigos prefixados de teste automatizado
         is_test_code = bool(code and code.startswith(('MOCK_', 'TEST_')))
         if is_test_code:
-            user_id = str(86176658)
+            if code.startswith('TEST_SELLER_'):
+                user_id = code.replace('TEST_SELLER_', '').strip()
+            elif code.startswith('TEST_USER_'):
+                user_id = code.replace('TEST_USER_', '').strip()
+            elif conta and conta.seller_id_externo:
+                user_id = str(conta.seller_id_externo)
+            else:
+                user_id = str(86176658)
             res_json = {
                 "access_token": f"APP_USR_MOCK_TOKEN_{int(time.time())}",
                 "token_type": "bearer",
@@ -189,7 +201,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     seller_id_externo=user_id
                 ).exclude(pk=conta.pk).exists()
                 if conflito:
-                    return False, f"Conflito: O Seller ID Externo '{user_id}' retornado pelo Mercado Livre já está em uso por outra conta no sistema.", {}, None
+                    return False, f"Falha na reconexão: Você autorizou com a conta do Mercado Livre (ID: {user_id}), que já pertence a outro card no sistema. Faça logout no Mercado Livre e repita o processo com a conta correta.", res_json, None
 
                 with transaction.atomic():
                     conta.access_token = res_json['access_token']
@@ -234,7 +246,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                         seller_id_externo=user_id_ext
                     ).exclude(pk=conta.pk).exists()
                     if conflito:
-                        return False, f"Conflito: O Seller ID Externo '{user_id_ext}' retornado pelo Mercado Livre já está em uso por outra conta no sistema.", res_json, None
+                        return False, f"Falha na reconexão: Você autorizou com a conta do Mercado Livre (ID: {user_id_ext}), que já pertence a outro card no sistema. Faça logout no Mercado Livre e repita o processo com a conta correta.", res_json, None
 
                 log = None
                 if conta:

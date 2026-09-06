@@ -750,5 +750,93 @@ class MarketplacesHubTestCase(TestCase):
         # Confirma que o state foi consumido da sessão (single use)
         self.assertNotIn('oauth_state', client.session)
 
+    def test_reconexao_mesma_conta_sucesso_sem_conflito(self):
+        """Valida a reconexão legítima da mesma conta sem disparar falsa colisão consigo mesma."""
+        client = Client()
+        client.login(username='admin_loja', password='password123')
+
+        # 1. Inicia fluxo de autorização/reconexão a partir do card existente
+        res_auth = client.get(reverse('mercadolivre_autorizar', kwargs={'pk': self.conta_meli.pk}))
+        self.assertEqual(res_auth.status_code, 302)
+        session_state = client.session.get('oauth_state')
+        self.assertEqual(client.session.get('oauth_conta_id'), self.conta_meli.pk)
+
+        # 2. Callback retorna o mesmo seller_id da conta de origem
+        res_callback = client.get(reverse('mercadolivre_callback'), {
+            'code': f'TEST_SELLER_{self.conta_meli.seller_id_externo}',
+            'state': session_state
+        })
+        self.assertEqual(res_callback.status_code, 200)
+        self.assertContains(res_callback, "Mercado Livre Conectado com Sucesso!")
+
+        # 3. Confirma tokens atualizados sem colisão
+        self.conta_meli.refresh_from_db()
+        self.assertEqual(self.conta_meli.seller_id_externo, "123456789")
+        self.assertTrue(self.conta_meli.access_token.startswith("APP_USR_MOCK_TOKEN_"))
+
+    def test_reconexao_sessao_trocada_bloqueio_com_mensagem_amigavel(self):
+        """Valida que autorizar com sessão trocada (seller ID de outro card) bloqueia com mensagem amigável."""
+        # Cria uma segunda conta (pertencente a outra loja/card) com outro seller_id
+        loja_secundaria = Loja.objects.create(
+            nome="Loja Filial",
+            slug="loja-filial",
+            cnpj="44.444.444/0001-44"
+        )
+        conta_outro_card = ContaMarketplace.objects.create(
+            loja=loja_secundaria,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Outro Card",
+            access_token="TOKEN_CARD_2",
+            refresh_token="REFRESH_CARD_2",
+            seller_id_externo="999888777"
+        )
+
+        old_token = self.conta_meli.access_token
+        old_refresh = self.conta_meli.refresh_token
+
+        client = Client()
+        client.login(username='admin_loja', password='password123')
+
+        # 1. Inicia reconexão no card 1
+        client.get(reverse('mercadolivre_autorizar', kwargs={'pk': self.conta_meli.pk}))
+        session_state = client.session.get('oauth_state')
+        self.assertEqual(client.session.get('oauth_conta_id'), self.conta_meli.pk)
+
+        # 2. Callback retorna autorização pertencente ao card 2 (sessão trocada)
+        res_callback = client.get(reverse('mercadolivre_callback'), {
+            'code': 'TEST_SELLER_999888777',
+            'state': session_state
+        }, follow=True)
+
+        self.assertRedirects(res_callback, reverse('canal_list'))
+
+        # 3. Valida a mensagem amigável exata
+        mensagem_esperada = (
+            "Falha na reconexão: Você autorizou com a conta do Mercado Livre (ID: 999888777), "
+            "que já pertence a outro card no sistema. Faça logout no Mercado Livre e repita o processo com a conta correta."
+        )
+        mensagens = [m.message for m in res_callback.context['messages']]
+        self.assertIn(mensagem_esperada, mensagens)
+
+        # 4. Confirma que os tokens do card de origem NÃO foram corrompidos/sobrescritos
+        self.conta_meli.refresh_from_db()
+        self.assertEqual(self.conta_meli.access_token, old_token)
+        self.assertEqual(self.conta_meli.refresh_token, old_refresh)
+        self.assertEqual(self.conta_meli.seller_id_externo, "123456789")
+
+    def test_conta_marketplace_create_view_clears_oauth_conta_id_session(self):
+        """Valida que acessar a tela de 'Conectar Nova Conta' limpa oauth_conta_id remanescente na sessão."""
+        client = Client()
+        client.login(username='admin_loja', password='password123')
+
+        session = client.session
+        session['oauth_conta_id'] = 999
+        session.save()
+
+        res = client.get(reverse('conta_marketplace_create'))
+        self.assertEqual(res.status_code, 200)
+        self.assertNotIn('oauth_conta_id', client.session)
+
+
 
 

@@ -83,6 +83,11 @@ class ContaMarketplaceCreateView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
     template_name = 'marketplaces/conta_form.html'
     success_url = reverse_lazy('canal_list')
 
+    def get(self, request, *args, **kwargs):
+        # Fluxo de criação de conta inédita ("Conectar Nova Conta"): limpa oauth_conta_id da sessão
+        request.session.pop('oauth_conta_id', None)
+        return super().get(request, *args, **kwargs)
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['autor'] = self.request.user
@@ -369,7 +374,7 @@ class MercadoLivreCallbackView(View):
 
         # Validação do state efêmero contra a sessão (proteção contra CSRF)
         session_state = request.session.get('oauth_state')
-        session_conta_id = request.session.get('oauth_conta_id')
+        conta_id_origem = request.session.pop('oauth_conta_id', None)
 
         conta = None
         if session_state:
@@ -377,10 +382,10 @@ class MercadoLivreCallbackView(View):
             if state != session_state:
                 messages.error(request, "Parâmetro 'state' inválido ou expirado. Possível tentativa de CSRF.")
                 return redirect('canal_list')
-            conta = ContaMarketplace.objects.filter(pk=session_conta_id).first()
+            if conta_id_origem:
+                conta = ContaMarketplace.objects.filter(pk=conta_id_origem).first()
             # Consome o state efêmero da sessão (uso único)
             request.session.pop('oauth_state', None)
-            request.session.pop('oauth_conta_id', None)
         elif state and state.startswith('conta_'):
             # Fallback para testes automatizados com state prefixado
             try:
@@ -390,8 +395,8 @@ class MercadoLivreCallbackView(View):
                 pass
         elif (code and code.startswith(('MOCK_', 'TEST_'))) or getattr(settings, 'DEBUG', False):
             # Fallback em modo de teste/debug quando o state não foi originado de sessão web
-            if session_conta_id:
-                conta = ContaMarketplace.objects.filter(pk=session_conta_id).first()
+            if conta_id_origem:
+                conta = ContaMarketplace.objects.filter(pk=conta_id_origem).first()
             elif request.user.is_authenticated:
                 perfil = getattr(request.user, 'perfil', None)
                 if perfil and perfil.loja:
@@ -439,7 +444,7 @@ class MercadoLivreCallbackView(View):
             }
             return render(request, 'marketplaces/callback_sucesso.html', context)
         else:
-            messages.error(request, f"Falha na autorização do Mercado Livre: {msg}")
+            messages.error(request, msg)
             return redirect('canal_list')
 
 
