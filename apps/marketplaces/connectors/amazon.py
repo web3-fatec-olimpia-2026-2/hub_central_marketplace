@@ -18,6 +18,31 @@ class AmazonConnector(BaseMarketplaceConnector):
     def canal_nome(self) -> str:
         return CanalMarketplaceEnum.AMAZON
 
+    def get_authorization_url(self, state: str = "") -> str:
+        return f"https://sellercentral.amazon.com/apps/authorize/consent?state={state}"
+
+    def exchange_code(self, code: str) -> Dict[str, Any]:
+        return {"sucesso": True, "message": "Amazon stub exchange_code"}
+
+    def refresh_credentials(self) -> Dict[str, Any]:
+        return {"sucesso": True, "message": "Amazon stub refresh_credentials"}
+
+    def get_valid_access_token(self) -> str:
+        return (self.conta.access_token if self.conta and self.conta.access_token else "").strip()
+
+    def test_connection(self, request=None) -> Dict[str, Any]:
+        sucesso, msg, data = self.autenticar()
+        return {"sucesso": sucesso, "mensagem": msg, "dados": data}
+
+    def request(self, method: str, endpoint: str, **kwargs) -> Any:
+        import requests
+        url = endpoint if endpoint.startswith(("http://", "https://")) else f"https://sellingpartnerapi-na.amazon.com/{endpoint.lstrip('/')}"
+        headers = kwargs.pop('headers', {})
+        token = self.get_valid_access_token()
+        if token:
+            headers['Authorization'] = f"Bearer {token}"
+        return requests.request(method, url, headers=headers, **kwargs)
+
     def autenticar(self) -> Tuple[bool, str, Dict[str, Any]]:
         if not self.conta or not self.conta.access_token:
             return False, "Conta Amazon sem LWA Access Token configurado.", {}

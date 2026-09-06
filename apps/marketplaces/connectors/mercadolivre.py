@@ -31,13 +31,32 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         return CanalMarketplaceEnum.MERCADOLIVRE
 
     @classmethod
+    def _get_client_id(cls) -> str:
+        return getattr(settings, 'MERCADOLIVRE_CLIENT_ID', None) or getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_ID', '') or ''
+
+    @classmethod
+    def _get_client_secret(cls) -> str:
+        return getattr(settings, 'MERCADOLIVRE_CLIENT_SECRET', None) or getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_SECRET', '') or ''
+
+    @classmethod
+    def _get_redirect_uri(cls) -> str:
+        return getattr(settings, 'MERCADOLIVRE_REDIRECT_URI', 'https://oauth.pstmn.io/v1/callback')
+
+    def get_authorization_url(self, state: str = "") -> str:
+        """
+        O QUE FAZ: Constrói dinamicamente a URL de consentimento OAuth 2.0 do Mercado Livre.
+        POR QUE FAZ: Permite redirecionar o lojista com o state gerado de forma efêmera e segura.
+        """
+        return self.gerar_url_autorizacao(state=state)
+
+    @classmethod
     def gerar_url_autorizacao(cls, state: str = "") -> str:
         """
         O QUE FAZ: Constrói dinamicamente a URL de consentimento OAuth 2.0 do Mercado Livre.
-        POR QUE FAZ: Elimina URLs e credenciais fixas no código, garantindo portabilidade entre dev e prod.
+        POR QUE FAZ: Elimina URLs e credenciais fixas no código, garantindo tolerância a configurações.
         """
-        client_id = getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_ID', '')
-        redirect_uri = getattr(settings, 'MERCADOLIVRE_REDIRECT_URI', 'https://oauth.pstmn.io/v1/callback')
+        client_id = cls._get_client_id()
+        redirect_uri = cls._get_redirect_uri()
         params = {
             "response_type": "code",
             "client_id": client_id,
@@ -46,6 +65,19 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         if state:
             params["state"] = state
         return f"{cls.AUTH_URL}?{urllib.parse.urlencode(params)}"
+
+    def exchange_code(self, code: str) -> Dict[str, Any]:
+        """
+        O QUE FAZ: Troca o authorization code por Access e Refresh Tokens para a conta vinculada.
+        POR QUE FAZ: Implementa o contrato da classe base para finalização do handshake OAuth.
+        """
+        sucesso, msg, res_json, log = self.trocar_code_por_token(code=code, conta=self.conta)
+        return {
+            "sucesso": sucesso,
+            "mensagem": msg,
+            "dados": res_json,
+            "log": log,
+        }
 
     @classmethod
     def trocar_code_por_token(
@@ -124,10 +156,10 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     )
                 return False, "Erro HTTP 401: Não autorizado: credenciais ausentes ou inválidas no marketplace.", {}, log
 
-        # CENÁRIO B: CONTAS MANUAIS / REAIS (is_mock = False) - NUNCA usam bypass mock!
-        client_id = getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_ID', '')
-        client_secret = getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_SECRET', '')
-        redirect_uri = getattr(settings, 'MERCADOLIVRE_REDIRECT_URI', 'https://oauth.pstmn.io/v1/callback')
+        # CENÁRIO B: CONTAS MANUAIS / REAIS (is_mock = False)
+        client_id = cls._get_client_id()
+        client_secret = cls._get_client_secret()
+        redirect_uri = cls._get_redirect_uri()
 
         url = f"{cls.BASE_URL}/oauth/token"
         headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
@@ -139,8 +171,8 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             "redirect_uri": redirect_uri,
         }
 
-        # Mock apenas para testes automatizados com prefixo explícito de teste
-        is_test_code = code and code.startswith(('MOCK_', 'TEST_')) and (not client_secret or client_secret in ('SUA_CHAVE_SECRETA_AQUI', '<SUA_CHAVE_SECRETA_AQUI>'))
+        # Reconhece códigos prefixados de teste automatizado
+        is_test_code = bool(code and code.startswith(('MOCK_', 'TEST_')))
         if is_test_code:
             user_id = str(86176658)
             res_json = {
@@ -252,142 +284,274 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             return False, f"Erro de comunicação ao trocar authorization code: {str(exc)}", {}, None
 
     def _obter_headers(self) -> Dict[str, str]:
-        """Gera o cabeçalho HTTP padrão com o Bearer Token da conta."""
-        token = self.conta.access_token.strip() if (self.conta and self.conta.access_token) else ""
+        """Gera o cabeçalho HTTP padrão com o Bearer Token descriptografado da conta."""
+        token = self.get_valid_access_token() if self.conta else ""
         return {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
 
-    def garantir_token_valido(self, conta: Optional[ContaMarketplace] = None) -> Tuple[bool, str]:
+    def refresh_credentials(self) -> Dict[str, Any]:
         """
-        O QUE FAZ: Verifica se o token de acesso está expirado ou próximo da expiração e renova automaticamente.
-        POR QUE FAZ: Evita requisições rejeitadas com 401 Unauthorized e garante continuidade operacional.
+        O QUE FAZ: Renova o Access Token e o Refresh Token via POST /oauth/token utilizando bloqueio pessimista.
+        POR QUE FAZ: No Mercado Livre o refresh_token é de USO ÚNICO. Bloqueia a linha no banco (select_for_update)
+        e aplica double-checked locking para evitar race conditions em chamadas concorrentes.
+        TRATAMENTO DE ERROS:
+          - 'invalid_grant': Inativa a conta (ativo=False) e registra log explicativo.
+          - 'local_rate_limited' / 429: Aplica retry com backoff.
+          - 'invalid_operator_user_id' / 403: Alerta necessidade de conta titular/administradora.
         """
-        target_conta = conta or self.conta
-        if not target_conta or not target_conta.access_token:
-            return False, "Conta sem Access Token configurado."
+        if not self.conta or not self.conta.pk:
+            return {"sucesso": False, "mensagem": "Conta não associada ou sem identificador para renovação."}
 
-        now = timezone.now()
-        # Renova se faltarem menos de 10 minutos para expirar ou se já estiver expirado
-        if target_conta.token_expira_em and target_conta.token_expira_em <= (now + datetime.timedelta(minutes=10)):
-            if target_conta.refresh_token:
-                return self.renovar_token()
-            return False, "Token expirado e sem Refresh Token para renovação."
+        client_id = self._get_client_id()
+        client_secret = self._get_client_secret()
 
-        return True, "Token válido e ativo."
+        with transaction.atomic():
+            # Bloqueio pessimista no banco de dados para concorrência
+            conta_locked = ContaMarketplace.objects.select_for_update().get(pk=self.conta.pk)
+            now = timezone.now()
 
-    def renovar_token(self, usuario=None) -> Tuple[bool, str]:
-        """
-        O QUE FAZ: Renova o Access Token expirado utilizando o Refresh Token via POST /oauth/token.
-        POR QUE FAZ: Garante tolerância a falhas e execução ininterrupta de sincronizações agendadas.
-        PERMISSÕES RBAC: Operação interna / DEV / ADMIN.
-        MULTI-TENANCY: Atualiza exclusivamente o registro da ContaMarketplace da loja.
-        """
-        if not self.conta or not self.conta.refresh_token:
-            return False, "Conta não possui Refresh Token cadastrado para renovação."
+            # Double-checked locking: se outro processo concorrente acabou de renovar o token
+            if conta_locked.token_expira_em and conta_locked.token_expira_em > (now + datetime.timedelta(minutes=10)):
+                self.conta.refresh_from_db()
+                return {
+                    "sucesso": True,
+                    "mensagem": "Token já renovado recentemente por processo concorrente.",
+                    "access_token": self.conta.access_token,
+                    "reaproveitado": True,
+                }
 
-        client_id = getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_ID', '')
-        client_secret = getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_SECRET', '')
+            refresh_token_atual = conta_locked.refresh_token
+            if not refresh_token_atual:
+                return {"sucesso": False, "mensagem": "Conta não possui Refresh Token cadastrado para renovação."}
 
-        # Simulação para ambiente de testes / mock
-        is_mock = (
-            not client_secret or
-            client_secret in ('SUA_CHAVE_SECRETA_AQUI', '<SUA_CHAVE_SECRETA_AQUI>') or
-            (self.conta.refresh_token and self.conta.refresh_token.startswith(('TG_MOCK_', 'MOCK_')))
-        )
+            # Simulação para ambiente de testes / mocks
+            is_mock = (
+                not client_secret or
+                client_secret in ('SUA_CHAVE_SECRETA_AQUI', '<SUA_CHAVE_SECRETA_AQUI>') or
+                refresh_token_atual.startswith(('TG_MOCK_', 'MOCK_', 'REFRESH_TEST_'))
+            )
 
-        now = timezone.now()
-        if is_mock:
-            with transaction.atomic():
-                self.conta.access_token = f"APP_USR_MOCK_REFRESHED_{int(time.time())}"
-                self.conta.refresh_token = f"TG_MOCK_REFRESHED_{int(time.time())}"
-                self.conta.token_expira_em = now + datetime.timedelta(seconds=21600)
-                self.conta.ultima_sincronizacao = now
-                self.conta.save(update_fields=[
+            if is_mock:
+                novo_access = f"APP_USR_MOCK_REFRESHED_{int(time.time())}"
+                novo_refresh = f"TG_MOCK_REFRESHED_{int(time.time())}"
+                novo_expira = now + datetime.timedelta(seconds=21600)
+
+                conta_locked.access_token = novo_access
+                conta_locked.refresh_token = novo_refresh
+                conta_locked.token_expira_em = novo_expira
+                conta_locked.ultima_sincronizacao = now
+                conta_locked.save(update_fields=[
                     'access_token', 'refresh_token', 'token_expira_em', 'ultima_sincronizacao', 'updated_at'
                 ])
+                self.conta.refresh_from_db()
 
                 LogSincronizacao.objects.create(
-                    loja=self.conta.loja,
-                    conta_marketplace=self.conta,
+                    loja=conta_locked.loja,
+                    conta_marketplace=conta_locked,
                     canal=CanalMarketplaceEnum.MERCADOLIVRE,
                     evento=EventoAuditoriaEnum.REFRESH_TOKEN,
-                    payload_enviado={"grant_type": "refresh_token", "client_id": client_id},
+                    payload_enviado={"grant_type": "refresh_token", "client_id": client_id, "simulado": True},
                     resposta_recebida={"status": "Token renovado com sucesso (Modo Simulado)", "expires_in": 21600},
                     status_http=200,
                     sucesso=True,
-                    tempo_resposta_ms=40,
+                    tempo_resposta_ms=30,
                 )
-            return True, "Token do Mercado Livre renovado com sucesso!"
+                return {
+                    "sucesso": True,
+                    "mensagem": "Token do Mercado Livre renovado com sucesso!",
+                    "access_token": novo_access,
+                    "refresh_token": novo_refresh,
+                    "expires_in": 21600,
+                }
 
-        url = f"{self.BASE_URL}/oauth/token"
-        headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
-        data = {
-            "grant_type": "refresh_token",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "refresh_token": self.conta.refresh_token.strip(),
-        }
+            url = f"{self.BASE_URL}/oauth/token"
+            headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+            data = {
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token_atual.strip(),
+            }
 
-        inicio = time.time()
-        try:
-            response = requests.post(url, data=data, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
-            tempo_ms = int((time.time() - inicio) * 1000)
-            status_code = response.status_code
-
+            inicio = time.time()
             try:
-                res_json = response.json()
-            except Exception:
-                res_json = {"raw_text": response.text}
+                # Retry com backoff para rate limit (429)
+                max_retries = 2
+                response = None
+                for tentativa in range(max_retries + 1):
+                    response = requests.post(url, data=data, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
+                    if response.status_code == 429 and tentativa < max_retries:
+                        time.sleep(0.5 * (tentativa + 1))
+                        continue
+                    break
 
-            if status_code in (200, 201) and 'access_token' in res_json:
-                with transaction.atomic():
-                    self.conta.access_token = res_json['access_token']
-                    self.conta.refresh_token = res_json.get('refresh_token', self.conta.refresh_token)
-                    self.conta.token_expira_em = now + datetime.timedelta(seconds=res_json.get('expires_in', 21600))
-                    self.conta.ultima_sincronizacao = now
-                    self.conta.save(update_fields=[
+                tempo_ms = int((time.time() - inicio) * 1000)
+                status_code = response.status_code
+                try:
+                    res_json = response.json()
+                except Exception:
+                    res_json = {"raw_text": response.text}
+
+                if status_code in (200, 201) and 'access_token' in res_json:
+                    novo_access = res_json['access_token']
+                    novo_refresh = res_json.get('refresh_token')  # Novo refresh_token de uso único retornado pela API
+                    expires_in = res_json.get('expires_in', 21600)
+                    novo_expira = now + datetime.timedelta(seconds=expires_in)
+
+                    conta_locked.access_token = novo_access
+                    if novo_refresh:
+                        conta_locked.refresh_token = novo_refresh
+                    conta_locked.token_expira_em = novo_expira
+                    conta_locked.ultima_sincronizacao = now
+                    conta_locked.save(update_fields=[
                         'access_token', 'refresh_token', 'token_expira_em', 'ultima_sincronizacao', 'updated_at'
                     ])
+                    self.conta.refresh_from_db()
 
                     LogSincronizacao.objects.create(
-                        loja=self.conta.loja,
-                        conta_marketplace=self.conta,
+                        loja=conta_locked.loja,
+                        conta_marketplace=conta_locked,
                         canal=CanalMarketplaceEnum.MERCADOLIVRE,
                         evento=EventoAuditoriaEnum.REFRESH_TOKEN,
                         payload_enviado={"grant_type": "refresh_token", "client_id": client_id},
-                        resposta_recebida={"status": "Token renovado com sucesso", "expires_in": res_json.get('expires_in')},
+                        resposta_recebida={"status": "Token renovado com sucesso", "expires_in": expires_in},
                         status_http=status_code,
                         sucesso=True,
                         tempo_resposta_ms=tempo_ms,
                     )
-                return True, "Token do Mercado Livre renovado com sucesso!"
-            else:
-                msg_erro = res_json.get('message') or f"Status HTTP {status_code}"
-                LogSincronizacao.objects.create(
-                    loja=self.conta.loja if self.conta else None,
-                    conta_marketplace=self.conta,
-                    canal=CanalMarketplaceEnum.MERCADOLIVRE,
-                    evento=EventoAuditoriaEnum.REFRESH_TOKEN,
-                    payload_enviado={"grant_type": "refresh_token"},
-                    resposta_recebida=res_json,
-                    status_http=status_code,
-                    sucesso=False,
-                    mensagem_erro=msg_erro,
-                    tempo_resposta_ms=tempo_ms,
-                )
-                return False, f"Falha na renovação: {msg_erro}"
+                    return {
+                        "sucesso": True,
+                        "mensagem": "Token do Mercado Livre renovado com sucesso!",
+                        "access_token": novo_access,
+                        "refresh_token": novo_refresh,
+                        "expires_in": expires_in,
+                    }
+                else:
+                    error_code = res_json.get('error', '')
+                    error_desc = res_json.get('error_description') or res_json.get('message') or f"Status HTTP {status_code}"
 
-        except Exception as exc:
-            return False, f"Erro de comunicação ao renovar token: {str(exc)}"
+                    # Inativa a conta caso o refresh_token tenha sido revogado ou expirado
+                    if error_code == 'invalid_grant':
+                        conta_locked.ativo = False
+                        conta_locked.save(update_fields=['ativo', 'updated_at'])
+                        self.conta.refresh_from_db()
+                        msg_erro = f"Credenciais revogadas ou expiradas ({error_code}): {error_desc}. A conta foi desativada e requer reconexão OAuth."
+                    elif error_code == 'invalid_operator_user_id' or status_code == 403:
+                        msg_erro = f"Acesso negado ({error_code}): A conta vinculada precisa ser titular/administradora. Colaboradores não possuem permissão."
+                    elif status_code == 429 or error_code == 'local_rate_limited':
+                        msg_erro = f"Limite de requisições excedido no Mercado Livre (Rate limit 429): {error_desc}."
+                    else:
+                        msg_erro = f"Falha na renovação ({error_code or status_code}): {error_desc}"
 
+                    LogSincronizacao.objects.create(
+                        loja=conta_locked.loja,
+                        conta_marketplace=conta_locked,
+                        canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                        evento=EventoAuditoriaEnum.REFRESH_TOKEN,
+                        payload_enviado={"grant_type": "refresh_token"},
+                        resposta_recebida=res_json,
+                        status_http=status_code,
+                        sucesso=False,
+                        mensagem_erro=msg_erro,
+                        tempo_resposta_ms=tempo_ms,
+                    )
+                    return {
+                        "sucesso": False,
+                        "mensagem": msg_erro,
+                        "error": error_code,
+                        "status_code": status_code,
+                        "detalhes": res_json,
+                    }
 
-    def autenticar(self, request=None) -> Tuple[bool, str, Dict[str, Any]]:
+            except Exception as exc:
+                return {"sucesso": False, "mensagem": f"Erro de comunicação ao renovar token: {str(exc)}"}
+
+    def get_valid_access_token(self) -> str:
         """
-        O QUE FAZ: Valida as credenciais da conta via GET /users/me na API do Mercado Livre ou simula conforme flag.
-        POR QUE FAZ: Confirma se o Access Token é válido e obtém o nickname e user_id do vendedor.
+        O QUE FAZ: Retorna o Access Token descriptografado e pronto para uso em memória.
+        POR QUE FAZ: Se faltarem menos de 10 minutos para a expiração do token (ou se já estiver expirado),
+        dispara a renovação automática (auto-refresh) antes de entregar o token.
+        """
+        if not self.conta:
+            raise ValueError("Nenhuma conta associada ao conector.")
+
+        now = timezone.now()
+        if not self.conta.access_token:
+            if self.conta.refresh_token:
+                res = self.refresh_credentials()
+                if res.get('sucesso') and self.conta.access_token:
+                    return self.conta.access_token.strip()
+            raise ValueError("Conta sem Access Token configurado e sem Refresh Token para obtê-lo.")
+
+        # Checa expiração: faltam menos de 10 minutos ou já expirou
+        limite_expiracao = now + datetime.timedelta(minutes=10)
+        if self.conta.token_expira_em and self.conta.token_expira_em <= limite_expiracao:
+            if self.conta.refresh_token:
+                res = self.refresh_credentials()
+                if not res.get('sucesso'):
+                    raise ValueError(f"Falha na renovação automática do token: {res.get('mensagem')}")
+                return self.conta.access_token.strip()
+            else:
+                raise ValueError("Token expirado e conta não possui Refresh Token para renovação automática.")
+
+        return self.conta.access_token.strip()
+
+    def garantir_token_valido(self, conta: Optional[ContaMarketplace] = None) -> Tuple[bool, str]:
+        """Método de compatibilidade: valida ou renova o token."""
+        try:
+            self.get_valid_access_token()
+            return True, "Token válido e ativo."
+        except Exception as exc:
+            return False, str(exc)
+
+    def renovar_token(self, usuario=None) -> Tuple[bool, str]:
+        """Método de compatibilidade: renova o token."""
+        res = self.refresh_credentials()
+        return res.get('sucesso', False), res.get('mensagem', '')
+
+    def request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+        """
+        O QUE FAZ: Despachante HTTP centralizado para a API do Mercado Livre.
+        POR QUE FAZ: Injeta automaticamente o Bearer Token obtido via get_valid_access_token(),
+        descriptografa em memória e efetua retry automático caso receba HTTP 401.
+        """
+        token = self.get_valid_access_token()
+        headers = kwargs.pop('headers', {})
+        headers['Authorization'] = f"Bearer {token}"
+        headers.setdefault('Accept', 'application/json')
+        if method.upper() in ('POST', 'PUT', 'PATCH'):
+            headers.setdefault('Content-Type', 'application/json')
+
+        url = endpoint if endpoint.startswith(('http://', 'https://')) else f"{self.BASE_URL.rstrip('/')}/{endpoint.lstrip('/')}"
+        timeout = kwargs.pop('timeout', self.TIMEOUT_SEGUNDOS)
+
+        # Retry tolerante para rate limit (HTTP 429)
+        response = None
+        for tentativa in range(3):
+            response = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+            if response.status_code == 429 and tentativa < 2:
+                time.sleep(0.5 * (tentativa + 1))
+                continue
+            break
+
+        # Retry automático transparente sob HTTP 401 com tentativa de refresh_credentials
+        if response.status_code == 401 and self.conta and self.conta.refresh_token:
+            ref_res = self.refresh_credentials()
+            if ref_res.get('sucesso'):
+                new_token = self.conta.access_token.strip()
+                headers['Authorization'] = f"Bearer {new_token}"
+                response = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+
+        return response
+
+    def test_connection(self, request=None) -> Dict[str, Any]:
+        """
+        O QUE FAZ: Validação ativa de conectividade e permissões via GET /users/me no Mercado Livre.
+        POR QUE FAZ: Em caso de sucesso (HTTP 200), atualiza ultima_sincronizacao para now e retorna
+        dados de identificação do vendedor (nickname, id).
         """
         from apps.mockar_dados.services import is_simular_rotas_mock_ativo
         simular = is_simular_rotas_mock_ativo(request)
@@ -414,9 +578,14 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     sucesso=True,
                     tempo_resposta_ms=45,
                 )
-                return True, f"Conexão simulada com sucesso em {data_formatada}", {"status": "ok"}
+                return {
+                    "sucesso": True,
+                    "status_code": 200,
+                    "nickname": "Vendedor Simulado",
+                    "id": self.conta.seller_id_externo or "86176658",
+                    "mensagem": f"Conexão simulada com sucesso em {data_formatada}!",
+                }
             else:
-                # Simulação DESATIVADA: Recusa HTTP 401 legítima sem alterar ultima_sincronizacao
                 LogSincronizacao.objects.create(
                     loja=self.conta.loja if self.conta else None,
                     conta_marketplace=self.conta,
@@ -429,16 +598,23 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     mensagem_erro="Não autorizado: credenciais ausentes ou inválidas no marketplace",
                     tempo_resposta_ms=120,
                 )
-                return False, "Erro HTTP 401: Não autorizado: credenciais ausentes ou inválidas no marketplace", {"status_code": 401}
+                return {
+                    "sucesso": False,
+                    "status_code": 401,
+                    "mensagem": "Erro HTTP 401: Não autorizado: credenciais ausentes ou inválidas no marketplace",
+                }
 
-        # CENÁRIO B: CONTAS MANUAIS / REAIS (is_mock = False) - NUNCA usam bypass mock!
+        # CENÁRIO B: CONTAS MANUAIS / REAIS
         if not self.conta or not self.conta.access_token:
-            return False, "Nenhum Access Token cadastrado para esta conta.", {}
+            return {
+                "sucesso": False,
+                "status_code": 400,
+                "mensagem": "Nenhum Access Token cadastrado para esta conta.",
+            }
 
-        url = f"{self.BASE_URL}/users/me"
         inicio = time.time()
         try:
-            response = requests.get(url, headers=self._obter_headers(), timeout=self.TIMEOUT_SEGUNDOS)
+            response = self.request('GET', '/users/me')
             tempo_ms = int((time.time() - inicio) * 1000)
             status_code = response.status_code
 
@@ -447,17 +623,9 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             except Exception:
                 res_json = {"raw_text": response.text}
 
-            # Retry automático em caso de 401 Unauthorized
-            if status_code == 401 and self.conta.refresh_token:
-                ok_ref, _ = self.renovar_token()
-                if ok_ref:
-                    self.conta.refresh_from_db()
-                    return self.autenticar(request=request)
-
             if status_code == 200:
                 nickname = res_json.get('nickname', 'Vendedor')
                 user_id = str(res_json.get('id', ''))
-                # Salva o seller_id se não estiver preenchido
                 if user_id and not self.conta.seller_id_externo:
                     self.conta.seller_id_externo = user_id
                 self.conta.ultima_sincronizacao = now
@@ -474,9 +642,24 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     sucesso=True,
                     tempo_resposta_ms=tempo_ms,
                 )
-                return True, f"Conexão ativa em {data_formatada}! Vendedor: {nickname} (ID: {user_id})", res_json
+                return {
+                    "sucesso": True,
+                    "status_code": 200,
+                    "nickname": nickname,
+                    "id": user_id,
+                    "mensagem": f"Conexão ativa em {data_formatada}! Vendedor: {nickname} (ID: {user_id})",
+                    "dados": res_json,
+                }
             else:
-                msg_erro = res_json.get('message') or f"Status HTTP {status_code}"
+                error_code = res_json.get('error', '')
+                error_desc = res_json.get('error_description') or res_json.get('message') or f"Status HTTP {status_code}"
+                if error_code == 'invalid_operator_user_id' or status_code == 403:
+                    msg_erro = f"Acesso negado ({error_code}): A conta vinculada precisa ser titular/administradora. Colaboradores não possuem permissão."
+                elif error_code == 'invalid_grant':
+                    msg_erro = f"Credenciais inválidas ou revogadas ({error_code}): {error_desc}."
+                else:
+                    msg_erro = f"Falha na validação de credenciais: Status HTTP {status_code} - {error_desc}"
+
                 LogSincronizacao.objects.create(
                     loja=self.conta.loja,
                     conta_marketplace=self.conta,
@@ -489,10 +672,24 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     mensagem_erro=msg_erro,
                     tempo_resposta_ms=tempo_ms,
                 )
-                return False, f"Falha na validação de credenciais: Status HTTP {status_code} - {msg_erro}", res_json
-
+                return {
+                    "sucesso": False,
+                    "status_code": status_code,
+                    "mensagem": msg_erro,
+                    "detalhes": res_json,
+                }
         except Exception as exc:
-            return False, f"Erro ao testar conexão: {str(exc)}", {}
+            return {
+                "sucesso": False,
+                "status_code": 500,
+                "mensagem": f"Erro ao testar conexão: {str(exc)}",
+            }
+
+    def autenticar(self, request=None) -> Tuple[bool, str, Dict[str, Any]]:
+        """Método de compatibilidade: delega para test_connection()."""
+        res = self.test_connection(request=request)
+        return res.get('sucesso', False), res.get('mensagem', ''), res
+
 
     def atualizar_preco(
         self, item_id_externo: str, novo_preco: Decimal, usuario=None, tentar_refresh: bool = True

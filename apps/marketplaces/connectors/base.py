@@ -27,6 +27,55 @@ class BaseMarketplaceConnector(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def get_authorization_url(self, state: str = "") -> str:
+        """
+        O QUE FAZ: Geração da URL externa de autorização/consentimento OAuth 2.0.
+        POR QUE FAZ: Constrói a URL com client_id, redirect_uri e state efêmero para redirecionamento do seller.
+        """
+        pass
+
+    @abc.abstractmethod
+    def exchange_code(self, code: str) -> Dict[str, Any]:
+        """
+        O QUE FAZ: Troca do authorization_code por credenciais e tokens de acesso junto ao canal externo.
+        POR QUE FAZ: Conclui o handshake OAuth 2.0 e salva tokens criptografados na conta.
+        """
+        pass
+
+    @abc.abstractmethod
+    def refresh_credentials(self) -> Dict[str, Any]:
+        """
+        O QUE FAZ: Renovação de credenciais antes ou após a expiração via refresh_token.
+        POR QUE FAZ: Garante continuidade operacional de integrações sem intervenção manual do lojista.
+        """
+        pass
+
+    @abc.abstractmethod
+    def get_valid_access_token(self) -> str:
+        """
+        O QUE FAZ: Retorna o token descriptografado e pronto para consumo em memória.
+        POR QUE FAZ: Aciona renovação automática de forma transparente caso o token atual esteja expirado ou prestes a expirar (< 10 min).
+        """
+        pass
+
+    @abc.abstractmethod
+    def test_connection(self, request=None) -> Dict[str, Any]:
+        """
+        O QUE FAZ: Validação ativa de conectividade e permissões junto à API externa (ex: GET /users/me).
+        POR QUE FAZ: Confirma se a conta está ativa, com credenciais válidas e atualiza telemetria de última sincronização.
+        RETORNO: dict contendo status, sucesso e identificadores (ex: nickname, id).
+        """
+        pass
+
+    @abc.abstractmethod
+    def request(self, method: str, endpoint: str, **kwargs) -> Any:
+        """
+        O QUE FAZ: Despachante HTTP centralizado para chamadas de negócio junto à API do canal.
+        POR QUE FAZ: Injeta o cabeçalho Authorization: Bearer <token_puro>, descriptografa em memória e lida com retentativas/refresh automático sob HTTP 401.
+        """
+        pass
+
+    @abc.abstractmethod
     def autenticar(self, request=None) -> Tuple[bool, str, Dict[str, Any]]:
         """
         O QUE FAZ: Valida credenciais ou testa conectividade com a API externa (ex: GET /users/me).
@@ -78,3 +127,4 @@ class BaseMarketplaceConnector(abc.ABC):
         RETORNO: (sucesso: bool, mensagem: str, pedidos: list[dict])
         """
         pass
+

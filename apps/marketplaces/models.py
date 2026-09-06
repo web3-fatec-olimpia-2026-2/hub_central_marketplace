@@ -137,6 +137,14 @@ class ContaMarketplace(models.Model):
         """Verifica se a conta possui Access Token configurado."""
         return bool(self.access_token)
 
+    def get_connector(self):
+        """
+        O QUE FAZ: Instancia e retorna o conector adequado para a conta de marketplace (Strategy / Adapter Pattern).
+        POR QUE FAZ: Ponto único de despacho desacoplado do conector específico de canal (Mercado Livre, Shopee, etc.).
+        """
+        from .connectors.factory import get_connector_for_conta
+        return get_connector_for_conta(self)
+
 
 # Alias de modelo conforme especificação
 ConfiguracaoCanal = ContaMarketplace

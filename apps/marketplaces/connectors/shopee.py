@@ -24,6 +24,30 @@ class ShopeeConnector(BaseMarketplaceConnector):
     def canal_nome(self) -> str:
         return CanalMarketplaceEnum.SHOPEE
 
+    def get_authorization_url(self, state: str = "") -> str:
+        return f"{self.BASE_URL}/oauth/authorize?state={state}"
+
+    def exchange_code(self, code: str) -> Dict[str, Any]:
+        return {"sucesso": True, "message": "Shopee stub exchange_code"}
+
+    def refresh_credentials(self) -> Dict[str, Any]:
+        return {"sucesso": True, "message": "Shopee stub refresh_credentials"}
+
+    def get_valid_access_token(self) -> str:
+        return (self.conta.access_token if self.conta and self.conta.access_token else "").strip()
+
+    def test_connection(self, request=None) -> Dict[str, Any]:
+        sucesso, msg, data = self.autenticar(request=request)
+        return {"sucesso": sucesso, "mensagem": msg, "dados": data}
+
+    def request(self, method: str, endpoint: str, **kwargs) -> Any:
+        url = endpoint if endpoint.startswith(("http://", "https://")) else f"{self.BASE_URL.rstrip('/')}/{endpoint.lstrip('/')}"
+        headers = kwargs.pop('headers', {})
+        token = self.get_valid_access_token()
+        if token:
+            headers['Authorization'] = f"Bearer {token}"
+        return requests.request(method, url, headers=headers, **kwargs)
+
     def autenticar(self, request=None) -> Tuple[bool, str, Dict[str, Any]]:
         """
         O QUE FAZ: Valida credenciais na API Shopee OpenAPI v2 ou simula conforme flag de mock.

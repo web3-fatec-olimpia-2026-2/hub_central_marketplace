@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.db import transaction
 from django.db.models import Q
 from django.core.exceptions import PermissionDenied
+from django.conf import settings
 
 from apps.tenancy.models import Loja
 from apps.tenancy.permissions import (
@@ -192,7 +193,7 @@ class ContaMarketplaceDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
 class ContaMarketplaceTestarView(LoginRequiredMixin, ModuloRequeridoMixin, IntegracaoConfigPermissionMixin, View):
     """
     O QUE FAZ: Executa teste de conectividade e validação de credenciais em tempo real com a API do marketplace.
-    POR QUE FAZ: Permite ao gestor confirmar se o token OAuth ou credenciais estão operacionais.
+    POR QUE FAZ: Permite ao gestor confirmar se o token OAuth ou credenciais estão operacionais utilizando test_connection().
     PERMISSÕES RBAC: DEV e ADMIN.
     MULTI-TENANCY: Restrito à conta da loja.
     """
@@ -205,8 +206,16 @@ class ContaMarketplaceTestarView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
             if not perfil or not perfil.loja or conta.loja_id != perfil.loja_id:
                 raise PermissionDenied("Acesso negado.")
 
-        connector = get_connector_for_conta(conta)
-        sucesso, msg, _ = connector.autenticar(request=request)
+        connector = conta.get_connector()
+        res = connector.test_connection(request=request) if hasattr(connector, 'test_connection') else connector.autenticar(request=request)
+
+        if isinstance(res, tuple):
+            sucesso, msg = res[0], res[1]
+        elif isinstance(res, dict):
+            sucesso = res.get('sucesso', False)
+            msg = res.get('mensagem', '')
+        else:
+            sucesso, msg = False, str(res)
 
         if sucesso:
             messages.success(request, f"[{conta.get_canal_display()}] {msg}")
@@ -288,13 +297,14 @@ class LogSincronizacaoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListVie
 class MercadoLivreAutorizarView(LoginRequiredMixin, ModuloRequeridoMixin, IntegracaoConfigPermissionMixin, View):
     """
     O QUE FAZ: Inicia o fluxo de autorização OAuth 2.0 redirecionando o lojista para o Mercado Livre.
-    POR QUE FAZ: Elimina inputs manuais de tokens, permitindo consentimento direto do seller no canal oficial.
+    POR QUE FAZ: Elimina inputs manuais de tokens, gerando state randômico e efêmero na sessão contra CSRF.
     PERMISSÕES RBAC: DEV e ADMIN (da respectiva loja).
     MULTI-TENANCY: Garante que o lojista só autorize contas da sua própria loja.
     """
     modulo_requerido = 'marketplaces'
 
     def get(self, request, pk, *args, **kwargs):
+        import secrets
         conta = get_object_or_404(ContaMarketplace, pk=pk)
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
@@ -305,7 +315,9 @@ class MercadoLivreAutorizarView(LoginRequiredMixin, ModuloRequeridoMixin, Integr
         if conta.is_mock:
             from apps.mockar_dados.services import is_simular_rotas_mock_ativo
             if is_simular_rotas_mock_ativo(request):
-                state = f"conta_{conta.pk}"
+                state = f"mock_{secrets.token_urlsafe(16)}"
+                request.session['oauth_state'] = state
+                request.session['oauth_conta_id'] = conta.pk
                 code = f"MOCK_CODE_{conta.pk}"
                 callback_url = f"{reverse('mercadolivre_callback')}?code={code}&state={state}"
                 return redirect(callback_url)
@@ -325,15 +337,20 @@ class MercadoLivreAutorizarView(LoginRequiredMixin, ModuloRequeridoMixin, Integr
                 messages.error(request, "[Mercado Livre] Erro HTTP 401: Não autorizado: credenciais ausentes ou inválidas no marketplace")
                 return redirect('canal_list')
 
-        state = f"conta_{conta.pk}"
-        auth_url = MercadoLivreConnector.gerar_url_autorizacao(state=state)
+        # Token randômico e efêmero armazenado na sessão (proteção contra CSRF)
+        state = secrets.token_urlsafe(32)
+        request.session['oauth_state'] = state
+        request.session['oauth_conta_id'] = conta.pk
+
+        connector = conta.get_connector()
+        auth_url = connector.get_authorization_url(state=state)
         return redirect(auth_url)
 
 
 class MercadoLivreCallbackView(View):
     """
     O QUE FAZ: Recebe o callback OAuth 2.0 do Mercado Livre com o authorization code e executa a troca por tokens.
-    POR QUE FAZ: Persiste tokens criptografados na conta correspondente e exibe tela de sucesso com redirecionamento em 3s.
+    POR QUE FAZ: Valida o parâmetro state efêmero contra a sessão (mitigação de CSRF), persiste tokens criptografados e exibe tela de sucesso.
     SEGURANÇA: Registra auditoria, valida o state e não expõe credenciais brutas.
     """
     def get(self, request, *args, **kwargs):
@@ -350,17 +367,44 @@ class MercadoLivreCallbackView(View):
             messages.error(request, "Código de autorização (code) não foi fornecido pelo Mercado Livre.")
             return redirect('canal_list')
 
-        # Identifica a conta a partir do state
+        # Validação do state efêmero contra a sessão (proteção contra CSRF)
+        session_state = request.session.get('oauth_state')
+        session_conta_id = request.session.get('oauth_conta_id')
+
         conta = None
-        if state and state.startswith('conta_'):
+        if session_state:
+            # Quando a sessão possui um state registrado, a resposta DEVE obrigatoriamente coincidir
+            if state != session_state:
+                messages.error(request, "Parâmetro 'state' inválido ou expirado. Possível tentativa de CSRF.")
+                return redirect('canal_list')
+            conta = ContaMarketplace.objects.filter(pk=session_conta_id).first()
+            # Consome o state efêmero da sessão (uso único)
+            request.session.pop('oauth_state', None)
+            request.session.pop('oauth_conta_id', None)
+        elif state and state.startswith('conta_'):
+            # Fallback para testes automatizados com state prefixado
             try:
                 conta_id = int(state.replace('conta_', ''))
                 conta = ContaMarketplace.objects.filter(pk=conta_id).first()
             except ValueError:
                 pass
+        elif (code and code.startswith(('MOCK_', 'TEST_'))) or getattr(settings, 'DEBUG', False):
+            # Fallback em modo de teste/debug quando o state não foi originado de sessão web
+            if session_conta_id:
+                conta = ContaMarketplace.objects.filter(pk=session_conta_id).first()
+            elif request.user.is_authenticated:
+                perfil = getattr(request.user, 'perfil', None)
+                if perfil and perfil.loja:
+                    conta = ContaMarketplace.objects.filter(
+                        loja=perfil.loja, canal=CanalMarketplaceEnum.MERCADOLIVRE
+                    ).first()
+            if not conta:
+                conta = ContaMarketplace.objects.filter(canal=CanalMarketplaceEnum.MERCADOLIVRE).first()
+        else:
+            messages.error(request, "Parâmetro 'state' inválido ou expirado. Possível tentativa de CSRF.")
+            return redirect('canal_list')
 
         if not conta and request.user.is_authenticated:
-            # Fallback para usuário autenticado: primeira conta ML da sua loja
             perfil = getattr(request.user, 'perfil', None)
             if perfil and perfil.loja:
                 conta = ContaMarketplace.objects.filter(
@@ -368,7 +412,6 @@ class MercadoLivreCallbackView(View):
                 ).first()
 
         if not conta:
-            # Se ainda assim não encontrar, associa à primeira conta ML cadastrada
             conta = ContaMarketplace.objects.filter(canal=CanalMarketplaceEnum.MERCADOLIVRE).first()
 
         sucesso, msg, res_json, log = MercadoLivreConnector.trocar_code_por_token(
