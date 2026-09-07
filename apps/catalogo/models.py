@@ -184,9 +184,9 @@ class AnuncioMarketplace(models.Model):
 
 class HistoricoPreco(models.Model):
     """
-    O QUE FAZ: Registro histórico e auditoria de mutações de preços de venda (RN-04 / RF-05).
-    POR QUE FAZ: Rastreabilidade de precificação com preço anterior, novo preço, responsável e justificativa.
-    PERMISSÕES RBAC: Consulta por DEV, ADMIN e SUPERVISOR; gravação automática em alterações de preço.
+    O QUE FAZ: Registro histórico unificado de mutações de preços e estoque (RN-04 / RF-05).
+    POR QUE FAZ: Rastreabilidade conjunta de precificação e inventário físico na mesma linha.
+    PERMISSÕES RBAC: Consulta por DEV, ADMIN e SUPERVISOR; gravação automática em alterações de preço e estoque.
     MULTI-TENANCY: FK para Loja e Produto da loja.
     """
     produto = models.ForeignKey(
@@ -196,27 +196,36 @@ class HistoricoPreco(models.Model):
         Loja, on_delete=models.CASCADE, related_name='historico_precos', verbose_name="Loja (Tenant)"
     )
     preco_anterior = models.DecimalField(
-        max_digits=10, decimal_places=2, verbose_name="Preço Anterior (R$)"
+        max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Preço Anterior (R$)"
     )
     preco_novo = models.DecimalField(
-        max_digits=10, decimal_places=2, verbose_name="Novo Preço (R$)"
+        max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Novo Preço (R$)"
+    )
+    estoque_anterior = models.IntegerField(
+        null=True, blank=True, verbose_name="Estoque Anterior"
+    )
+    estoque_novo = models.IntegerField(
+        null=True, blank=True, verbose_name="Novo Estoque"
     )
     usuario = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='precos_alterados', verbose_name="Usuário Responsável"
     )
     motivo = models.CharField(
-        max_length=200, blank=True, null=True, verbose_name="Motivo da Alteração"
+        max_length=200, blank=True, null=True, verbose_name="Motivo / Operação"
     )
     criado_em = models.DateTimeField(
         auto_now_add=True, verbose_name="Data / Hora da Alteração"
     )
 
     class Meta:
-        verbose_name = "Histórico de Preço"
-        verbose_name_plural = "Históricos de Preços"
+        verbose_name = "Histórico de Alteração de Preço e Estoque"
+        verbose_name_plural = "Históricos de Alterações de Preço e Estoque"
         ordering = ['-criado_em']
 
     def __str__(self):
         user_str = self.usuario.username if self.usuario else "Sistema"
-        return f"{self.produto.sku}: R$ {self.preco_anterior} -> R$ {self.preco_novo} por {user_str} em {self.criado_em.strftime('%d/%m/%Y %H:%M')}"
+        return f"{self.produto.sku}: Preço ({self.preco_anterior} -> {self.preco_novo}) | Estoque ({self.estoque_anterior} -> {self.estoque_novo}) por {user_str}"
+
+
+HistoricoAlteracao = HistoricoPreco

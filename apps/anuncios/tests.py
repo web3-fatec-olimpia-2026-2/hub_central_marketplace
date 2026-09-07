@@ -331,6 +331,7 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
             slug="loja-sync",
             cnpj="22.222.222/0001-22"
         )
+        self.loja.garantir_modulos_padrao()
         self.categoria = Categoria.objects.create(
             loja=self.loja,
             nome="Eletrônicos",
@@ -560,20 +561,70 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
         self.assertTrue(ok_normal)
 
     def test_signals_produto_disparam_sincronizacao_anuncios(self):
-        """Valida que salvar Produto com alteração de estoque dispara sincronização dos anúncios vinculados."""
+        """Valida que salvar Produto com alteração de estoque marca anúncios vinculados como PENDENTE sem disparar chamadas externas silenciosas."""
         with patch.object(MercadoLivreConnector, 'atualizar_estoque') as mock_sync_est:
             mock_sync_est.return_value = (True, "OK", None)
+
+            # Define estado inicial sincronizado
+            self.anuncio_unitario.status_sincronizacao = 'SINCRONIZADO'
+            self.anuncio_unitario.save()
+            self.anuncio_kit.status_sincronizacao = 'SINCRONIZADO'
+            self.anuncio_kit.save()
 
             # Altera estoque do Headset de 20 para 2 (afeta cota unitária e do kit)
             self.produto_gamer.estoque = 2
             self.produto_gamer.save()
 
-            # Deve ter sincronizado tanto o anúncio unitário quanto o kit
-            # Unitário: cota 2 (era 20)
-            # Kit: min(2//1, 6//2) = min(2, 3) = 2 (era 3)
-            chamadas_ids = [call[0][0] for call in mock_sync_est.call_args_list]
-            self.assertIn("MLB2001", chamadas_ids)
-            self.assertIn("MLB2002", chamadas_ids)
+            # NÃO deve ter disparado chamadas externas à API do Mercado Livre (desacoplamento defensivo)
+            self.assertEqual(mock_sync_est.call_count, 0)
+
+            # Deve marcar anúncios vinculados como PENDENTE para confirmação manual
+            self.anuncio_unitario.refresh_from_db()
+            self.anuncio_kit.refresh_from_db()
+            self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'PENDENTE')
+            self.assertEqual(self.anuncio_kit.status_sincronizacao, 'PENDENTE')
+
+    def test_signals_respeitam_anuncios_ignorados(self):
+        """Valida que anúncios marcados como IGNORADO não têm seu status alterado para PENDENTE por signals de Produto."""
+        self.anuncio_unitario.status_sincronizacao = 'IGNORADO'
+        self.anuncio_unitario.save()
+
+        self.produto_gamer.estoque = 5
+        self.produto_gamer.save()
+
+        self.anuncio_unitario.refresh_from_db()
+        self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'IGNORADO')
+
+    def test_toggle_ignorar_anuncio_view(self):
+        """Valida alternância entre status IGNORADO e reativação para PENDENTE/SINCRONIZADO."""
+        self.client.force_login(self.user_admin)
+        url = reverse('anuncio_toggle_ignorar', kwargs={'pk': self.anuncio_unitario.pk})
+
+        # 1. Marca como IGNORADO
+        resp1 = self.client.post(url, HTTP_REFERER='/produtos/1/')
+        self.assertEqual(resp1.status_code, 302)
+        self.anuncio_unitario.refresh_from_db()
+        self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'IGNORADO')
+
+        # 2. Reativa a sincronização
+        resp2 = self.client.post(url, HTTP_REFERER='/produtos/1/')
+        self.assertEqual(resp2.status_code, 302)
+        self.anuncio_unitario.refresh_from_db()
+        self.assertIn(self.anuncio_unitario.status_sincronizacao, ['PENDENTE', 'SINCRONIZADO'])
+
+    def test_sincronizar_anuncio_view_atualiza_status_para_sincronizado(self):
+        """Valida que sincronização manual via view atualiza status_sincronizacao para SINCRONIZADO."""
+        self.client.force_login(self.user_admin)
+        url = reverse('anuncio_sincronizar', kwargs={'pk': self.anuncio_unitario.pk})
+        self.anuncio_unitario.status_sincronizacao = 'PENDENTE'
+        self.anuncio_unitario.save()
+
+        with patch.object(MercadoLivreConnector, 'atualizar_estoque', return_value=(True, "OK", None)), \
+             patch.object(MercadoLivreConnector, 'atualizar_preco', return_value=(True, "OK", None)):
+            resp = self.client.post(url, HTTP_REFERER='/produtos/1/')
+            self.assertEqual(resp.status_code, 302)
+            self.anuncio_unitario.refresh_from_db()
+            self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'SINCRONIZADO')
 
     def test_idempotencia_evita_requisicao_externa_redundante(self):
         """Valida que se o estoque calculado for idêntico ao já publicado, a chamada de rede é poupada."""

@@ -1,6 +1,7 @@
 # Os códigos foram gerados com auxilio de I.A.
 import math
 from decimal import Decimal
+from typing import Optional
 from django.db import models
 from django.core.exceptions import ValidationError
 
@@ -22,6 +23,12 @@ class Anuncio(models.Model):
         ('closed', 'Finalizado'),
         ('under_review', 'Em Revisão'),
         ('inactive', 'Inativo'),
+    ]
+
+    STATUS_SINCRONIZACAO_CHOICES = [
+        ('SINCRONIZADO', 'Sincronizado'),
+        ('PENDENTE', 'Pendente de Envio'),
+        ('IGNORADO', 'Ignorado / Descartado'),
     ]
 
     conta = models.ForeignKey(
@@ -48,6 +55,13 @@ class Anuncio(models.Model):
     estoque_publicado = models.IntegerField(
         default=0,
         verbose_name="Estoque Publicado no Canal (Snapshot Lógico)"
+    )
+    status_sincronizacao = models.CharField(
+        max_length=20,
+        choices=STATUS_SINCRONIZACAO_CHOICES,
+        default='SINCRONIZADO',
+        db_index=True,
+        verbose_name="Estado da Sincronização"
     )
     status = models.CharField(
         max_length=30,
@@ -132,6 +146,21 @@ class Anuncio(models.Model):
     def cota_calculada(self) -> int:
         """Retorna a cota física máxima calculada para o anúncio."""
         return self.calcular_cota_disponivel()
+
+    def esta_pendente(self, preco_catalogo: Optional[Decimal] = None) -> bool:
+        """
+        O QUE FAZ: Verifica se o anúncio possui divergência física de cota ou preço em relação ao catálogo.
+        """
+        if self.status_sincronizacao == 'IGNORADO':
+            return False
+        if self.status_sincronizacao == 'PENDENTE':
+            return True
+        cota = self.calcular_cota_disponivel()
+        if self.estoque_publicado != cota:
+            return True
+        if preco_catalogo is not None and not self.eh_kit and self.preco_venda != preco_catalogo:
+            return True
+        return False
 
 
 class AnuncioComposicao(models.Model):

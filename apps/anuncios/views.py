@@ -231,6 +231,8 @@ class AnuncioSincronizarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
         res_prc = AnuncioSincronizacaoService.sincronizar_preco_anuncio(anuncio, anuncio.preco_venda, usuario=request.user, forcar=True)
 
         if res_est.get('sucesso'):
+            anuncio.status_sincronizacao = 'SINCRONIZADO'
+            anuncio.save(update_fields=['status_sincronizacao', 'atualizado_em'])
             messages.success(
                 request,
                 f"Anúncio [{anuncio.item_id_externo}] sincronizado com sucesso no canal {anuncio.conta.get_canal_display()}! "
@@ -241,6 +243,43 @@ class AnuncioSincronizarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
                 request,
                 f"Falha ao sincronizar estoque do anúncio [{anuncio.item_id_externo}]: {res_est.get('mensagem')}"
             )
+
+        referer = request.META.get('HTTP_REFERER')
+        if referer:
+            return redirect(referer)
+        return redirect('anuncio_detail', pk=anuncio.pk)
+
+
+class AnuncioToggleIgnorarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
+    """
+    O QUE FAZ: Alterna a decisão do operador entre sincronizar ou ignorar/descartar alterações para o anúncio.
+    POR QUE FAZ: Permite ao operador proteger kits ou anúncios com estratégias de preço/estoque independentes.
+    PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
+    """
+    modulo_requerido = 'marketplaces'
+
+    def post(self, request, pk, *args, **kwargs):
+        if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
+            raise PermissionDenied("Acesso negado: seu perfil não tem permissão para alterar anúncios.")
+
+        anuncio = get_object_or_404(Anuncio, pk=pk)
+        if not usuario_is_dev(request.user):
+            perfil = getattr(request.user, 'perfil', None)
+            if not perfil or not perfil.loja or anuncio.conta.loja_id != perfil.loja_id:
+                raise PermissionDenied("Acesso negado: este anúncio pertence a outra loja.")
+
+        if anuncio.status_sincronizacao == 'IGNORADO':
+            cota = anuncio.calcular_cota_disponivel()
+            if anuncio.estoque_publicado != cota:
+                anuncio.status_sincronizacao = 'PENDENTE'
+            else:
+                anuncio.status_sincronizacao = 'SINCRONIZADO'
+            messages.success(request, f"Sincronização reativada para o anúncio [{anuncio.item_id_externo}].")
+        else:
+            anuncio.status_sincronizacao = 'IGNORADO'
+            messages.info(request, f"O anúncio [{anuncio.item_id_externo}] foi marcado como IGNORADO/DESCARTADO para sincronizações.")
+
+        anuncio.save(update_fields=['status_sincronizacao', 'atualizado_em'])
 
         referer = request.META.get('HTTP_REFERER')
         if referer:

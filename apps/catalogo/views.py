@@ -311,14 +311,16 @@ class ProdutoCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
         with transaction.atomic():
             self.object = form.save()
 
-            if self.object.preco > Decimal('0.00'):
+            if self.object.preco > Decimal('0.00') or self.object.estoque > 0:
                 HistoricoPreco.objects.create(
                     produto=self.object,
                     loja=self.object.loja,
                     preco_anterior=Decimal('0.00'),
                     preco_novo=self.object.preco,
+                    estoque_anterior=0,
+                    estoque_novo=self.object.estoque,
                     usuario=self.request.user,
-                    motivo="Preço inicial no cadastro"
+                    motivo="Cadastro inicial do produto"
                 )
 
             LogAuditoria.objects.create(
@@ -356,10 +358,12 @@ class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         from apps.anuncios.models import Anuncio
-        context['anuncios'] = Anuncio.objects.filter(
+        anuncios = Anuncio.objects.filter(
             composicoes__produto=self.object
         ).select_related('conta', 'conta__loja').distinct()
-        context['historicos'] = self.object.historico_precos.select_related('usuario').order_by('-criado_em')[:10]
+        context['anuncios'] = anuncios
+        context['anuncios_ativos_sync'] = [a for a in anuncios if a.status_sincronizacao != 'IGNORADO']
+        context['historicos'] = self.object.historico_precos.select_related('usuario').order_by('-criado_em')[:25]
         context['form_anuncio'] = AnuncioMarketplaceForm(produto=self.object)
         context['pode_alterar_preco'] = pode_alterar_preco(self.request.user)
         context['pode_ajustar_estoque_geral'] = pode_ajustar_estoque_geral(self.request.user)
@@ -394,15 +398,19 @@ class ProdutoUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
         with transaction.atomic():
             self.object = form.save()
 
-            if preco_anterior != self.object.preco:
+            if preco_anterior != self.object.preco or estoque_anterior != self.object.estoque:
                 HistoricoPreco.objects.create(
                     produto=self.object,
                     loja=self.object.loja,
                     preco_anterior=preco_anterior,
                     preco_novo=self.object.preco,
+                    estoque_anterior=estoque_anterior,
+                    estoque_novo=self.object.estoque,
                     usuario=self.request.user,
-                    motivo="Alteração de preço manual pelo painel"
+                    motivo="Edição de cadastro de produto"
                 )
+
+            if preco_anterior != self.object.preco:
                 LogAuditoria.objects.create(
                     loja=self.object.loja,
                     autor=self.request.user,
@@ -499,6 +507,17 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogO
             prod_locked.estoque = novo_saldo
             prod_locked.save(update_fields=['estoque', 'atualizado_em'])
 
+            HistoricoPreco.objects.create(
+                produto=prod_locked,
+                loja=prod_locked.loja,
+                preco_anterior=prod_locked.preco,
+                preco_novo=prod_locked.preco,
+                estoque_anterior=saldo_anterior,
+                estoque_novo=novo_saldo,
+                usuario=self.request.user,
+                motivo=f"Baixa por Avaria ({tipo_baixa}): {justificativa}"
+            )
+
             LogAuditoria.objects.create(
                 loja=prod_locked.loja,
                 autor=self.request.user,
@@ -553,6 +572,17 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, Catalog
             saldo_anterior = prod_locked.estoque
             prod_locked.estoque = novo_saldo
             prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+
+            HistoricoPreco.objects.create(
+                produto=prod_locked,
+                loja=prod_locked.loja,
+                preco_anterior=prod_locked.preco,
+                preco_novo=prod_locked.preco,
+                estoque_anterior=saldo_anterior,
+                estoque_novo=novo_saldo,
+                usuario=self.request.user,
+                motivo=f"Ajuste Geral ({tipo_ajuste}): {justificativa}"
+            )
 
             LogAuditoria.objects.create(
                 loja=prod_locked.loja,
@@ -655,8 +685,13 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
         falhas = 0
 
         for a in anuncios_novos:
-            res = AnuncioSincronizacaoService.sincronizar_preco_anuncio(a, produto.preco, usuario=request.user, forcar=True)
-            if res.get('sucesso'):
+            if a.status_sincronizacao == 'IGNORADO':
+                continue
+            res_est = AnuncioSincronizacaoService.sincronizar_estoque_anuncio(a, usuario=request.user, forcar=True)
+            res_prc = AnuncioSincronizacaoService.sincronizar_preco_anuncio(a, produto.preco, usuario=request.user, forcar=True)
+            if res_est.get('sucesso') and res_prc.get('sucesso'):
+                a.status_sincronizacao = 'SINCRONIZADO'
+                a.save(update_fields=['status_sincronizacao', 'atualizado_em'])
                 sucessos += 1
             else:
                 falhas += 1
@@ -664,19 +699,19 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
         for anuncio in anuncios:
             conta = anuncio.conta_marketplace
             connector = get_connector_for_conta(conta)
-            sucesso, msg, log = connector.atualizar_preco(anuncio.item_id_externo, produto.preco, usuario=request.user)
-            if sucesso:
+            sucesso_p, msg_p, log_p = connector.atualizar_preco(anuncio.item_id_externo, produto.preco, usuario=request.user)
+            sucesso_e, msg_e, log_e = connector.atualizar_estoque(anuncio.item_id_externo, produto.estoque, usuario=request.user)
+            if sucesso_p and sucesso_e:
                 sucessos += 1
                 anuncio.preco_sincronizado = produto.preco
                 anuncio.save(update_fields=['preco_sincronizado', 'atualizado_em'])
             else:
                 falhas += 1
 
-
         if falhas == 0:
             produto.status_sincronizacao = StatusSincronizacaoEnum.SINCRONIZADO
             produto.save(update_fields=['status_sincronizacao', 'atualizado_em'])
-            messages.success(request, f"Preço de R$ {produto.preco} sincronizado com sucesso em {sucessos} anúncio(s)!")
+            messages.success(request, f"Preço e estoque sincronizados com sucesso em {sucessos} anúncio(s)!")
         else:
             produto.status_sincronizacao = StatusSincronizacaoEnum.ERRO
             produto.save(update_fields=['status_sincronizacao', 'atualizado_em'])

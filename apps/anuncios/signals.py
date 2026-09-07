@@ -64,8 +64,8 @@ def identificar_alteracao_produto(sender, instance: Produto, **kwargs):
 @receiver(post_save, sender=Produto)
 def disparar_sincronizacao_anuncios_produto(sender, instance: Produto, created: bool, **kwargs):
     """
-    O QUE FAZ: Dispara a sincronização de estoque e preço para todos os anúncios vinculados ao Produto (unitários e kits).
-    POR QUE FAZ: Mantém o marketplace rigorosamente alinhado com a Fonte da Verdade do Catálogo (RF-05 / RF-08).
+    O QUE FAZ: Identifica mutações de estoque/preço no Produto e marca os anúncios vinculados como PENDENTE de envio.
+    POR QUE FAZ: Desacopla o envio automático para a API externa, garantindo que o envio só ocorra com confirmação explícita do usuário.
     """
     if is_signals_muted() or getattr(instance, '_ignorar_sinais_sincronizacao', False):
         return
@@ -79,10 +79,11 @@ def disparar_sincronizacao_anuncios_produto(sender, instance: Produto, created: 
     # Protege contra reentrância na mesma thread
     with mute_sincronizacao_signals():
         try:
-            apenas_estoque = not preco_alterado
-            AnuncioSincronizacaoService.sincronizar_anuncios_do_produto(
-                produto=instance,
-                apenas_estoque=apenas_estoque
-            )
+            from apps.anuncios.models import Anuncio
+            anuncios = Anuncio.objects.filter(composicoes__produto=instance).distinct()
+            for anc in anuncios:
+                if anc.status_sincronizacao != 'IGNORADO':
+                    anc.status_sincronizacao = 'PENDENTE'
+                    anc.save(update_fields=['status_sincronizacao', 'atualizado_em'])
         except Exception as exc:
-            logger.error(f"Erro ao sincronizar anúncios vinculados ao produto {instance.pk}: {exc}", exc_info=True)
+            logger.error(f"Erro ao marcar pendência nos anúncios vinculados ao produto {instance.pk}: {exc}", exc_info=True)
