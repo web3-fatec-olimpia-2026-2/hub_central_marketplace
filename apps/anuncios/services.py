@@ -321,7 +321,7 @@ class AnuncioSincronizacaoService:
         POR QUE FAZ: Acionado automaticamente por Django Signals após alteração de estoque ou preço no produto mestre.
         """
         anuncios = Anuncio.objects.filter(
-            itens_composicao__produto=produto
+            composicoes__produto=produto
         ).select_related('conta', 'conta__loja').distinct()
 
         resultados_estoque = []

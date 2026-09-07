@@ -8,4 +8,6 @@ urlpatterns = [
     path('importar/<int:pk>/', views.AnuncioImportarView.as_view(), name='anuncio_importar'),
     path('<int:pk>/composicao/adicionar/', views.AnuncioComposicaoCreateView.as_view(), name='anuncio_composicao_add'),
     path('composicao/<int:pk>/excluir/', views.AnuncioComposicaoDeleteView.as_view(), name='anuncio_composicao_delete'),
+    path('<int:pk>/sincronizar/', views.AnuncioSincronizarView.as_view(), name='anuncio_sincronizar'),
 ]
+

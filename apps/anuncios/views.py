@@ -205,3 +205,45 @@ class AnuncioComposicaoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, View
         item.delete()
         messages.success(request, f"Vínculo com '{produto_nome}' removido da composição.")
         return redirect('anuncio_detail', pk=anuncio.pk)
+
+
+class AnuncioSincronizarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
+    """
+    O QUE FAZ: Dispara a sincronização manual e imediata de estoque e preço do anúncio no marketplace.
+    POR QUE FAZ: Permite ao lojista/gestor sincronizar sob demanda com a API do canal (ex: Mercado Livre).
+    PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
+    MULTI-TENANCY: Validação estrita por loja.
+    """
+    modulo_requerido = 'marketplaces'
+
+    def post(self, request, pk, *args, **kwargs):
+        if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
+            raise PermissionDenied("Acesso negado: seu perfil não tem permissão para sincronizar anúncios.")
+
+        anuncio = get_object_or_404(Anuncio, pk=pk)
+        if not usuario_is_dev(request.user):
+            perfil = getattr(request.user, 'perfil', None)
+            if not perfil or not perfil.loja or anuncio.conta.loja_id != perfil.loja_id:
+                raise PermissionDenied("Acesso negado: este anúncio pertence a outra loja.")
+
+        from apps.anuncios.services import AnuncioSincronizacaoService
+        res_est = AnuncioSincronizacaoService.sincronizar_estoque_anuncio(anuncio, usuario=request.user, forcar=True)
+        res_prc = AnuncioSincronizacaoService.sincronizar_preco_anuncio(anuncio, anuncio.preco_venda, usuario=request.user, forcar=True)
+
+        if res_est.get('sucesso'):
+            messages.success(
+                request,
+                f"Anúncio [{anuncio.item_id_externo}] sincronizado com sucesso no canal {anuncio.conta.get_canal_display()}! "
+                f"(Estoque: {res_est.get('estoque_sincronizado')} un., Preço: R$ {anuncio.preco_venda:.2f})"
+            )
+        else:
+            messages.error(
+                request,
+                f"Falha ao sincronizar estoque do anúncio [{anuncio.item_id_externo}]: {res_est.get('mensagem')}"
+            )
+
+        referer = request.META.get('HTTP_REFERER')
+        if referer:
+            return redirect(referer)
+        return redirect('anuncio_detail', pk=anuncio.pk)
+
