@@ -25,6 +25,7 @@ urlpatterns = [
     path('', include(('apps.tenancy.urls', 'core'), namespace='core')),
     path('', include('apps.marketplaces.urls')),
     path('', include('apps.catalogo.urls')),
+    path('anuncios/', include('apps.anuncios.urls')),
     path('', include('apps.pedidos.urls')),
     path('', include('apps.financeiro.urls')),
     path('mockar-dados/', include('apps.mockar_dados.urls')),

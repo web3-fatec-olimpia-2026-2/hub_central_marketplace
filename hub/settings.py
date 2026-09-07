@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'apps.tenancy.apps.TenancyConfig',
     'apps.marketplaces.apps.MarketplacesConfig',
     'apps.catalogo.apps.CatalogoConfig',
+    'apps.anuncios.apps.AnunciosConfig',
     'apps.pedidos.apps.PedidosConfig',
     'apps.financeiro.apps.FinanceiroConfig',
 

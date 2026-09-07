@@ -128,3 +128,13 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    @abc.abstractmethod
+    def importar_anuncios(self) -> Dict[str, Any]:
+        """
+        O QUE FAZ: Consulta e extrai os anúncios/itens ativos do vendedor no marketplace externo.
+        POR QUE FAZ: Fornece ao Hub a lista normalizada de anúncios comerciais publicados para conciliação com o catálogo físico.
+        RETORNO: Dict contendo {'sucesso': bool, 'mensagem': str, 'itens': List[Dict], 'total': int}
+        """
+        pass
+
+

@@ -261,3 +261,7 @@ class MagaluConnector(BaseMarketplaceConnector):
         self, data_inicio=None
     ) -> Tuple[bool, str, List[Dict[str, Any]]]:
         return True, "0 pedidos retornados (Stub Magalu).", []
+
+    def importar_anuncios(self) -> Dict[str, Any]:
+        return {"sucesso": False, "mensagem": "Importação de anúncios não implementada para Magalu.", "itens": [], "total": 0}
+

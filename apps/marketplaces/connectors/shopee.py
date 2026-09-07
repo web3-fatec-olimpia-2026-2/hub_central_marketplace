@@ -261,3 +261,7 @@ class ShopeeConnector(BaseMarketplaceConnector):
         self, data_inicio=None
     ) -> Tuple[bool, str, List[Dict[str, Any]]]:
         return True, "0 pedidos retornados (Stub Shopee).", []
+
+    def importar_anuncios(self) -> Dict[str, Any]:
+        return {"sucesso": False, "mensagem": "Importação de anúncios não implementada para Shopee.", "itens": [], "total": 0}
+

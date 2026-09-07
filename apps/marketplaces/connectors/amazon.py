@@ -156,3 +156,7 @@ class AmazonConnector(BaseMarketplaceConnector):
         self, data_inicio=None
     ) -> Tuple[bool, str, List[Dict[str, Any]]]:
         return True, "0 pedidos retornados (Stub Amazon).", []
+
+    def importar_anuncios(self) -> Dict[str, Any]:
+        return {"sucesso": False, "mensagem": "Importação de anúncios não implementada para Amazon.", "itens": [], "total": 0}
+

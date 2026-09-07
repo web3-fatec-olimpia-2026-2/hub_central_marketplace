@@ -1010,3 +1010,211 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             return False, f"Erro na consulta de pedidos: HTTP {response.status_code}", []
         except Exception as exc:
             return False, f"Falha ao buscar pedidos: {str(exc)}", []
+
+    def importar_anuncios(self, search_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        O QUE FAZ: Consulta e extrai todos os anúncios ativos/pausados do vendedor no Mercado Livre.
+        POR QUE FAZ: Permite importar o catálogo comercial existente para o Hub, viabilizando conciliação com produtos físicos e kits (Fase 1).
+        RECURSOS UTILIZADOS:
+          - GET /users/{USER_ID}/items/search (paginação com limit=100/offset e search_type=scan para > 1000 itens).
+          - GET /items/bulk?ids=... (obtenção em lote dividida em chunks de até 20 IDs).
+        """
+        if not self.conta:
+            return {"sucesso": False, "mensagem": "Nenhuma conta associada ao conector.", "itens": [], "total": 0}
+
+        seller_id = self.conta.seller_id_externo
+        if not seller_id:
+            test_res = self.test_connection()
+            seller_id = test_res.get('id') or self.conta.seller_id_externo
+            if not seller_id:
+                return {
+                    "sucesso": False,
+                    "mensagem": "Conta não possui Seller ID Externo configurado para consulta no Mercado Livre.",
+                    "itens": [],
+                    "total": 0,
+                }
+
+        # CENÁRIO SIMULADO / MOCK
+        from apps.mockar_dados.services import is_simular_rotas_mock_ativo
+        simular = is_simular_rotas_mock_ativo() if callable(is_simular_rotas_mock_ativo) else False
+        is_mock = getattr(self.conta, 'is_mock', False)
+        is_test_account = bool(self.conta.access_token and self.conta.access_token.startswith(('APP_USR_MOCK_', 'TEST_')))
+
+        if is_mock or (is_test_account and not getattr(self, '_forcar_http_real', False)):
+            itens_simulados = [
+                {
+                    "item_id_externo": f"MLB{self.conta.pk}000001",
+                    "titulo": "Produto Unitário Oficial Mercado Livre",
+                    "preco": Decimal("129.90"),
+                    "quantidade_disponivel": 25,
+                    "status": "active",
+                    "sku_vendedor": "PROD-SIM-01",
+                    "thumbnail": "https://http2.mlstatic.com/D_NQ_NP_mock1.jpg",
+                    "permalink": f"https://produto.mercadolivre.com.br/MLB-{self.conta.pk}000001",
+                },
+                {
+                    "item_id_externo": f"MLB{self.conta.pk}000002",
+                    "titulo": "Kit 3 Unidades - Produto Oficial Mercado Livre",
+                    "preco": Decimal("349.90"),
+                    "quantidade_disponivel": 8,
+                    "status": "active",
+                    "sku_vendedor": "KIT-SIM-03",
+                    "thumbnail": "https://http2.mlstatic.com/D_NQ_NP_mock2.jpg",
+                    "permalink": f"https://produto.mercadolivre.com.br/MLB-{self.conta.pk}000002",
+                },
+            ]
+            if self.conta.loja and hasattr(self.conta.loja, 'produtos') and self.conta.loja.produtos.exists():
+                p = self.conta.loja.produtos.first()
+                itens_simulados.append({
+                    "item_id_externo": f"MLB{self.conta.pk}000003",
+                    "titulo": f"Anúncio Oficial: {p.nome}",
+                    "preco": p.preco,
+                    "quantidade_disponivel": p.estoque,
+                    "status": "active",
+                    "sku_vendedor": p.sku,
+                    "thumbnail": "https://http2.mlstatic.com/D_NQ_NP_mock3.jpg",
+                    "permalink": f"https://produto.mercadolivre.com.br/MLB-{self.conta.pk}000003",
+                })
+
+            return {
+                "sucesso": True,
+                "mensagem": f"{len(itens_simulados)} anúncio(s) recuperado(s) com sucesso (Modo Simulado).",
+                "itens": itens_simulados,
+                "total": len(itens_simulados),
+            }
+
+        # CENÁRIO REAL / API HTTP
+        try:
+            token = self.get_valid_access_token()
+            if not token:
+                return {
+                    "sucesso": False,
+                    "mensagem": "Não foi possível obter Access Token válido para o Mercado Livre.",
+                    "itens": [],
+                    "total": 0,
+                }
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json"
+            }
+
+            item_ids = []
+            search_base_url = f"{self.BASE_URL}/users/{seller_id}/items/search"
+            limit = 100
+            offset = 0
+
+            usar_scan = (search_type == 'scan')
+
+            if not usar_scan:
+                url = f"{search_base_url}?limit={limit}&offset={offset}"
+                resp = requests.get(url, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
+                if resp.status_code != 200:
+                    return {
+                        "sucesso": False,
+                        "mensagem": f"Erro na busca de itens no Mercado Livre: HTTP {resp.status_code}",
+                        "itens": [],
+                        "total": 0,
+                    }
+
+                dados_busca = resp.json()
+                total_itens = dados_busca.get('paging', {}).get('total', 0)
+                results = dados_busca.get('results', [])
+                item_ids.extend(results)
+
+                if total_itens > 1000:
+                    usar_scan = True
+                    item_ids = []
+                else:
+                    while len(item_ids) < total_itens and len(results) > 0:
+                        offset += limit
+                        if offset >= total_itens:
+                            break
+                        url = f"{search_base_url}?limit={limit}&offset={offset}"
+                        resp_page = requests.get(url, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
+                        if resp_page.status_code != 200:
+                            break
+                        results = resp_page.json().get('results', [])
+                        item_ids.extend(results)
+
+            if usar_scan:
+                scan_url = f"{search_base_url}?search_type=scan"
+                resp_scan = requests.get(scan_url, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
+                if resp_scan.status_code == 200:
+                    dados_scan = resp_scan.json()
+                    scroll_id = dados_scan.get('scroll_id')
+                    results = dados_scan.get('results', [])
+                    item_ids.extend(results)
+
+                    while scroll_id and results:
+                        next_scan_url = f"{search_base_url}?search_type=scan&scroll_id={scroll_id}"
+                        resp_next = requests.get(next_scan_url, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
+                        if resp_next.status_code != 200:
+                            break
+                        dados_next = resp_next.json()
+                        scroll_id = dados_next.get('scroll_id')
+                        results = dados_next.get('results', [])
+                        if not results:
+                            break
+                        item_ids.extend(results)
+
+            # Detalhamento em lote (/items/bulk) em chunks de até 20 itens
+            CHUNK_SIZE = 20
+            itens_normalizados = []
+
+            for i in range(0, len(item_ids), CHUNK_SIZE):
+                chunk = item_ids[i:i + CHUNK_SIZE]
+                ids_param = ",".join(chunk)
+                bulk_url = f"{self.BASE_URL}/items/bulk?ids={ids_param}"
+                resp_bulk = requests.get(bulk_url, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
+
+                if resp_bulk.status_code == 200:
+                    bulk_data = resp_bulk.json()
+                    for entry in bulk_data:
+                        code = entry.get('status_code') or entry.get('code')
+                        if code in (200, 201) and 'body' in entry:
+                            body = entry['body']
+                            item_id = body.get('id', '')
+                            if not item_id:
+                                continue
+
+                            sku_vendedor = body.get('seller_custom_field')
+                            if not sku_vendedor:
+                                for attr in body.get('attributes', []):
+                                    if attr.get('id') == 'SELLER_SKU':
+                                        sku_vendedor = attr.get('value_name')
+                                        break
+
+                            preco = Decimal(str(body.get('price') or 0))
+                            estoque_pub = int(body.get('available_quantity') or 0)
+                            titulo = body.get('title', '')
+                            status = body.get('status', 'active')
+                            thumbnail = body.get('thumbnail', '')
+                            permalink = body.get('permalink', '')
+
+                            itens_normalizados.append({
+                                "item_id_externo": item_id,
+                                "titulo": titulo,
+                                "preco": preco,
+                                "quantidade_disponivel": estoque_pub,
+                                "status": status,
+                                "sku_vendedor": sku_vendedor,
+                                "thumbnail": thumbnail,
+                                "permalink": permalink,
+                            })
+
+            return {
+                "sucesso": True,
+                "mensagem": f"{len(itens_normalizados)} anúncio(s) recuperado(s) com sucesso do Mercado Livre.",
+                "itens": itens_normalizados,
+                "total": len(itens_normalizados),
+            }
+
+        except Exception as exc:
+            return {
+                "sucesso": False,
+                "mensagem": f"Erro de comunicação ao importar anúncios do Mercado Livre: {str(exc)}",
+                "itens": [],
+                "total": 0,
+            }
+

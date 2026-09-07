@@ -1,0 +1,180 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Ficha do Anúncio — {{ anuncio.item_id_externo }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Início</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'anuncio_list' %}">Anúncios</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ anuncio.item_id_externo }}</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- CARD PRINCIPAL DO ANÚNCIO -->
+        <div class="col-lg-5">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0">
+                        <i class="bi bi-info-circle text-primary me-2"></i>Dados do Anúncio Comercial
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                        {% if anuncio.thumbnail %}
+                            <img src="{{ anuncio.thumbnail }}" alt="{{ anuncio.titulo }}" class="img-thumbnail rounded shadow-sm mb-3" style="max-height: 180px;">
+                        {% else %}
+                            <div class="bg-light p-4 rounded text-muted mb-3 d-inline-block">
+                                <i class="bi bi-image display-4"></i>
+                            </div>
+                        {% endif %}
+                        <h5 class="fw-bold mb-1">{{ anuncio.titulo }}</h5>
+                        <p class="text-muted font-monospace small mb-2">{{ anuncio.item_id_externo }}</p>
+                        {% if anuncio.permalink %}
+                            <a href="{{ anuncio.permalink }}" target="_blank" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-box-arrow-up-right me-1"></i> Abrir no {{ anuncio.conta.get_canal_display }}
+                            </a>
+                        {% endif %}
+                    </div>
+
+                    <ul class="list-group list-group-flush small">
+                        <li class="list-group-item d-flex justify-content-between px-0">
+                            <span class="text-muted">Canal / Conta:</span>
+                            <span class="fw-bold">{{ anuncio.conta.apelido_conta }} ({{ anuncio.conta.get_canal_display }})</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0">
+                            <span class="text-muted">SKU Lojista:</span>
+                            <span class="font-monospace fw-bold">{{ anuncio.sku_vendedor|default:"Não informado" }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0">
+                            <span class="text-muted">Preço de Venda:</span>
+                            <span class="fw-bold text-success fs-6">R$ {{ anuncio.preco_venda|floatformat:2 }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0">
+                            <span class="text-muted">Estoque Publicado no Canal:</span>
+                            <span class="badge bg-secondary fs-6">{{ anuncio.estoque_publicado }} un.</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0">
+                            <span class="text-muted">Cota Física Real Calculada:</span>
+                            {% if cota_calculada > 0 %}
+                                <span class="badge bg-success fs-6">{{ cota_calculada }} un.</span>
+                            {% else %}
+                                <span class="badge bg-danger fs-6">0 un. (Esgotado)</span>
+                            {% endif %}
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0">
+                            <span class="text-muted">Status:</span>
+                            <span class="badge {% if anuncio.status == 'active' %}bg-success{% elif anuncio.status == 'paused' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                {{ anuncio.get_status_display }}
+                            </span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0">
+                            <span class="text-muted">Última Sincronização:</span>
+                            <span>{{ anuncio.data_sincronizacao|date:"d/m/Y H:i:s" }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- COMPOSIÇÃO / KITS -->
+        <div class="col-lg-7">
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0">
+                        <i class="bi bi-boxes text-info me-2"></i>Ficha Técnica / Composição de Estoque Real
+                    </h5>
+                    {% if anuncio.eh_kit %}
+                        <span class="badge bg-info text-dark">Kit Configurado</span>
+                    {% else %}
+                        <span class="badge bg-light text-dark border">Unitário</span>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info py-2 small d-flex align-items-center">
+                        <i class="bi bi-info-circle-fill fs-5 me-2 flex-shrink-0"></i>
+                        <div>
+                            <strong>Fonte Única da Verdade:</strong> A cota vendável deste anúncio é calculada automaticamente a partir do estoque físico dos produtos vinculados abaixo. Quando houver uma venda, a baixa será multiplicada pela quantidade configurada.
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle mb-3">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Produto no Catálogo Físico</th>
+                                    <th class="text-center">Estoque Físico Real</th>
+                                    <th class="text-center">Qtd por Embalagem (Mult.)</th>
+                                    <th class="text-center">Cota Elegível</th>
+                                    <th class="text-center" style="width: 80px;">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in anuncio.itens_composicao.all %}
+                                    <tr>
+                                        <td>
+                                            <a href="{% url 'produto_detail' pk=item.produto.pk %}" class="fw-bold text-decoration-none text-dark">
+                                                {{ item.produto.nome }}
+                                            </a>
+                                            <small class="d-block text-muted font-monospace">SKU: {{ item.produto.sku }}</small>
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-light text-dark border">{{ item.produto.estoque }} un.</span>
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-primary fs-6">{{ item.quantidade }}x</span>
+                                        </td>
+                                        <td class="text-center fw-bold">
+                                            {{ item.produto.estoque|default:0 }} / {{ item.quantidade }}
+                                        </td>
+                                        <td class="text-center">
+                                            <form method="post" action="{% url 'anuncio_composicao_delete' pk=item.pk %}" onsubmit="return confirm('Desvincular produto da composição deste anúncio?');">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Desvincular">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="5" class="text-center py-4 text-muted">
+                                            <i class="bi bi-exclamation-circle text-warning fs-3 d-block mb-2"></i>
+                                            Nenhum produto físico associado a este anúncio.
+                                            <small class="d-block">Vincule um ou mais produtos abaixo para ativar o controle automatizado de cota e kits.</small>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- FORMULÁRIO DE ADIÇÃO DE PRODUTO À COMPOSIÇÃO -->
+                    <div class="border-top pt-3 mt-3">
+                        <h6 class="fw-bold mb-3"><i class="bi bi-plus-circle me-1"></i> Vincular Produto Físico / Componente de Kit</h6>
+                        <form method="post" action="{% url 'anuncio_composicao_add' pk=anuncio.pk %}" class="row g-3 align-items-end">
+                            {% csrf_token %}
+                            <div class="col-md-7">
+                                <label class="form-label small">Produto do Estoque Central</label>
+                                {{ form_composicao.produto }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Qtd por Kit</label>
+                                {{ form_composicao.quantidade }}
+                            </div>
+                            <div class="col-md-2">
+                                <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">
+                                    <i class="bi bi-check2"></i> Salvar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

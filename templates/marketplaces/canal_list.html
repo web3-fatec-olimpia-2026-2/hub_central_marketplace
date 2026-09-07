@@ -96,12 +96,20 @@
 
                     <div class="d-flex justify-content-between align-items-center pt-3 border-top mt-auto">
                         {% if conta.access_token %}
-                            <form method="post" action="{% url 'conta_marketplace_testar' pk=conta.pk %}" class="d-inline">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-sm btn-outline-info" title="Testar Conexão">
-                                    <i class="bi bi-arrow-repeat"></i> Testar
-                                </button>
-                            </form>
+                            <div class="d-flex gap-1">
+                                <form method="post" action="{% url 'conta_marketplace_testar' pk=conta.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-info" title="Testar Conexão">
+                                        <i class="bi bi-arrow-repeat"></i> Testar
+                                    </button>
+                                </form>
+                                <form method="post" action="{% url 'anuncio_importar' pk=conta.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-primary" title="Importar Catálogo de Anúncios do Canal">
+                                        <i class="bi bi-cloud-arrow-down"></i> Importar
+                                    </button>
+                                </form>
+                            </div>
                         {% else %}
                             <span class="text-muted small"><i class="bi bi-exclamation-circle text-warning me-1"></i>Requer Autorização</span>
                         {% endif %}
