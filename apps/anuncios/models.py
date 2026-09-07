@@ -128,6 +128,11 @@ class Anuncio(models.Model):
             return 0
         return max(0, min(limites))
 
+    @property
+    def cota_calculada(self) -> int:
+        """Retorna a cota física máxima calculada para o anúncio."""
+        return self.calcular_cota_disponivel()
+
 
 class AnuncioComposicao(models.Model):
     """
@@ -141,12 +146,14 @@ class AnuncioComposicao(models.Model):
         Anuncio,
         on_delete=models.CASCADE,
         related_name='itens_composicao',
+        related_query_name='composicoes',
         verbose_name="Anúncio"
     )
     produto = models.ForeignKey(
         Produto,
         on_delete=models.CASCADE,
         related_name='anuncios_vinculados',
+        related_query_name='composicoes',
         verbose_name="Produto Físico no Catálogo (Fonte da Verdade)"
     )
     quantidade = models.PositiveIntegerField(

@@ -53,10 +53,11 @@
                     <table class="table table-hover align-middle mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th>Canal</th>
-                                <th>Conta</th>
+                                <th>Canal / Conta</th>
                                 <th>ID Externo</th>
-                                <th>Último Preço Sincronizado</th>
+                                <th>Preço</th>
+                                <th>Estoque Publicado</th>
+                                <th>Cota Calculada</th>
                                 <th>Status</th>
                                 <th class="text-end">Ações</th>
                             </tr>
@@ -65,27 +66,56 @@
                             {% for a in anuncios %}
                                 <tr>
                                     <td>
-                                        <span class="badge {% if a.conta_marketplace.canal == 'mercadolivre' %}bg-warning text-dark{% elif a.conta_marketplace.canal == 'shopee' %}bg-danger{% elif a.conta_marketplace.canal == 'magalu' %}bg-primary{% else %}bg-dark{% endif %}">
-                                            {{ a.conta_marketplace.get_canal_display }}
+                                        <span class="badge {% if a.conta.canal == 'mercadolivre' %}bg-warning text-dark{% elif a.conta.canal == 'shopee' %}bg-danger{% elif a.conta.canal == 'magalu' %}bg-primary{% else %}bg-dark{% endif %} me-1">
+                                            {{ a.conta.get_canal_display }}
+                                        </span>
+                                        <strong>{{ a.conta.apelido_conta }}</strong>
+                                        {% if a.eh_kit %}
+                                            <span class="badge bg-purple ms-1" style="background-color: #6f42c1; color: white;" title="Anúncio composto por Kit">Kit</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if a.permalink %}
+                                            <a href="{{ a.permalink }}" target="_blank" class="text-decoration-none fw-bold font-monospace" title="Ver no {{ a.conta.get_canal_display }}">
+                                                {{ a.item_id_externo }} <i class="bi bi-box-arrow-up-right small"></i>
+                                            </a>
+                                        {% else %}
+                                            <code>{{ a.item_id_externo }}</code>
+                                        {% endif %}
+                                        <div class="small text-muted text-truncate" style="max-width: 200px;" title="{{ a.titulo }}">{{ a.titulo }}</div>
+                                    </td>
+                                    <td class="font-monospace fw-bold text-success">
+                                        R$ {{ a.preco_venda|floatformat:2 }}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary font-monospace">{{ a.estoque_publicado }} un.</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge {% if a.calcular_cota_disponivel > 0 %}bg-success{% else %}bg-danger{% endif %} font-monospace">
+                                            {{ a.calcular_cota_disponivel }} un.
                                         </span>
                                     </td>
-                                    <td><strong>{{ a.conta_marketplace.apelido_conta }}</strong></td>
-                                    <td><code>{{ a.item_id_externo }}</code></td>
-                                    <td class="font-monospace">{% if a.preco_sincronizado %}R$ {{ a.preco_sincronizado|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                                    <td><span class="badge bg-success">{{ a.status_anuncio }}</span></td>
+                                    <td>
+                                        <span class="badge {% if a.status == 'active' %}bg-success{% elif a.status == 'paused' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                            {{ a.get_status_display|default:a.status }}
+                                        </span>
+                                    </td>
                                     <td class="text-end">
-                                        <form method="post" action="{% url 'anuncio_marketplace_delete' pk=a.pk %}" class="d-inline">
+                                        <form method="post" action="{% url 'anuncio_sincronizar' pk=a.pk %}" class="d-inline">
                                             {% csrf_token %}
-                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Desvincular Anúncio">
-                                                <i class="bi bi-trash"></i>
+                                            <button type="submit" class="btn btn-sm btn-outline-primary" title="Sincronizar no Canal">
+                                                <i class="bi bi-arrow-repeat me-1"></i> Sincronizar no Canal
                                             </button>
                                         </form>
+                                        <a href="{% url 'anuncio_detail' pk=a.pk %}" class="btn btn-sm btn-outline-secondary" title="Ver Detalhes do Anúncio">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
                                     </td>
                                 </tr>
                             {% empty %}
                                 <tr>
-                                    <td colspan="6" class="text-center py-3 text-muted">
-                                        Nenhum anúncio externo vinculado a este produto.
+                                    <td colspan="7" class="text-center py-3 text-muted">
+                                        Nenhum anúncio externo vinculado a este produto via composição.
                                     </td>
                                 </tr>
                             {% endfor %}

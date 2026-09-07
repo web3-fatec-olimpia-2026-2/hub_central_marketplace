@@ -355,12 +355,16 @@ class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['anuncios'] = self.object.anuncios.select_related('conta_marketplace').all()
+        from apps.anuncios.models import Anuncio
+        context['anuncios'] = Anuncio.objects.filter(
+            composicoes__produto=self.object
+        ).select_related('conta', 'conta__loja').distinct()
         context['historicos'] = self.object.historico_precos.select_related('usuario').order_by('-criado_em')[:10]
         context['form_anuncio'] = AnuncioMarketplaceForm(produto=self.object)
         context['pode_alterar_preco'] = pode_alterar_preco(self.request.user)
         context['pode_ajustar_estoque_geral'] = pode_ajustar_estoque_geral(self.request.user)
         context['pode_dar_baixa_avaria'] = pode_dar_baixa_avaria(self.request.user)
+        context['pode_sincronizar'] = pode_disparar_sincronizacao(self.request.user)
         return context
 
 
@@ -639,12 +643,24 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
                 raise PermissionDenied("Acesso negado.")
 
         anuncios = produto.anuncios.select_related('conta_marketplace').all()
-        if not anuncios.exists():
+        from apps.anuncios.models import Anuncio
+        from apps.anuncios.services import AnuncioSincronizacaoService
+        anuncios_novos = Anuncio.objects.filter(composicoes__produto=produto).select_related('conta').distinct()
+
+        if not anuncios.exists() and not anuncios_novos.exists():
             messages.warning(request, f"O produto '{produto.sku}' não possui anúncios de marketplaces vinculados.")
             return redirect('produto_detail', pk=produto.pk)
 
         sucessos = 0
         falhas = 0
+
+        for a in anuncios_novos:
+            res = AnuncioSincronizacaoService.sincronizar_preco_anuncio(a, produto.preco, usuario=request.user, forcar=True)
+            if res.get('sucesso'):
+                sucessos += 1
+            else:
+                falhas += 1
+
         for anuncio in anuncios:
             conta = anuncio.conta_marketplace
             connector = get_connector_for_conta(conta)
@@ -655,6 +671,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
                 anuncio.save(update_fields=['preco_sincronizado', 'atualizado_em'])
             else:
                 falhas += 1
+
 
         if falhas == 0:
             produto.status_sincronizacao = StatusSincronizacaoEnum.SINCRONIZADO
