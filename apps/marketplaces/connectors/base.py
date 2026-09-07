@@ -137,4 +137,14 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    def obter_detalhes_pedido(
+        self, resource_ou_id: str
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        O QUE FAZ: Consulta os detalhes de um pedido específico via ID ou resource na API do marketplace.
+        POR QUE FAZ: Permite inspecionar os itens vendidos e quantidades no fluxo de webhooks.
+        RETORNO: (sucesso: bool, mensagem: str, pedido: dict)
+        """
+        return False, "Método não implementado para este canal.", {}
+
 

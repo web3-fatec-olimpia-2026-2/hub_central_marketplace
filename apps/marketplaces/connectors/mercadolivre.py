@@ -1119,6 +1119,59 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         except Exception as exc:
             return False, f"Falha ao buscar pedidos: {str(exc)}", []
 
+    def obter_detalhes_pedido(
+        self, resource_ou_id: str
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        O QUE FAZ: Obtém os detalhes completos de um pedido específico via GET /orders/{order_id}.
+        POR QUE FAZ: Permite inspecionar os itens vendidos e suas quantidades para baixa atômica de estoque em webhooks.
+        """
+        order_id = str(resource_ou_id).strip()
+        if '/orders/' in order_id:
+            order_id = order_id.split('/orders/')[-1]
+
+        # CENÁRIO SIMULADO / MOCK
+        from apps.mockar_dados.services import is_simular_rotas_mock_ativo
+        simular = is_simular_rotas_mock_ativo() if callable(is_simular_rotas_mock_ativo) else False
+        is_mock = getattr(self.conta, 'is_mock', False) if self.conta else False
+
+        if is_mock or simular:
+            itens_mock = []
+            if self.conta:
+                anuncios = self.conta.anuncios_publicados.all()[:2]
+                for anc in anuncios:
+                    itens_mock.append({
+                        "item": {
+                            "id": anc.item_id_externo,
+                            "title": anc.titulo,
+                            "seller_sku": anc.sku_vendedor or ""
+                        },
+                        "quantity": 1,
+                        "unit_price": float(anc.preco_venda)
+                    })
+            if not itens_mock:
+                itens_mock.append({
+                    "item": {"id": "MLB-MOCK-001", "title": "Produto Simulado Mock", "seller_sku": "SKU-MOCK"},
+                    "quantity": 1,
+                    "unit_price": 99.90
+                })
+            return True, "Pedido simulado obtido com sucesso.", {
+                "id": order_id,
+                "status": "paid",
+                "order_items": itens_mock,
+                "total_amount": sum(it['unit_price'] * it['quantity'] for it in itens_mock)
+            }
+
+        endpoint = f"/orders/{order_id}"
+        try:
+            response = self.request("GET", endpoint)
+            if response.status_code == 200:
+                order_json = response.json()
+                return True, "Pedido obtido com sucesso.", order_json
+            return False, f"Erro ao obter pedido {order_id}: HTTP {response.status_code}", {}
+        except Exception as exc:
+            return False, f"Falha de comunicação ao obter pedido {order_id}: {str(exc)}", {}
+
     def importar_anuncios(self, search_type: Optional[str] = None) -> Dict[str, Any]:
         """
         O QUE FAZ: Consulta e extrai todos os anúncios ativos/pausados do vendedor no Mercado Livre.

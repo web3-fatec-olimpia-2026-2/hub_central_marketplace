@@ -8,12 +8,14 @@ from django.db import IntegrityError
 
 from apps.tenancy.models import Loja, PerfilUsuario
 from apps.tenancy.enums import PapelUsuarioEnum
-from apps.marketplaces.models import ContaMarketplace, LogSincronizacao
-from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
+from apps.marketplaces.models import ContaMarketplace, LogSincronizacao, WebhookEventLog, LogAuditoria
+from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum, WebhookStatusEnum
 from apps.marketplaces.connectors.factory import get_connector_for_conta
 from apps.marketplaces.connectors.mercadolivre import MercadoLivreConnector
 from apps.marketplaces.connectors.shopee import ShopeeConnector
 from apps.marketplaces.connectors.magalu import MagaluConnector
+from apps.catalogo.models import Produto, Categoria
+from apps.anuncios.models import Anuncio, AnuncioComposicao
 
 
 class MarketplacesHubTestCase(TestCase):
@@ -836,6 +838,282 @@ class MarketplacesHubTestCase(TestCase):
         res = client.get(reverse('conta_marketplace_create'))
         self.assertEqual(res.status_code, 200)
         self.assertNotIn('oauth_conta_id', client.session)
+
+
+class MercadoLivreWebhookTestCase(TestCase):
+    """
+    O QUE FAZ: Suíte de testes para o endpoint de webhooks do Mercado Livre (/marketplaces/webhooks/mercadolivre/).
+    POR QUE FAZ: Valida idempotência estrita, baixa atômica de estoque (unitários e kits), tratamento de erros e integridade HTTP.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('mercadolivre_webhook')
+
+        self.loja = Loja.objects.create(
+            nome="Loja Webhook Test",
+            slug="loja-webhook-test",
+            cnpj="44.444.444/0001-44"
+        )
+        self.loja.garantir_modulos_padrao()
+
+        self.conta_meli = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Webhooks",
+            access_token="APP_USR_MOCK_TOKEN",
+            refresh_token="REFRESH_MOCK",
+            seller_id_externo="777888999",
+            is_mock=True
+        )
+
+        self.categoria = Categoria.objects.create(
+            loja=self.loja,
+            nome="Geral",
+            slug="geral"
+        )
+
+        # Produto Unitário
+        self.produto_unit = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="SKU-UNIT-01",
+            nome="Produto Teste Unitário",
+            preco=Decimal('50.00'),
+            estoque=10
+        )
+        self.anuncio_unit = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB1001001",
+            titulo="Anúncio Unitário MLB1001001",
+            preco_venda=Decimal('50.00'),
+            estoque_publicado=10,
+            status='active'
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=self.anuncio_unit,
+            produto=self.produto_unit,
+            quantidade=1
+        )
+
+        # Produto para Kit
+        self.produto_kit = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="SKU-KIT-ITEM",
+            nome="Item para Kit de 3 Unidades",
+            preco=Decimal('20.00'),
+            estoque=30
+        )
+        self.anuncio_kit = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB2002002",
+            titulo="Kit 3x Item Especial",
+            preco_venda=Decimal('55.00'),
+            estoque_publicado=10,
+            status='active'
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=self.anuncio_kit,
+            produto=self.produto_kit,
+            quantidade=3
+        )
+
+    def test_webhook_url_exact_path(self):
+        """Valida que o path da URL resolvida é exatamente /marketplaces/webhooks/mercadolivre/."""
+        self.assertEqual(self.url, '/marketplaces/webhooks/mercadolivre/')
+
+    def test_webhook_rejects_disallowed_methods(self):
+        """Valida que verbos HTTP diferentes de POST retornam 405 Method Not Allowed."""
+        res_get = self.client.get(self.url)
+        self.assertEqual(res_get.status_code, 405)
+
+        res_put = self.client.put(self.url, data={'topic': 'orders_v2'}, content_type='application/json')
+        self.assertEqual(res_put.status_code, 405)
+
+        res_delete = self.client.delete(self.url)
+        self.assertEqual(res_delete.status_code, 405)
+
+    def test_webhook_rejects_malformed_and_empty_payload(self):
+        """Valida que payloads vazios, inválidos ou sem topic/resource retornam 400 Bad Request."""
+        res_empty = self.client.post(self.url, data='', content_type='application/json')
+        self.assertEqual(res_empty.status_code, 400)
+
+        res_invalid = self.client.post(self.url, data='{not-a-valid-json', content_type='application/json')
+        self.assertEqual(res_invalid.status_code, 400)
+
+        res_missing = self.client.post(self.url, data={'user_id': '777888999'}, content_type='application/json')
+        self.assertEqual(res_missing.status_code, 400)
+
+    def test_webhook_ignores_non_orders_topics(self):
+        """Valida que tópicos diferentes de orders_v2 retornam 200 OK e são gravados como IGNORADO."""
+        payload = {
+            'topic': 'items',
+            'resource': '/items/MLB1001001',
+            'user_id': '777888999',
+            'application_id': '12345'
+        }
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ignored')
+
+        # Verifica persistência do log como IGNORADO
+        log = WebhookEventLog.objects.filter(resource='/items/MLB1001001').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, WebhookStatusEnum.IGNORADO)
+        self.assertEqual(log.topic, 'items')
+
+        # Estoque permanece inalterado
+        self.produto_unit.refresh_from_db()
+        self.assertEqual(self.produto_unit.estoque, 10)
+
+    def test_webhook_successful_unit_product_stock_deduction(self):
+        """Valida baixa atômica de estoque para anúncio unitário com registro de log e auditoria."""
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/2000001234567890',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '2000001234567890',
+                'status': 'paid',
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB1001001', 'title': 'Anúncio Unitário'},
+                        'quantity': 2,
+                        'unit_price': 50.00
+                    }
+                ]
+            }
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        # Estoque reduziu de 10 para 8
+        self.produto_unit.refresh_from_db()
+        self.assertEqual(self.produto_unit.estoque, 8)
+
+        # WebhookEventLog marcado como PROCESSADO
+        log = WebhookEventLog.objects.filter(resource='/orders/2000001234567890').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, WebhookStatusEnum.PROCESSADO)
+        self.assertIsNotNone(log.processed_at)
+
+        # LogAuditoria gravado com BAIXA_ESTOQUE_VENDA
+        auditoria = LogAuditoria.objects.filter(
+            evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
+            loja=self.loja
+        ).first()
+        self.assertIsNotNone(auditoria)
+        self.assertIn('SKU-UNIT-01', auditoria.detalhes)
+        self.assertIn('Saldo anterior: 10 -> Novo saldo: 8', auditoria.detalhes)
+
+    def test_webhook_successful_kit_product_stock_deduction(self):
+        """Valida que venda de Kit de 3 unidades abate a quantidade correta (2 kits = 6 itens)."""
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/20000088880001',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '20000088880001',
+                'status': 'paid',
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB2002002', 'title': 'Kit 3x Item Especial'},
+                        'quantity': 2,
+                        'unit_price': 55.00
+                    }
+                ]
+            }
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        # 2 kits x 3 un = 6 un. Estoque inicial 30 -> 24
+        self.produto_kit.refresh_from_db()
+        self.assertEqual(self.produto_kit.estoque, 24)
+
+        log = WebhookEventLog.objects.filter(resource='/orders/20000088880001').first()
+        self.assertEqual(log.status, WebhookStatusEnum.PROCESSADO)
+
+    def test_webhook_strict_idempotency_duplicate_notification(self):
+        """
+        REGRA CRÍTICA DE IDEMPOTÊNCIA:
+        Envio de duas notificações idênticas com o mesmo resource.
+        Deve debitar o estoque apenas na primeira vez e marcar a segunda como IGNORADO.
+        """
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/20000099990001',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '20000099990001',
+                'status': 'paid',
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB1001001', 'title': 'Anúncio Unitário'},
+                        'quantity': 2,
+                        'unit_price': 50.00
+                    }
+                ]
+            }
+        }
+
+        # 1ª Requisição: Processamento legítimo
+        res1 = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(res1.json().get('status'), 'ok')
+
+        self.produto_unit.refresh_from_db()
+        self.assertEqual(self.produto_unit.estoque, 8)
+
+        logs = WebhookEventLog.objects.filter(resource='/orders/20000099990001').order_by('received_at')
+        self.assertEqual(logs.count(), 1)
+        self.assertEqual(logs[0].status, WebhookStatusEnum.PROCESSADO)
+
+        # 2ª Requisição: Reenvio da mesma notificação (duplicidade)
+        res2 = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(res2.json().get('status'), 'ignored')
+
+        # Comprova que o saldo NÃO decresceu novamente
+        self.produto_unit.refresh_from_db()
+        self.assertEqual(self.produto_unit.estoque, 8)
+
+        # Comprova que um segundo log foi criado marcado como IGNORADO
+        logs = WebhookEventLog.objects.filter(resource='/orders/20000099990001').order_by('received_at')
+        self.assertEqual(logs.count(), 2)
+        self.assertEqual(logs[0].status, WebhookStatusEnum.PROCESSADO)
+        self.assertEqual(logs[1].status, WebhookStatusEnum.IGNORADO)
+        self.assertIn("duplicada", logs[1].error_log.lower())
+
+    @patch.object(MercadoLivreConnector, 'obter_detalhes_pedido')
+    def test_webhook_api_failure_registers_error_log(self, mock_obter):
+        """Valida que falha na API externa grava log com status ERRO sem alterar estoque."""
+        mock_obter.return_value = (False, "Timeout de conexão com o Mercado Livre", {})
+
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/20000055550001',
+            'user_id': '777888999'
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'error')
+
+        # Estoque inalterado
+        self.produto_unit.refresh_from_db()
+        self.assertEqual(self.produto_unit.estoque, 10)
+
+        # Log gravado com ERRO
+        log = WebhookEventLog.objects.filter(resource='/orders/20000055550001').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, WebhookStatusEnum.ERRO)
+        self.assertIn("Timeout de conexão", log.error_log)
 
 
 

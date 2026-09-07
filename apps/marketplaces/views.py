@@ -1,13 +1,18 @@
-# Os códigos foram gerados com auxilio de I.A.
+import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy, reverse
 from django.views.generic import ListView, CreateView, UpdateView, DeleteView, View, DetailView
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.http import JsonResponse, HttpResponseNotAllowed
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import Q
 from django.core.exceptions import PermissionDenied
 from django.conf import settings
+
+from .services import MercadoLivreWebhookService
 
 from apps.tenancy.models import Loja
 from apps.tenancy.permissions import (
@@ -483,3 +488,38 @@ class ContaMarketplaceDesconectarView(LoginRequiredMixin, ModuloRequeridoMixin, 
 
         messages.success(request, f"Conta '{conta.apelido_conta}' desconectada com sucesso.")
         return redirect('canal_list')
+
+
+# ==============================================================================
+# WEBHOOKS DE MARKETPLACES — MERCADO LIVRE (RECEBIMENTO E BAIXA DE ESTOQUE)
+# ==============================================================================
+
+@method_decorator(csrf_exempt, name='dispatch')
+class MercadoLivreWebhookView(View):
+    """
+    O QUE FAZ: Endpoint HTTP nativo para recebimento de webhooks do Mercado Livre (/marketplaces/webhooks/mercadolivre/).
+    POR QUE FAZ: Implementa idempotência estrita, rejeição de requisições indevidas e aciona baixa atômica de estoque físico.
+    PERMISSÕES: Aberto ao Mercado Livre (com @csrf_exempt). Resposta imediata com HTTP 200 OK.
+    """
+    def post(self, request, *args, **kwargs):
+        try:
+            if not request.body:
+                return JsonResponse({'error': 'Corpo da requisição vazio.'}, status=400)
+            payload = json.loads(request.body.decode('utf-8'))
+        except (ValueError, json.JSONDecodeError):
+            return JsonResponse({'error': 'Payload JSON malformado.'}, status=400)
+
+        status_code, resposta = MercadoLivreWebhookService.processar_notificacao(payload)
+        return JsonResponse(resposta, status=status_code)
+
+    def get(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(['POST'])
+
+    def put(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(['POST'])
+
+    def delete(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(['POST'])
+
+    def patch(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(['POST'])

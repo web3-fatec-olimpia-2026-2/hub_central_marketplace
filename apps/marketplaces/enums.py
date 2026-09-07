@@ -64,3 +64,14 @@ class EventoAuditoriaEnum(models.TextChoices):
     CRIACAO_CATEGORIA = 'CRIACAO_CATEGORIA', 'Cadastro de Categoria'
     EDICAO_CATEGORIA = 'EDICAO_CATEGORIA', 'Edição de Categoria'
     EXCLUSAO_CATEGORIA = 'EXCLUSAO_CATEGORIA', 'Exclusão de Categoria'
+
+
+class WebhookStatusEnum(models.TextChoices):
+    """
+    O QUE FAZ: Enumeração de status para rastreamento do ciclo de vida e idempotência de eventos de Webhooks.
+    """
+    RECEBIDO = 'RECEBIDO', 'Recebido'
+    PROCESSANDO = 'PROCESSANDO', 'Processando'
+    PROCESSADO = 'PROCESSADO', 'Processado'
+    IGNORADO = 'IGNORADO', 'Ignorado'
+    ERRO = 'ERRO', 'Erro'

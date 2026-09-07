@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
 from apps.tenancy.models import Loja
-from .enums import CanalMarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum
+from .enums import CanalMarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum, WebhookStatusEnum
 from .fields import EncryptedTextField
 
 
@@ -246,3 +246,55 @@ class LogAuditoria(models.Model):
     def __str__(self):
         autor_str = self.autor.username if self.autor else "Sistema"
         return f"[{self.get_evento_display()}] por {autor_str} em {self.criado_em.strftime('%d/%m/%Y %H:%M')}"
+
+
+class WebhookEventLog(models.Model):
+    """
+    O QUE FAZ: Registro de eventos de Webhook com controle estrito de idempotência e auditoria de ciclo de vida.
+    POR QUE FAZ: Impede deduplicações de baixa de estoque caso o marketplace reenvie a mesma notificação (retentativas de rede, atualizações intermediárias de pedidos).
+    PERMISSÕES RBAC: DEV e ADMIN (consulta); gravação automatizada pelo webhook.
+    """
+    marketplace = models.CharField(
+        max_length=50, default="mercadolivre", verbose_name="Marketplace de Origem"
+    )
+    topic = models.CharField(
+        max_length=50, verbose_name="Tópico da Notificação (ex: orders_v2, items)"
+    )
+    resource = models.CharField(
+        max_length=255, db_index=True, verbose_name="Recurso Notificado (ex: /orders/2000001234567890)"
+    )
+    user_id = models.CharField(
+        max_length=50, verbose_name="ID do Usuário / Vendedor no Canal"
+    )
+    payload_raw = models.JSONField(
+        default=dict, verbose_name="Payload Bruto da Notificação"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=WebhookStatusEnum.choices,
+        default=WebhookStatusEnum.RECEBIDO,
+        db_index=True,
+        verbose_name="Status de Processamento"
+    )
+    error_log = models.TextField(
+        null=True, blank=True, verbose_name="Log de Erro / Justificativa"
+    )
+    received_at = models.DateTimeField(
+        auto_now_add=True, db_index=True, verbose_name="Recebido em"
+    )
+    processed_at = models.DateTimeField(
+        null=True, blank=True, verbose_name="Processado em"
+    )
+
+    class Meta:
+        verbose_name = "Log de Evento de Webhook"
+        verbose_name_plural = "Logs de Eventos de Webhooks"
+        ordering = ['-received_at']
+        indexes = [
+            models.Index(fields=['marketplace', 'resource', 'status'], name='idx_wh_mkt_res_status'),
+            models.Index(fields=['resource', 'status'], name='idx_wh_res_status'),
+            models.Index(fields=['received_at'], name='idx_wh_received_at'),
+        ]
+
+    def __str__(self):
+        return f"[{self.marketplace}] {self.topic} {self.resource} ({self.get_status_display()}) em {self.received_at.strftime('%d/%m/%Y %H:%M:%S')}"
