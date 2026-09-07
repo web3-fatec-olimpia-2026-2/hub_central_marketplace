@@ -79,11 +79,27 @@ def disparar_sincronizacao_anuncios_produto(sender, instance: Produto, created: 
     # Protege contra reentrância na mesma thread
     with mute_sincronizacao_signals():
         try:
-            from apps.anuncios.models import Anuncio
+            from django.utils import timezone
+            from apps.anuncios.models import Anuncio, HistoricoSincronizacaoAnuncio
             anuncios = Anuncio.objects.filter(composicoes__produto=instance).distinct()
+            agora = timezone.now()
             for anc in anuncios:
-                if anc.status_sincronizacao != 'IGNORADO':
+                if anc.status_sincronizacao != 'CANCELADO':
+                    preco_ant = anc.preco_venda
+                    cota_ant = anc.estoque_publicado
+                    cota_nova = anc.calcular_cota_disponivel()
                     anc.status_sincronizacao = 'PENDENTE'
                     anc.save(update_fields=['status_sincronizacao', 'atualizado_em'])
+
+                    HistoricoSincronizacaoAnuncio.objects.create(
+                        anuncio=anc,
+                        status_resultante='PENDENTE',
+                        preco_anterior=preco_ant,
+                        preco_proposto=instance.preco,
+                        estoque_anterior=cota_ant,
+                        estoque_proposto=cota_nova,
+                        data_pendencia=agora,
+                        motivo=f"Alteração física no produto {instance.sku}"
+                    )
         except Exception as exc:
             logger.error(f"Erro ao marcar pendência nos anúncios vinculados ao produto {instance.pk}: {exc}", exc_info=True)

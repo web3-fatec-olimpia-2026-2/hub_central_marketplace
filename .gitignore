@@ -13,3 +13,6 @@ db.sqlite3
 # Variáveis de ambiente
 .env
 .env.local
+
+# Windows / WSL Metadata
+*:Zone.Identifier

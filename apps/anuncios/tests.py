@@ -566,9 +566,9 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
             mock_sync_est.return_value = (True, "OK", None)
 
             # Define estado inicial sincronizado
-            self.anuncio_unitario.status_sincronizacao = 'SINCRONIZADO'
+            self.anuncio_unitario.status_sincronizacao = 'ENVIADO'
             self.anuncio_unitario.save()
-            self.anuncio_kit.status_sincronizacao = 'SINCRONIZADO'
+            self.anuncio_kit.status_sincronizacao = 'ENVIADO'
             self.anuncio_kit.save()
 
             # Altera estoque do Headset de 20 para 2 (afeta cota unitária e do kit)
@@ -584,36 +584,42 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
             self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'PENDENTE')
             self.assertEqual(self.anuncio_kit.status_sincronizacao, 'PENDENTE')
 
-    def test_signals_respeitam_anuncios_ignorados(self):
-        """Valida que anúncios marcados como IGNORADO não têm seu status alterado para PENDENTE por signals de Produto."""
-        self.anuncio_unitario.status_sincronizacao = 'IGNORADO'
+            # Confirma registro na trilha de histórico de ciclo
+            from apps.anuncios.models import HistoricoSincronizacaoAnuncio
+            self.assertTrue(HistoricoSincronizacaoAnuncio.objects.filter(
+                anuncio=self.anuncio_unitario, status_resultante='PENDENTE'
+            ).exists())
+
+    def test_signals_respeitam_anuncios_cancelados(self):
+        """Valida que anúncios marcados como CANCELADO não têm seu status alterado para PENDENTE por signals de Produto."""
+        self.anuncio_unitario.status_sincronizacao = 'CANCELADO'
         self.anuncio_unitario.save()
 
         self.produto_gamer.estoque = 5
         self.produto_gamer.save()
 
         self.anuncio_unitario.refresh_from_db()
-        self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'IGNORADO')
+        self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'CANCELADO')
 
     def test_toggle_ignorar_anuncio_view(self):
-        """Valida alternância entre status IGNORADO e reativação para PENDENTE/SINCRONIZADO."""
+        """Valida alternância entre status CANCELADO e reativação para PENDENTE/ENVIADO."""
         self.client.force_login(self.user_admin)
         url = reverse('anuncio_toggle_ignorar', kwargs={'pk': self.anuncio_unitario.pk})
 
-        # 1. Marca como IGNORADO
+        # 1. Marca como CANCELADO
         resp1 = self.client.post(url, HTTP_REFERER='/produtos/1/')
         self.assertEqual(resp1.status_code, 302)
         self.anuncio_unitario.refresh_from_db()
-        self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'IGNORADO')
+        self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'CANCELADO')
 
         # 2. Reativa a sincronização
         resp2 = self.client.post(url, HTTP_REFERER='/produtos/1/')
         self.assertEqual(resp2.status_code, 302)
         self.anuncio_unitario.refresh_from_db()
-        self.assertIn(self.anuncio_unitario.status_sincronizacao, ['PENDENTE', 'SINCRONIZADO'])
+        self.assertIn(self.anuncio_unitario.status_sincronizacao, ['PENDENTE', 'ENVIADO'])
 
-    def test_sincronizar_anuncio_view_atualiza_status_para_sincronizado(self):
-        """Valida que sincronização manual via view atualiza status_sincronizacao para SINCRONIZADO."""
+    def test_sincronizar_anuncio_view_atualiza_status_para_enviado(self):
+        """Valida que sincronização manual via view atualiza status_sincronizacao para ENVIADO e grava histórico."""
         self.client.force_login(self.user_admin)
         url = reverse('anuncio_sincronizar', kwargs={'pk': self.anuncio_unitario.pk})
         self.anuncio_unitario.status_sincronizacao = 'PENDENTE'
@@ -624,7 +630,12 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
             resp = self.client.post(url, HTTP_REFERER='/produtos/1/')
             self.assertEqual(resp.status_code, 302)
             self.anuncio_unitario.refresh_from_db()
-            self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'SINCRONIZADO')
+            self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'ENVIADO')
+
+            from apps.anuncios.models import HistoricoSincronizacaoAnuncio
+            self.assertTrue(HistoricoSincronizacaoAnuncio.objects.filter(
+                anuncio=self.anuncio_unitario, status_resultante='ENVIADO'
+            ).exists())
 
     def test_idempotencia_evita_requisicao_externa_redundante(self):
         """Valida que se o estoque calculado for idêntico ao já publicado, a chamada de rede é poupada."""

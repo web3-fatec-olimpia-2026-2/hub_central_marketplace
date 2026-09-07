@@ -112,6 +112,7 @@ class AnuncioDetailView(LoginRequiredMixin, ModuloRequeridoMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context['form_composicao'] = AnuncioComposicaoForm(anuncio=self.object)
         context['cota_calculada'] = self.object.calcular_cota_disponivel()
+        context['historicos_ciclo'] = self.object.historico_ciclo.select_related('usuario').order_by('-criado_em')[:30]
         return context
 
 
@@ -231,8 +232,23 @@ class AnuncioSincronizarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
         res_prc = AnuncioSincronizacaoService.sincronizar_preco_anuncio(anuncio, anuncio.preco_venda, usuario=request.user, forcar=True)
 
         if res_est.get('sucesso'):
-            anuncio.status_sincronizacao = 'SINCRONIZADO'
+            preco_ant = anuncio.preco_venda
+            cota_ant = anuncio.estoque_publicado
+            anuncio.status_sincronizacao = 'ENVIADO'
             anuncio.save(update_fields=['status_sincronizacao', 'atualizado_em'])
+
+            from apps.anuncios.models import HistoricoSincronizacaoAnuncio
+            HistoricoSincronizacaoAnuncio.objects.create(
+                anuncio=anuncio,
+                status_resultante='ENVIADO',
+                preco_anterior=preco_ant,
+                preco_proposto=anuncio.preco_venda,
+                estoque_anterior=cota_ant,
+                estoque_proposto=res_est.get('estoque_sincronizado'),
+                usuario=request.user,
+                motivo="Sincronização manual unitária confirmada"
+            )
+
             messages.success(
                 request,
                 f"Anúncio [{anuncio.item_id_externo}] sincronizado com sucesso no canal {anuncio.conta.get_canal_display()}! "
@@ -252,7 +268,7 @@ class AnuncioSincronizarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
 
 class AnuncioToggleIgnorarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
     """
-    O QUE FAZ: Alterna a decisão do operador entre sincronizar ou ignorar/descartar alterações para o anúncio.
+    O QUE FAZ: Alterna a decisão do operador entre sincronizar ou cancelar/descartar alterações para o anúncio.
     POR QUE FAZ: Permite ao operador proteger kits ou anúncios com estratégias de preço/estoque independentes.
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     """
@@ -268,18 +284,35 @@ class AnuncioToggleIgnorarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
             if not perfil or not perfil.loja or anuncio.conta.loja_id != perfil.loja_id:
                 raise PermissionDenied("Acesso negado: este anúncio pertence a outra loja.")
 
-        if anuncio.status_sincronizacao == 'IGNORADO':
-            cota = anuncio.calcular_cota_disponivel()
-            if anuncio.estoque_publicado != cota:
+        from apps.anuncios.models import HistoricoSincronizacaoAnuncio
+        preco_ant = anuncio.preco_venda
+        cota_ant = anuncio.estoque_publicado
+        cota_atual = anuncio.calcular_cota_disponivel()
+
+        if anuncio.status_sincronizacao == 'CANCELADO':
+            if anuncio.estoque_publicado != cota_atual:
                 anuncio.status_sincronizacao = 'PENDENTE'
             else:
-                anuncio.status_sincronizacao = 'SINCRONIZADO'
-            messages.success(request, f"Sincronização reativada para o anúncio [{anuncio.item_id_externo}].")
+                anuncio.status_sincronizacao = 'ENVIADO'
+            messages.success(request, f"Sincronização reativada para o anúncio [{anuncio.item_id_externo}] (Status: {anuncio.get_status_sincronizacao_display()}).")
+            motivo = "Reativação da sincronização pelo operador"
         else:
-            anuncio.status_sincronizacao = 'IGNORADO'
-            messages.info(request, f"O anúncio [{anuncio.item_id_externo}] foi marcado como IGNORADO/DESCARTADO para sincronizações.")
+            anuncio.status_sincronizacao = 'CANCELADO'
+            messages.info(request, f"O anúncio [{anuncio.item_id_externo}] foi marcado como CANCELADO para sincronizações.")
+            motivo = "Sincronização cancelada / descartada pelo operador"
 
         anuncio.save(update_fields=['status_sincronizacao', 'atualizado_em'])
+
+        HistoricoSincronizacaoAnuncio.objects.create(
+            anuncio=anuncio,
+            status_resultante=anuncio.status_sincronizacao,
+            preco_anterior=preco_ant,
+            preco_proposto=preco_ant,
+            estoque_anterior=cota_ant,
+            estoque_proposto=cota_atual,
+            usuario=request.user,
+            motivo=motivo
+        )
 
         referer = request.META.get('HTTP_REFERER')
         if referer:

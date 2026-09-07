@@ -362,7 +362,7 @@ class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
             composicoes__produto=self.object
         ).select_related('conta', 'conta__loja').distinct()
         context['anuncios'] = anuncios
-        context['anuncios_ativos_sync'] = [a for a in anuncios if a.status_sincronizacao != 'IGNORADO']
+        context['anuncios_ativos_sync'] = [a for a in anuncios if a.status_sincronizacao != 'CANCELADO']
         context['historicos'] = self.object.historico_precos.select_related('usuario').order_by('-criado_em')[:25]
         context['form_anuncio'] = AnuncioMarketplaceForm(produto=self.object)
         context['pode_alterar_preco'] = pode_alterar_preco(self.request.user)
@@ -672,31 +672,57 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
             if not perfil or not perfil.loja or produto.loja_id != perfil.loja_id:
                 raise PermissionDenied("Acesso negado.")
 
-        anuncios = produto.anuncios.select_related('conta_marketplace').all()
-        from apps.anuncios.models import Anuncio
-        from apps.anuncios.services import AnuncioSincronizacaoService
-        anuncios_novos = Anuncio.objects.filter(composicoes__produto=produto).select_related('conta').distinct()
+        selecionados_raw = request.POST.getlist('anuncios_selecionados')
+        if not selecionados_raw:
+            messages.info(request, "Nenhum anúncio foi selecionado para envio.")
+            return redirect('produto_detail', pk=produto.pk)
 
-        if not anuncios.exists() and not anuncios_novos.exists():
-            messages.warning(request, f"O produto '{produto.sku}' não possui anúncios de marketplaces vinculados.")
+        selecionados_ids = [int(x) for x in selecionados_raw if str(x).isdigit()]
+        if not selecionados_ids:
+            messages.info(request, "Nenhum anúncio foi selecionado para envio.")
+            return redirect('produto_detail', pk=produto.pk)
+
+        from apps.anuncios.models import Anuncio, HistoricoSincronizacaoAnuncio
+        from apps.anuncios.services import AnuncioSincronizacaoService
+        anuncios_alvo = Anuncio.objects.filter(
+            composicoes__produto=produto,
+            pk__in=selecionados_ids
+        ).select_related('conta').distinct()
+
+        anuncios_legado = produto.anuncios.filter(pk__in=selecionados_ids).select_related('conta_marketplace').all()
+
+        total_alvo = anuncios_alvo.count() + anuncios_legado.count()
+        if total_alvo == 0:
+            messages.info(request, "Nenhum anúncio válido foi selecionado para envio.")
             return redirect('produto_detail', pk=produto.pk)
 
         sucessos = 0
         falhas = 0
 
-        for a in anuncios_novos:
-            if a.status_sincronizacao == 'IGNORADO':
-                continue
+        for a in anuncios_alvo:
+            preco_ant = a.preco_venda
+            cota_ant = a.estoque_publicado
             res_est = AnuncioSincronizacaoService.sincronizar_estoque_anuncio(a, usuario=request.user, forcar=True)
             res_prc = AnuncioSincronizacaoService.sincronizar_preco_anuncio(a, produto.preco, usuario=request.user, forcar=True)
             if res_est.get('sucesso') and res_prc.get('sucesso'):
-                a.status_sincronizacao = 'SINCRONIZADO'
+                a.status_sincronizacao = 'ENVIADO'
                 a.save(update_fields=['status_sincronizacao', 'atualizado_em'])
                 sucessos += 1
+
+                HistoricoSincronizacaoAnuncio.objects.create(
+                    anuncio=a,
+                    status_resultante='ENVIADO',
+                    preco_anterior=preco_ant,
+                    preco_proposto=produto.preco,
+                    estoque_anterior=cota_ant,
+                    estoque_proposto=res_est.get('estoque_sincronizado'),
+                    usuario=request.user,
+                    motivo="Sincronização global confirmada via seleção em lote"
+                )
             else:
                 falhas += 1
 
-        for anuncio in anuncios:
+        for anuncio in anuncios_legado:
             conta = anuncio.conta_marketplace
             connector = get_connector_for_conta(conta)
             sucesso_p, msg_p, log_p = connector.atualizar_preco(anuncio.item_id_externo, produto.preco, usuario=request.user)
@@ -711,11 +737,11 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
         if falhas == 0:
             produto.status_sincronizacao = StatusSincronizacaoEnum.SINCRONIZADO
             produto.save(update_fields=['status_sincronizacao', 'atualizado_em'])
-            messages.success(request, f"Preço e estoque sincronizados com sucesso em {sucessos} anúncio(s)!")
+            messages.success(request, f"Preço e estoque sincronizados com sucesso em {sucessos} de {total_alvo} anúncio(s) selecionado(s)!")
         else:
             produto.status_sincronizacao = StatusSincronizacaoEnum.ERRO
             produto.save(update_fields=['status_sincronizacao', 'atualizado_em'])
-            messages.warning(request, f"Sincronização finalizada: {sucessos} sucesso(s) e {falhas} falha(s).")
+            messages.warning(request, f"Sincronização finalizada: {sucessos} sucesso(s) e {falhas} falha(s) de {total_alvo} anúncio(s) selecionado(s).")
 
         return redirect('produto_detail', pk=produto.pk)
 

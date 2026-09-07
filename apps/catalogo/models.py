@@ -127,6 +127,52 @@ class Produto(models.Model):
             self.sku = self.sku.strip().upper()
         super().save(*args, **kwargs)
 
+    @property
+    def status_sincronizacao_consolidado(self) -> str:
+        """
+        O QUE FAZ: Calcula dinamicamente o estado de sincronização com base em todos os anúncios vinculados ao produto.
+        POR QUE FAZ: Elimina divergências entre o card de informações principais e a tabela de anúncios.
+        """
+        from apps.anuncios.models import Anuncio
+        anuncios = list(Anuncio.objects.filter(composicoes__produto=self).distinct())
+        if not anuncios:
+            return "Sem Anúncios"
+
+        todos_cancelados = all(a.status_sincronizacao == 'CANCELADO' for a in anuncios)
+        if todos_cancelados:
+            return "Sincronização Descartada"
+
+        tem_pendente = any(
+            a.status_sincronizacao == 'PENDENTE' or a.esta_pendente(self.preco)
+            for a in anuncios
+            if a.status_sincronizacao != 'CANCELADO'
+        )
+        if tem_pendente:
+            return "Pendente de Sincronização"
+
+        todos_enviados = all(
+            a.status_sincronizacao == 'ENVIADO' and not a.esta_pendente(self.preco)
+            for a in anuncios
+            if a.status_sincronizacao != 'CANCELADO'
+        )
+        if todos_enviados:
+            return "Sincronizado com Sucesso"
+
+        return "Pendente de Sincronização"
+
+    @property
+    def status_sincronizacao_consolidado_badge(self) -> str:
+        """Retorna a classe CSS Bootstrap correspondente ao estado consolidado."""
+        st = self.status_sincronizacao_consolidado
+        if st == "Sincronizado com Sucesso":
+            return "bg-success text-white"
+        elif st == "Pendente de Sincronização":
+            return "bg-warning text-dark"
+        elif st == "Sincronização Descartada":
+            return "bg-secondary text-white"
+        return "bg-light text-dark border"
+
+
 
 class AnuncioMarketplace(models.Model):
     """

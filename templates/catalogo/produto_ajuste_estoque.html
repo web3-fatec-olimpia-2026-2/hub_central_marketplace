@@ -43,7 +43,7 @@
 
                     <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
                         <a href="{% url 'produto_detail' pk=produto.pk %}" class="btn btn-outline-secondary">Cancelar</a>
-                        <button type="submit" class="btn btn-primary">
+                        <button type="button" class="btn btn-primary" id="btnAbrirModalAjuste">
                             <i class="bi bi-check-lg"></i> Atualizar Estoque
                         </button>
                     </div>
@@ -52,4 +52,75 @@
         </div>
     </div>
 </div>
+
+<!-- MODAL DE CONFIRMAÇÃO DO AJUSTE GERAL -->
+<div class="modal fade" id="modalConfirmacaoAjuste" tabindex="-1" aria-labelledby="modalConfirmacaoAjusteLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold" id="modalConfirmacaoAjusteLabel">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Confirmar Ajuste Geral de Estoque
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    Você está alterando o estoque físico do produto <strong>{{ produto.sku }} — {{ produto.nome }}</strong> de <strong>{{ produto.estoque }} unidades</strong> para <strong><span id="resumoNovoEstoque"></span> unidades</strong>.
+                </p>
+                <div class="card bg-light p-3 border mb-3">
+                    <div class="mb-1"><strong>Tipo de Movimentação:</strong> <span id="resumoTipoAjuste"></span></div>
+                    <div><strong>Justificativa:</strong> <span id="resumoJustificativa"></span></div>
+                </div>
+                <div class="alert alert-warning py-2 small mb-0">
+                    <i class="bi bi-info-circle me-1"></i> Esta ação atualizará o saldo físico no catálogo e marcará todos os anúncios vinculados como <strong>Pendente</strong> de sincronização com os marketplaces.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" id="btnConfirmarAjusteFinal" class="btn btn-primary fw-bold">
+                    <i class="bi bi-check-lg me-1"></i> Confirmar Ajuste Físico
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    const btnAbrir = document.getElementById('btnAbrirModalAjuste');
+    const inputNovo = form ? form.querySelector('[name="novo_estoque"]') : null;
+    const selectTipo = form ? form.querySelector('[name="tipo_ajuste"]') : null;
+    const inputJust = form ? form.querySelector('[name="justificativa"]') : null;
+    const modalEl = document.getElementById('modalConfirmacaoAjuste');
+    const modal = new bootstrap.Modal(modalEl);
+
+    if (btnAbrir) {
+        btnAbrir.addEventListener('click', function() {
+            const valNovo = inputNovo ? inputNovo.value.trim() : '';
+            const textTipo = selectTipo && selectTipo.selectedIndex >= 0 ? selectTipo.options[selectTipo.selectedIndex].text : '';
+            const valJust = inputJust ? inputJust.value.trim() : '';
+
+            if (valNovo === '') {
+                alert('Por favor, informe o novo saldo de estoque.');
+                if (inputNovo) inputNovo.focus();
+                return;
+            }
+
+            document.getElementById('resumoNovoEstoque').textContent = valNovo;
+            document.getElementById('resumoTipoAjuste').textContent = textTipo || 'Não informado';
+            document.getElementById('resumoJustificativa').textContent = valJust || 'Sem justificativa informada';
+
+            modal.show();
+        });
+    }
+
+    const btnConfirmar = document.getElementById('btnConfirmarAjusteFinal');
+    if (btnConfirmar && form) {
+        btnConfirmar.addEventListener('click', function() {
+            form.submit();
+        });
+    }
+});
+</script>
 {% endblock %}

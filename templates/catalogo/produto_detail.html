@@ -1,10 +1,43 @@
 <!-- Os códigos foram gerados com auxilio de I.A. -->
 {% extends "base.html" %}
 
-{% block title %}{{ produto.sku }} — {{ produto.nome }} — Hub Marketplaces{% endblock %}
+{% block title %}{{ produto.sku }} — {{ produto.nome }} — Hub Marketplaces
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAll = document.getElementById('selectAllAnuncios');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
+        });
+    }
+});
+</script>
+{% endblock %}
 
-{% block page_title %}{{ produto.nome }}{% endblock %}
-{% block page_subtitle %}Código SKU: {{ produto.sku }} | Loja: {{ produto.loja.nome }}{% endblock %}
+{% block page_title %}{{ produto.nome }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAll = document.getElementById('selectAllAnuncios');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
+        });
+    }
+});
+</script>
+{% endblock %}
+{% block page_subtitle %}Código SKU: {{ produto.sku }} | Loja: {{ produto.loja.nome }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAll = document.getElementById('selectAllAnuncios');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
+        });
+    }
+});
+</script>
+{% endblock %}
 
 {% block toolbar_actions %}
     {% if pode_alterar_preco or pode_ajustar_estoque_geral or pode_sincronizar %}
@@ -28,6 +61,17 @@
     <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left"></i> Voltar
     </a>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAll = document.getElementById('selectAllAnuncios');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
+        });
+    }
+});
+</script>
 {% endblock %}
 
 {% block content %}
@@ -88,12 +132,12 @@
                                         </span>
                                     </td>
                                     <td>
-                                        {% if a.status_sincronizacao == 'IGNORADO' %}
-                                            <span class="badge bg-secondary" title="Anúncio descartado/ignorado para sincronizações automáticas e em lote"><i class="bi bi-slash-circle me-1"></i>Ignorado</span>
+                                        {% if a.status_sincronizacao == 'CANCELADO' %}
+                                            <span class="badge bg-secondary" title="Sincronização cancelada / descartada pelo operador"><i class="bi bi-slash-circle me-1"></i>Cancelado</span>
                                         {% elif a.status_sincronizacao == 'PENDENTE' %}
-                                            <span class="badge bg-warning text-dark" title="Produto alterado localmente. Envio pendente de confirmação"><i class="bi bi-clock-history me-1"></i>Pendente de Envio</span>
+                                            <span class="badge bg-warning text-dark" title="Produto alterado localmente. Envio pendente de confirmação"><i class="bi bi-clock-history me-1"></i>Pendente</span>
                                         {% else %}
-                                            <span class="badge bg-success" title="Sincronizado com o canal"><i class="bi bi-check-circle me-1"></i>Sincronizado</span>
+                                            <span class="badge bg-success" title="Sincronizado com o canal"><i class="bi bi-check-circle me-1"></i>Enviado</span>
                                         {% endif %}
                                     </td>
                                     <td class="text-end">
@@ -103,12 +147,12 @@
                                             </button>
                                             <form method="post" action="{% url 'anuncio_toggle_ignorar' pk=a.pk %}" class="d-inline">
                                                 {% csrf_token %}
-                                                {% if a.status_sincronizacao == 'IGNORADO' %}
+                                                {% if a.status_sincronizacao == 'CANCELADO' %}
                                                     <button type="submit" class="btn btn-outline-success" title="Reativar Sincronização">
                                                         <i class="bi bi-check2-circle"></i>
                                                     </button>
                                                 {% else %}
-                                                    <button type="submit" class="btn btn-outline-secondary" title="Ignorar / Proteger contra envios acidentais">
+                                                    <button type="submit" class="btn btn-outline-secondary" title="Cancelar / Descartar Sincronização">
                                                         <i class="bi bi-slash-circle"></i>
                                                     </button>
                                                 {% endif %}
@@ -236,7 +280,7 @@
                         </span>
                     </li>
                     <li class="mb-2"><strong>Status:</strong> <span class="badge bg-secondary">{{ produto.get_status_display }}</span></li>
-                    <li class="mb-2"><strong>Status Sincronização:</strong> <span class="badge bg-info text-dark">{{ produto.get_status_sincronizacao_display }}</span></li>
+                    <li class="mb-2"><strong>Status Sincronização:</strong> <span class="badge {{ produto.status_sincronizacao_consolidado_badge }}">{{ produto.status_sincronizacao_consolidado }}</span></li>
                     <li class="mb-0 text-muted small"><strong>Criado em:</strong> {{ produto.criado_em|date:"d/m/Y H:i" }}</li>
                 </ul>
             </div>
@@ -278,41 +322,49 @@
                 {% csrf_token %}
                 <div class="modal-body">
                     <p class="mb-3">
-                        Você está prestes a sincronizar <strong>estoque e preço</strong> de todos os anúncios vinculados ativos para o produto <strong>{{ produto.sku }} — {{ produto.nome }}</strong>.
+                        Selecione os anúncios que deseja sincronizar (<strong>estoque e preço</strong>) nos respectivos marketplaces para o produto <strong>{{ produto.sku }} — {{ produto.nome }}</strong>.
                     </p>
-                    <div class="alert alert-info py-2 mb-3">
-                        <i class="bi bi-info-circle me-1"></i> Anúncios marcados como <strong>Ignorado</strong> não serão enviados para a API externa.
+                    <div class="alert alert-info py-2 mb-3 small">
+                        <i class="bi bi-info-circle me-1"></i> Anúncios com status <strong>Pendente</strong> vêm pré-selecionados. Você pode marcar ou desmarcar qualquer item antes de confirmar o envio.
                     </div>
-                    <h6 class="fw-bold mb-2">Anúncios vinculados e impacto previsto:</h6>
+                    <h6 class="fw-bold mb-2">Anúncios vinculados e seleção de envio:</h6>
                     <div class="table-responsive border rounded">
                         <table class="table table-sm table-striped align-middle mb-0">
                             <thead class="table-light">
                                 <tr>
+                                    <th style="width: 35px;" class="text-center">
+                                        <input type="checkbox" id="selectAllAnuncios" class="form-check-input" checked title="Selecionar / Desmarcar Todos">
+                                    </th>
                                     <th>Canal / Conta</th>
                                     <th>ID Externo</th>
                                     <th>Novo Preço</th>
                                     <th>Nova Cota</th>
-                                    <th>Decisão</th>
+                                    <th>Status Atual</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for a in anuncios %}
                                     <tr>
+                                        <td class="text-center">
+                                            <input type="checkbox" name="anuncios_selecionados" value="{{ a.pk }}" class="form-check-input check-anuncio" {% if a.status_sincronizacao != 'CANCELADO' %}checked{% endif %}>
+                                        </td>
                                         <td>{{ a.conta.get_canal_display }} ({{ a.conta.apelido_conta }})</td>
                                         <td><code>{{ a.item_id_externo }}</code></td>
                                         <td class="font-monospace text-success fw-bold">R$ {{ produto.preco|floatformat:2 }}</td>
                                         <td class="font-monospace fw-bold">{{ a.calcular_cota_disponivel }} un.</td>
                                         <td>
-                                            {% if a.status_sincronizacao == 'IGNORADO' %}
-                                                <span class="badge bg-secondary">Ignorado (Não envia)</span>
+                                            {% if a.status_sincronizacao == 'CANCELADO' %}
+                                                <span class="badge bg-secondary">Cancelado</span>
+                                            {% elif a.status_sincronizacao == 'PENDENTE' %}
+                                                <span class="badge bg-warning text-dark">Pendente</span>
                                             {% else %}
-                                                <span class="badge bg-primary">Será enviado</span>
+                                                <span class="badge bg-success">Enviado</span>
                                             {% endif %}
                                         </td>
                                     </tr>
                                 {% empty %}
                                     <tr>
-                                        <td colspan="5" class="text-center text-muted py-2">Nenhum anúncio vinculado via composição.</td>
+                                        <td colspan="6" class="text-center text-muted py-2">Nenhum anúncio vinculado via composição.</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -322,7 +374,7 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-warning fw-bold">
-                        <i class="bi bi-send-check me-1"></i> Confirmar e Enviar para os Canais
+                        <i class="bi bi-send-check me-1"></i> Confirmar e Enviar Selecionados
                     </button>
                 </div>
             </form>
@@ -363,9 +415,9 @@
                             </div>
                         </div>
                     </div>
-                    {% if a.status_sincronizacao == 'IGNORADO' %}
+                    {% if a.status_sincronizacao == 'CANCELADO' %}
                         <div class="alert alert-warning py-2 small mb-0">
-                            <i class="bi bi-exclamation-circle me-1"></i> Atenção: este anúncio está atualmente marcado como <strong>Ignorado</strong>. A sincronização confirmada irá enviar os dados para o canal e reativá-lo para status sincronizado.
+                            <i class="bi bi-exclamation-circle me-1"></i> Atenção: este anúncio está atualmente marcado como <strong>Cancelado</strong>. A sincronização confirmada irá enviar os dados para o canal e reativá-lo para status <strong>Enviado</strong>.
                         </div>
                     {% endif %}
                 </div>
@@ -381,4 +433,15 @@
 </div>
 {% endfor %}
 
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAll = document.getElementById('selectAllAnuncios');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
+        });
+    }
+});
+</script>
 {% endblock %}

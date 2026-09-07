@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional
 from django.db import models
 from django.core.exceptions import ValidationError
+from django.contrib.auth.models import User
 
 from apps.marketplaces.models import ContaMarketplace
 from apps.catalogo.models import Produto
@@ -26,9 +27,9 @@ class Anuncio(models.Model):
     ]
 
     STATUS_SINCRONIZACAO_CHOICES = [
-        ('SINCRONIZADO', 'Sincronizado'),
-        ('PENDENTE', 'Pendente de Envio'),
-        ('IGNORADO', 'Ignorado / Descartado'),
+        ('PENDENTE', 'Pendente'),
+        ('ENVIADO', 'Enviado'),
+        ('CANCELADO', 'Cancelado'),
     ]
 
     conta = models.ForeignKey(
@@ -59,7 +60,7 @@ class Anuncio(models.Model):
     status_sincronizacao = models.CharField(
         max_length=20,
         choices=STATUS_SINCRONIZACAO_CHOICES,
-        default='SINCRONIZADO',
+        default='PENDENTE',
         db_index=True,
         verbose_name="Estado da Sincronização"
     )
@@ -151,7 +152,7 @@ class Anuncio(models.Model):
         """
         O QUE FAZ: Verifica se o anúncio possui divergência física de cota ou preço em relação ao catálogo.
         """
-        if self.status_sincronizacao == 'IGNORADO':
+        if self.status_sincronizacao == 'CANCELADO':
             return False
         if self.status_sincronizacao == 'PENDENTE':
             return True
@@ -214,3 +215,79 @@ class AnuncioComposicao(models.Model):
             loja_produto = self.produto.loja_id
             if loja_anuncio != loja_produto:
                 raise ValidationError("O Produto físico e o Anúncio devem pertencer à mesma Loja (Tenant).")
+
+
+class HistoricoSincronizacaoAnuncio(models.Model):
+    """
+    O QUE FAZ: Registra a trilha de auditoria do ciclo de sincronização do anúncio.
+    POR QUE FAZ: Rastreabilidade de transição de estados [PENDENTE, ENVIADO, CANCELADO],
+                 preço/cota propostos vs anteriores e identificação do responsável.
+    PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR (leitura); gravação automática.
+    """
+    anuncio = models.ForeignKey(
+        Anuncio,
+        on_delete=models.CASCADE,
+        related_name='historico_ciclo',
+        verbose_name="Anúncio"
+    )
+    status_resultante = models.CharField(
+        max_length=20,
+        choices=Anuncio.STATUS_SINCRONIZACAO_CHOICES,
+        verbose_name="Status Resultante"
+    )
+    preco_anterior = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Preço Anterior (R$)"
+    )
+    preco_proposto = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Preço Proposto / Atualizado (R$)"
+    )
+    estoque_anterior = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Estoque / Cota Anterior"
+    )
+    estoque_proposto = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Estoque / Cota Proposta"
+    )
+    usuario = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Responsável"
+    )
+    motivo = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Motivo / Operação"
+    )
+    data_pendencia = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Data / Hora da Pendência"
+    )
+    criado_em = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Data / Hora da Decisão / Registro"
+    )
+
+    class Meta:
+        verbose_name = "Histórico de Ciclo do Anúncio"
+        verbose_name_plural = "Históricos de Ciclos dos Anúncios"
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        user_str = self.usuario.username if self.usuario else "Sistema"
+        return f"[{self.anuncio.item_id_externo}] -> {self.get_status_resultante_display()} por {user_str}"
+

@@ -220,3 +220,88 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Formulário deve rejeitar ou view bloquear com 403
         self.assertIn(res_cross.status_code, [200, 403])
         self.assertFalse(AnuncioMarketplace.objects.filter(produto=self.produto, conta_marketplace=conta_alheia).exists())
+
+    def test_produto_status_sincronizacao_consolidado(self):
+        """Valida cálculo dinâmico da propriedade status_sincronizacao_consolidado e respectivo badge."""
+        from apps.anuncios.models import Anuncio, AnuncioComposicao
+
+        # 1. Sem anúncios vinculados
+        self.assertEqual(self.produto.status_sincronizacao_consolidado, "Sem Anúncios")
+        self.assertEqual(self.produto.status_sincronizacao_consolidado_badge, "bg-light text-dark border")
+
+        # 2. Cria anúncio vinculado com status PENDENTE
+        anuncio = Anuncio.objects.create(
+            conta=self.conta_ml,
+            item_id_externo="MLB_TEST_STATUS",
+            titulo="Notebook Teste",
+            preco_venda=Decimal('5000.00'),
+            estoque_publicado=10,
+            status_sincronizacao='PENDENTE'
+        )
+        AnuncioComposicao.objects.create(anuncio=anuncio, produto=self.produto, quantidade=1)
+
+        self.assertEqual(self.produto.status_sincronizacao_consolidado, "Pendente de Sincronização")
+        self.assertEqual(self.produto.status_sincronizacao_consolidado_badge, "bg-warning text-dark")
+
+        # 3. Status ENVIADO sem divergências
+        anuncio.status_sincronizacao = 'ENVIADO'
+        anuncio.save()
+        self.assertEqual(self.produto.status_sincronizacao_consolidado, "Sincronizado com Sucesso")
+        self.assertEqual(self.produto.status_sincronizacao_consolidado_badge, "bg-success text-white")
+
+        # 4. Status CANCELADO
+        anuncio.status_sincronizacao = 'CANCELADO'
+        anuncio.save()
+        self.assertEqual(self.produto.status_sincronizacao_consolidado, "Sincronização Descartada")
+        self.assertEqual(self.produto.status_sincronizacao_consolidado_badge, "bg-secondary text-white")
+
+    def test_produto_sincronizacao_global_seletiva_via_checkboxes(self):
+        """Valida que envio global respeita estritamente os IDs de anúncios selecionados no formulário."""
+        from apps.anuncios.models import Anuncio, AnuncioComposicao, HistoricoSincronizacaoAnuncio
+        from unittest.mock import patch
+        from apps.marketplaces.connectors.mercadolivre import MercadoLivreConnector
+
+        anuncio1 = Anuncio.objects.create(
+            conta=self.conta_ml,
+            item_id_externo="MLB_SEL_1",
+            titulo="Notebook 1",
+            preco_venda=Decimal('4900.00'),
+            estoque_publicado=5,
+            status_sincronizacao='PENDENTE'
+        )
+        AnuncioComposicao.objects.create(anuncio=anuncio1, produto=self.produto, quantidade=1)
+
+        anuncio2 = Anuncio.objects.create(
+            conta=self.conta_ml,
+            item_id_externo="MLB_SEL_2",
+            titulo="Notebook 2",
+            preco_venda=Decimal('4900.00'),
+            estoque_publicado=5,
+            status_sincronizacao='CANCELADO'
+        )
+        AnuncioComposicao.objects.create(anuncio=anuncio2, produto=self.produto, quantidade=1)
+
+        self.client.login(username='admin_cat', password='password123')
+        url_sync = reverse('produto_sincronizar_preco', kwargs={'pk': self.produto.pk})
+
+        # 1. Submissão sem nenhum anúncio selecionado
+        res_vazio = self.client.post(url_sync, {'anuncios_selecionados': []})
+        self.assertEqual(res_vazio.status_code, 302)
+        anuncio1.refresh_from_db()
+        self.assertEqual(anuncio1.status_sincronizacao, 'PENDENTE')
+
+        # 2. Submissão selecionando apenas anuncio1
+        with patch.object(MercadoLivreConnector, 'atualizar_estoque', return_value=(True, "OK", None)), \
+             patch.object(MercadoLivreConnector, 'atualizar_preco', return_value=(True, "OK", None)):
+            res_sel = self.client.post(url_sync, {'anuncios_selecionados': [anuncio1.pk]})
+            self.assertEqual(res_sel.status_code, 302)
+
+            anuncio1.refresh_from_db()
+            anuncio2.refresh_from_db()
+            self.assertEqual(anuncio1.status_sincronizacao, 'ENVIADO')
+            self.assertEqual(anuncio2.status_sincronizacao, 'CANCELADO')  # Intacto
+
+            self.assertTrue(HistoricoSincronizacaoAnuncio.objects.filter(
+                anuncio=anuncio1, status_resultante='ENVIADO'
+            ).exists())
+

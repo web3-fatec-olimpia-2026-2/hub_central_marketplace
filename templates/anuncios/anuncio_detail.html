@@ -66,6 +66,16 @@
                             {% endif %}
                         </li>
                         <li class="list-group-item d-flex justify-content-between px-0">
+                            <span class="text-muted">Estado da Sincronização:</span>
+                            {% if anuncio.status_sincronizacao == 'CANCELADO' %}
+                                <span class="badge bg-secondary">Cancelado</span>
+                            {% elif anuncio.status_sincronizacao == 'PENDENTE' %}
+                                <span class="badge bg-warning text-dark">Pendente</span>
+                            {% else %}
+                                <span class="badge bg-success">Enviado</span>
+                            {% endif %}
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between px-0">
                             <span class="text-muted">Status:</span>
                             <span class="badge {% if anuncio.status == 'active' %}bg-success{% elif anuncio.status == 'paused' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
                                 {{ anuncio.get_status_display }}
@@ -172,6 +182,77 @@
                             </div>
                         </form>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTÓRICO DO CICLO DE SINCRONIZAÇÃO -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0">
+                        <i class="bi bi-clock-history text-primary me-2"></i>Histórico do Ciclo de Sincronização
+                    </h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" style="font-size: 0.875rem;">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Data / Hora Decisão</th>
+                                <th>Data / Hora Pendência</th>
+                                <th>Ação / Status</th>
+                                <th>Preço (Ant. &rarr; Proposto)</th>
+                                <th>Cota (Ant. &rarr; Proposta)</th>
+                                <th>Responsável</th>
+                                <th>Motivo / Operação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for h in historicos_ciclo %}
+                                <tr>
+                                    <td class="text-muted">{{ h.criado_em|date:"d/m/Y H:i:s" }}</td>
+                                    <td class="text-muted">{{ h.data_pendencia|date:"d/m/Y H:i:s"|default:"—" }}</td>
+                                    <td>
+                                        {% if h.status_resultante == 'CANCELADO' %}
+                                            <span class="badge bg-secondary">Cancelado</span>
+                                        {% elif h.status_resultante == 'PENDENTE' %}
+                                            <span class="badge bg-warning text-dark">Pendente</span>
+                                        {% elif h.status_resultante == 'ENVIADO' %}
+                                            <span class="badge bg-success">Enviado</span>
+                                        {% else %}
+                                            <span class="badge bg-light text-dark border">{{ h.status_resultante }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="font-monospace">
+                                        {% if h.preco_anterior is not None and h.preco_proposto is not None %}
+                                            R$ {{ h.preco_anterior|floatformat:2 }} &rarr; <strong>R$ {{ h.preco_proposto|floatformat:2 }}</strong>
+                                        {% elif h.preco_proposto is not None %}
+                                            R$ {{ h.preco_proposto|floatformat:2 }}
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </td>
+                                    <td class="font-monospace">
+                                        {% if h.estoque_anterior is not None and h.estoque_proposto is not None %}
+                                            {{ h.estoque_anterior }} un. &rarr; <strong>{{ h.estoque_proposto }} un.</strong>
+                                        {% elif h.estoque_proposto is not None %}
+                                            {{ h.estoque_proposto }} un.
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ h.usuario.username|default:"Sistema" }}</td>
+                                    <td>{{ h.motivo|default:"—" }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="7" class="text-center py-3 text-muted">Nenhum evento de sincronização registrado para este anúncio.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

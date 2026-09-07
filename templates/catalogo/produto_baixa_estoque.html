@@ -43,7 +43,7 @@
 
                     <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
                         <a href="{% url 'produto_detail' pk=produto.pk %}" class="btn btn-outline-secondary">Cancelar</a>
-                        <button type="submit" class="btn btn-warning">
+                        <button type="button" class="btn btn-warning" id="btnAbrirModalBaixa">
                             <i class="bi bi-check-lg"></i> Confirmar Baixa
                         </button>
                     </div>
@@ -52,4 +52,85 @@
         </div>
     </div>
 </div>
+
+<!-- MODAL DE CONFIRMAÇÃO DA BAIXA POR AVARIA -->
+<div class="modal fade" id="modalConfirmacaoBaixa" tabindex="-1" aria-labelledby="modalConfirmacaoBaixaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title fw-bold" id="modalConfirmacaoBaixaLabel">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Confirmar Baixa de Estoque por Avaria
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    Você está registrando a baixa física de <strong><span id="resumoQtdBaixa"></span> unidade(s)</strong> do produto <strong>{{ produto.sku }} — {{ produto.nome }}</strong>.
+                </p>
+                <div class="card bg-light p-3 border mb-3">
+                    <div class="mb-1"><strong>Saldo Anterior:</strong> {{ produto.estoque }} un. &rarr; <strong>Novo Saldo Previsto:</strong> <span id="resumoNovoEstoqueBaixa" class="fw-bold text-primary"></span></div>
+                    <div class="mb-1"><strong>Motivo da Baixa:</strong> <span id="resumoTipoBaixa"></span></div>
+                    <div><strong>Justificativa:</strong> <span id="resumoJustificativaBaixa"></span></div>
+                </div>
+                <div class="alert alert-warning py-2 small mb-0">
+                    <i class="bi bi-info-circle me-1"></i> Esta baixa debitará o estoque físico e marcará os anúncios vinculados como <strong>Pendente</strong> para sincronização da nova cota nos canais.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" id="btnConfirmarBaixaFinal" class="btn btn-warning fw-bold">
+                    <i class="bi bi-check-lg me-1"></i> Confirmar Baixa por Avaria
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    const btnAbrir = document.getElementById('btnAbrirModalBaixa');
+    const inputQtd = form ? form.querySelector('[name="quantidade"]') : null;
+    const selectTipo = form ? form.querySelector('[name="tipo_baixa"]') : null;
+    const inputJust = form ? form.querySelector('[name="justificativa"]') : null;
+    const modalEl = document.getElementById('modalConfirmacaoBaixa');
+    const modal = new bootstrap.Modal(modalEl);
+    const estoqueAtual = {{ produto.estoque }};
+
+    if (btnAbrir) {
+        btnAbrir.addEventListener('click', function() {
+            const valQtd = inputQtd ? parseInt(inputQtd.value.trim(), 10) : 0;
+            const textTipo = selectTipo && selectTipo.selectedIndex >= 0 ? selectTipo.options[selectTipo.selectedIndex].text : '';
+            const valJust = inputJust ? inputJust.value.trim() : '';
+
+            if (isNaN(valQtd) || valQtd <= 0) {
+                alert('Por favor, informe uma quantidade válida maior que zero para a baixa.');
+                if (inputQtd) inputQtd.focus();
+                return;
+            }
+
+            const novoSaldo = estoqueAtual - valQtd;
+            if (novoSaldo < 0) {
+                alert('A quantidade da baixa (' + valQtd + ') não pode ser maior que o saldo atual (' + estoqueAtual + ').');
+                if (inputQtd) inputQtd.focus();
+                return;
+            }
+
+            document.getElementById('resumoQtdBaixa').textContent = valQtd;
+            document.getElementById('resumoNovoEstoqueBaixa').textContent = novoSaldo + ' un.';
+            document.getElementById('resumoTipoBaixa').textContent = textTipo || 'Não informado';
+            document.getElementById('resumoJustificativaBaixa').textContent = valJust || 'Sem justificativa informada';
+
+            modal.show();
+        });
+    }
+
+    const btnConfirmar = document.getElementById('btnConfirmarBaixaFinal');
+    if (btnConfirmar && form) {
+        btnConfirmar.addEventListener('click', function() {
+            form.submit();
+        });
+    }
+});
+</script>
 {% endblock %}
