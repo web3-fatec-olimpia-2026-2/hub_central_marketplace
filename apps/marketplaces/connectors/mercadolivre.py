@@ -716,12 +716,57 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         if not item_id_externo:
             return False, "Identificador externo de anúncio (MLB...) não informado.", None
 
-        url = f"{self.BASE_URL}/items/{item_id_externo.strip()}"
         payload = {"price": float(novo_preco)}
 
+        from apps.mockar_dados.services import is_simular_rotas_mock_ativo
+        simular = is_simular_rotas_mock_ativo() if callable(is_simular_rotas_mock_ativo) else False
+        is_mock = getattr(self.conta, 'is_mock', False)
+        is_mock_token = bool(self.conta.access_token and self.conta.access_token.startswith(('APP_USR_MOCK_', 'MOCK_TOKEN')))
+
+        if (is_mock or is_mock_token) and not getattr(self, '_forcar_http_real', False):
+            if simular:
+                log = LogSincronizacao.objects.create(
+                    loja=self.conta.loja,
+                    conta_marketplace=self.conta,
+                    canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                    evento=EventoAuditoriaEnum.SYNC_PRECO,
+                    item_id_externo=item_id_externo.strip(),
+                    payload_enviado=payload,
+                    resposta_recebida={"id": item_id_externo.strip(), "price": float(novo_preco), "simulado": True},
+                    status_http=200,
+                    sucesso=True,
+                    tempo_resposta_ms=45,
+                )
+                return True, f"Preço de R$ {novo_preco:.2f} sincronizado no Mercado Livre (Simulado)!", log
+            else:
+                log = LogSincronizacao.objects.create(
+                    loja=self.conta.loja,
+                    conta_marketplace=self.conta,
+                    canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                    evento=EventoAuditoriaEnum.SYNC_PRECO,
+                    item_id_externo=item_id_externo.strip(),
+                    payload_enviado=payload,
+                    resposta_recebida={"message": "Falha simulada de autorização.", "status": 401},
+                    status_http=401,
+                    sucesso=False,
+                    mensagem_erro="Falha simulada: Modo de recusa ativo.",
+                    tempo_resposta_ms=30,
+                )
+                return False, "Mercado Livre rejeitou: Falha simulada (HTTP 401).", log
+
+        url = f"{self.BASE_URL}/items/{item_id_externo.strip()}"
         inicio = time.time()
         try:
-            response = requests.put(url, json=payload, headers=self._obter_headers(), timeout=self.TIMEOUT_SEGUNDOS)
+            # Retry com backoff para rate limit (429)
+            max_retries = 2
+            response = None
+            for tentativa in range(max_retries + 1):
+                response = requests.put(url, json=payload, headers=self._obter_headers(), timeout=self.TIMEOUT_SEGUNDOS)
+                if response.status_code == 429 and tentativa < max_retries:
+                    time.sleep(0.5 * (tentativa + 1))
+                    continue
+                break
+
             tempo_ms = int((time.time() - inicio) * 1000)
             status_code = response.status_code
 
@@ -742,7 +787,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     conta_marketplace=self.conta,
                     canal=CanalMarketplaceEnum.MERCADOLIVRE,
                     evento=EventoAuditoriaEnum.SYNC_PRECO,
-                    item_id_externo=item_id_externo,
+                    item_id_externo=item_id_externo.strip(),
                     payload_enviado=payload,
                     resposta_recebida=res_json,
                     status_http=status_code,
@@ -757,7 +802,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     conta_marketplace=self.conta,
                     canal=CanalMarketplaceEnum.MERCADOLIVRE,
                     evento=EventoAuditoriaEnum.SYNC_PRECO,
-                    item_id_externo=item_id_externo,
+                    item_id_externo=item_id_externo.strip(),
                     payload_enviado=payload,
                     resposta_recebida=res_json,
                     status_http=status_code,
@@ -773,7 +818,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 conta_marketplace=self.conta,
                 canal=CanalMarketplaceEnum.MERCADOLIVRE,
                 evento=EventoAuditoriaEnum.SYNC_PRECO,
-                item_id_externo=item_id_externo,
+                item_id_externo=item_id_externo.strip(),
                 payload_enviado=payload,
                 resposta_recebida={'erro': 'Timeout'},
                 status_http=408,
@@ -794,14 +839,63 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         if not self.conta or not self.conta.access_token:
             return False, "Conta sem Access Token configurado.", None
 
+        if not item_id_externo:
+            return False, "Identificador externo de anúncio (MLB...) não informado.", None
+
         # Clamping mandatário (RN-06): nunca envia menor que 0
         quantidade_envio = max(0, int(novo_estoque))
-        url = f"{self.BASE_URL}/items/{item_id_externo.strip()}"
         payload = {"available_quantity": quantidade_envio}
 
+        # Suporte a simulação / mock
+        from apps.mockar_dados.services import is_simular_rotas_mock_ativo
+        simular = is_simular_rotas_mock_ativo() if callable(is_simular_rotas_mock_ativo) else False
+        is_mock = getattr(self.conta, 'is_mock', False)
+        is_mock_token = bool(self.conta.access_token and self.conta.access_token.startswith(('APP_USR_MOCK_', 'MOCK_TOKEN')))
+
+        if (is_mock or is_mock_token) and not getattr(self, '_forcar_http_real', False):
+            if simular:
+                log = LogSincronizacao.objects.create(
+                    loja=self.conta.loja,
+                    conta_marketplace=self.conta,
+                    canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                    evento=EventoAuditoriaEnum.SYNC_ESTOQUE,
+                    item_id_externo=item_id_externo.strip(),
+                    payload_enviado=payload,
+                    resposta_recebida={"id": item_id_externo.strip(), "available_quantity": quantidade_envio, "simulado": True},
+                    status_http=200,
+                    sucesso=True,
+                    tempo_resposta_ms=45,
+                )
+                return True, f"Estoque sincronizado no Mercado Livre (Simulado): {quantidade_envio} un.", log
+            else:
+                log = LogSincronizacao.objects.create(
+                    loja=self.conta.loja,
+                    conta_marketplace=self.conta,
+                    canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                    evento=EventoAuditoriaEnum.SYNC_ESTOQUE,
+                    item_id_externo=item_id_externo.strip(),
+                    payload_enviado=payload,
+                    resposta_recebida={"message": "Falha simulada de autorização.", "status": 401},
+                    status_http=401,
+                    sucesso=False,
+                    mensagem_erro="Falha simulada: Modo de recusa ativo.",
+                    tempo_resposta_ms=30,
+                )
+                return False, "Mercado Livre rejeitou sincronização de estoque: Falha simulada (HTTP 401).", log
+
+        url = f"{self.BASE_URL}/items/{item_id_externo.strip()}"
         inicio = time.time()
         try:
-            response = requests.put(url, json=payload, headers=self._obter_headers(), timeout=self.TIMEOUT_SEGUNDOS)
+            # Retry com backoff para rate limit (429)
+            max_retries = 2
+            response = None
+            for tentativa in range(max_retries + 1):
+                response = requests.put(url, json=payload, headers=self._obter_headers(), timeout=self.TIMEOUT_SEGUNDOS)
+                if response.status_code == 429 and tentativa < max_retries:
+                    time.sleep(0.5 * (tentativa + 1))
+                    continue
+                break
+
             tempo_ms = int((time.time() - inicio) * 1000)
             status_code = response.status_code
 
@@ -822,7 +916,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     conta_marketplace=self.conta,
                     canal=CanalMarketplaceEnum.MERCADOLIVRE,
                     evento=EventoAuditoriaEnum.SYNC_ESTOQUE,
-                    item_id_externo=item_id_externo,
+                    item_id_externo=item_id_externo.strip(),
                     payload_enviado=payload,
                     resposta_recebida=res_json,
                     status_http=status_code,
@@ -837,7 +931,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     conta_marketplace=self.conta,
                     canal=CanalMarketplaceEnum.MERCADOLIVRE,
                     evento=EventoAuditoriaEnum.SYNC_ESTOQUE,
-                    item_id_externo=item_id_externo,
+                    item_id_externo=item_id_externo.strip(),
                     payload_enviado=payload,
                     resposta_recebida=res_json,
                     status_http=status_code,
@@ -847,6 +941,20 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 )
                 return False, f"Mercado Livre rejeitou sincronização de estoque: {msg_erro}", log
 
+        except requests.exceptions.Timeout:
+            log = LogSincronizacao.objects.create(
+                loja=self.conta.loja,
+                conta_marketplace=self.conta,
+                canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                evento=EventoAuditoriaEnum.SYNC_ESTOQUE,
+                item_id_externo=item_id_externo.strip(),
+                payload_enviado=payload,
+                resposta_recebida={'erro': 'Timeout'},
+                status_http=408,
+                sucesso=False,
+                mensagem_erro="Tempo limite esgotado ao conectar ao Mercado Livre.",
+            )
+            return False, "Tempo limite esgotado.", log
         except Exception as exc:
             return False, f"Erro de comunicação ao sincronizar estoque: {str(exc)}", None
 

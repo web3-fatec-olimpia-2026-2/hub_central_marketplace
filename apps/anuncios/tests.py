@@ -7,12 +7,12 @@ from django.urls import reverse
 
 from apps.tenancy.models import Loja, PerfilUsuario
 from apps.tenancy.enums import PapelUsuarioEnum
-from apps.marketplaces.models import ContaMarketplace
-from apps.marketplaces.enums import CanalMarketplaceEnum
+from apps.marketplaces.models import ContaMarketplace, LogSincronizacao, LogAuditoria
+from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
 from apps.marketplaces.connectors.mercadolivre import MercadoLivreConnector
 from apps.catalogo.models import Categoria, Produto
 from apps.anuncios.models import Anuncio, AnuncioComposicao
-from apps.anuncios.services import AnuncioImportacaoService, SincronizacaoAnuncioService
+from apps.anuncios.services import AnuncioImportacaoService, SincronizacaoAnuncioService, AnuncioSincronizacaoService
 
 
 class AnunciosMarketplaceTestCase(TestCase):
@@ -317,3 +317,271 @@ class AnunciosMarketplaceTestCase(TestCase):
         self.assertEqual(res_comp.status_code, 302)
         self.assertEqual(anuncio.itens_composicao.count(), 1)
         self.assertEqual(anuncio.itens_composicao.first().quantidade, 2)
+
+
+class SincronizacaoEstoquePrecoTestCase(TestCase):
+    """
+    Suíte de testes para a Fase 2: Sincronização segura de estoque e preço no Mercado Livre,
+    lógica defensiva, Circuit Breaker e disparo por Django Signals.
+    """
+
+    def setUp(self):
+        self.loja = Loja.objects.create(
+            nome="Loja Sync",
+            slug="loja-sync",
+            cnpj="22.222.222/0001-22"
+        )
+        self.categoria = Categoria.objects.create(
+            loja=self.loja,
+            nome="Eletrônicos",
+            slug="eletronicos"
+        )
+
+        self.produto_gamer = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="HEADSET-01",
+            nome="Headset Gamer 7.1",
+            preco=Decimal('100.00'),
+            estoque=20
+        )
+
+        self.produto_acessorio = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="SUPORTE-01",
+            nome="Suporte Headset RGB",
+            preco=Decimal('50.00'),
+            estoque=6
+        )
+
+        self.user_admin = User.objects.create_user(username='admin_sync', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_admin, papel=PapelUsuarioEnum.ADMIN, loja=self.loja)
+
+        self.conta_meli = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Sync",
+            access_token="APP_USR_REAL_TEST_TOKEN",
+            refresh_token="TG_REAL_TEST_REFRESH",
+            seller_id_externo="99887766"
+        )
+
+        # Anúncio 1: Unitário (Headset)
+        self.anuncio_unitario = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB2001",
+            titulo="Headset Gamer 7.1 Surround",
+            preco_venda=Decimal('100.00'),
+            estoque_publicado=20,
+            status='active',
+            sku_vendedor="HEADSET-01"
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=self.anuncio_unitario,
+            produto=self.produto_gamer,
+            quantidade=1
+        )
+
+        # Anúncio 2: Kit Gamer (1x Headset + 2x Suporte)
+        self.anuncio_kit = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB2002",
+            titulo="Kit Combo Gamer Headset + 2 Suportes",
+            preco_venda=Decimal('189.90'),
+            estoque_publicado=3,
+            status='active',
+            sku_vendedor="KIT-GAMER-01"
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=self.anuncio_kit,
+            produto=self.produto_gamer,
+            quantidade=1
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=self.anuncio_kit,
+            produto=self.produto_acessorio,
+            quantidade=2
+        )
+
+    @patch('requests.put')
+    def test_conector_meli_atualizar_estoque_e_preco_sucesso(self, mock_put):
+        """Valida PUT /items/{id} para estoque e preço com criação de LogSincronizacao."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"id": "MLB2001", "status": "updated"}
+        mock_put.return_value = mock_resp
+
+        connector = self.conta_meli.get_connector()
+        connector._forcar_http_real = True
+
+        # 1. Atualizar Estoque
+        ok_est, msg_est, log_est = connector.atualizar_estoque("MLB2001", 15, usuario=self.user_admin)
+        self.assertTrue(ok_est)
+        self.assertIn("Estoque sincronizado no Mercado Livre: 15 un.", msg_est)
+        self.assertIsNotNone(log_est)
+        self.assertEqual(log_est.evento, EventoAuditoriaEnum.SYNC_ESTOQUE)
+        self.assertEqual(log_est.item_id_externo, "MLB2001")
+        self.assertEqual(log_est.payload_enviado, {"available_quantity": 15})
+
+        # 2. Atualizar Preço
+        ok_prc, msg_prc, log_prc = connector.atualizar_preco("MLB2001", Decimal('119.90'), usuario=self.user_admin)
+        self.assertTrue(ok_prc)
+        self.assertIn("Preço de R$ 119.90 sincronizado no Mercado Livre!", msg_prc)
+        self.assertIsNotNone(log_prc)
+        self.assertEqual(log_prc.evento, EventoAuditoriaEnum.SYNC_PRECO)
+        self.assertEqual(log_prc.payload_enviado, {"price": 119.90})
+
+    @patch('requests.put')
+    def test_conector_meli_retry_refresh_sob_401(self, mock_put):
+        """Valida que resposta HTTP 401 dispara renovar_token e retenta a requisição."""
+        resp_401 = MagicMock()
+        resp_401.status_code = 401
+        resp_401.json.return_value = {"message": "Invalid token"}
+
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+        resp_200.json.return_value = {"id": "MLB2001", "status": "updated"}
+
+        mock_put.side_effect = [resp_401, resp_200]
+
+        connector = self.conta_meli.get_connector()
+        connector._forcar_http_real = True
+
+        with patch.object(connector, 'renovar_token', return_value=(True, "Token renovado")) as mock_renovar:
+            ok, msg, log = connector.atualizar_estoque("MLB2001", 12)
+            self.assertTrue(ok)
+            self.assertEqual(mock_renovar.call_count, 1)
+            self.assertEqual(mock_put.call_count, 2)
+
+    @patch('requests.put')
+    def test_conector_meli_rejeicao_api_externa(self, mock_put):
+        """Valida tratamento de erro HTTP 400 com log de auditoria de falha."""
+        resp_400 = MagicMock()
+        resp_400.status_code = 400
+        resp_400.json.return_value = {"message": "Item paused, cannot update stock"}
+        mock_put.return_value = resp_400
+
+        connector = self.conta_meli.get_connector()
+        connector._forcar_http_real = True
+
+        ok, msg, log = connector.atualizar_estoque("MLB2001", 5)
+        self.assertFalse(ok)
+        self.assertIn("Mercado Livre rejeitou sincronização de estoque", msg)
+        self.assertIsNotNone(log)
+        self.assertFalse(log.sucesso)
+        self.assertEqual(log.status_http, 400)
+
+    def test_sincronizacao_cota_kit_e_unitario(self):
+        """Valida cálculo de cota de kit (min entre componentes) e envio correto."""
+        # Suporte tem estoque 6. Multiplicador no kit é 2. Logo cota do kit = 6 // 2 = 3.
+        self.assertEqual(self.anuncio_kit.calcular_cota_disponivel(), 3)
+
+        # Alterando estoque do suporte para 4: nova cota do kit deve ser 4 // 2 = 2.
+        self.produto_acessorio.estoque = 4
+        self.produto_acessorio.save()
+
+        self.assertEqual(self.anuncio_kit.calcular_cota_disponivel(), 2)
+
+        with patch.object(MercadoLivreConnector, 'atualizar_estoque') as mock_att:
+            mock_att.return_value = (True, "OK", None)
+            res = AnuncioSincronizacaoService.sincronizar_estoque_anuncio(self.anuncio_kit, forcar=True)
+            self.assertTrue(res['sucesso'])
+            self.assertEqual(res['estoque_sincronizado'], 2)
+            self.anuncio_kit.refresh_from_db()
+            self.assertEqual(self.anuncio_kit.estoque_publicado, 2)
+
+    def test_bloqueio_saldo_negativo_defensivo(self):
+        """Valida que valores negativos de estoque são clampados para zero."""
+        # Se produto ficar com estoque negativo (-5)
+        self.produto_gamer.estoque = -5
+        self.produto_gamer.save()
+
+        cota = self.anuncio_unitario.calcular_cota_disponivel()
+        self.assertEqual(cota, 0)
+
+        with patch.object(MercadoLivreConnector, 'atualizar_estoque') as mock_att:
+            mock_att.return_value = (True, "OK", None)
+            res = AnuncioSincronizacaoService.sincronizar_estoque_anuncio(self.anuncio_unitario, forcar=True)
+            self.assertTrue(res['sucesso'])
+            self.assertEqual(res['estoque_sincronizado'], 0)
+            mock_att.assert_called_with("MLB2001", 0, usuario=None)
+
+    def test_circuit_breaker_variacao_anomala_preco(self):
+        """Valida bloqueio de variações de preço > 50% para baixo ou > 100% para cima sem override."""
+        # Preço atual: R$ 100.00. Tentativa de baixar para R$ 40.00 (queda de 60%)
+        res_queda = AnuncioSincronizacaoService.sincronizar_preco_anuncio(
+            self.anuncio_unitario, Decimal('40.00'), usuario=self.user_admin, forcar=False
+        )
+        self.assertFalse(res_queda['sucesso'])
+        self.assertTrue(res_queda.get('bloqueado_circuit_breaker'))
+        self.assertIn("Circuit Breaker acionado: Queda anômala", res_queda['mensagem'])
+        self.anuncio_unitario.refresh_from_db()
+        self.assertEqual(self.anuncio_unitario.preco_venda, Decimal('100.00'))
+
+        # Confirma registro no LogAuditoria
+        self.assertTrue(LogAuditoria.objects.filter(
+            loja=self.loja,
+            evento=EventoAuditoriaEnum.SYNC_PRECO,
+            detalhes__contains="Circuit Breaker"
+        ).exists())
+
+        # Tentativa de aumento anômalo: de R$ 100.00 para R$ 250.00 (aumento de 150% > 100%)
+        res_alta = AnuncioSincronizacaoService.sincronizar_preco_anuncio(
+            self.anuncio_unitario, Decimal('250.00'), usuario=self.user_admin, forcar=False
+        )
+        self.assertFalse(res_alta['sucesso'])
+        self.assertTrue(res_alta.get('bloqueado_circuit_breaker'))
+        self.assertIn("Aumento anômalo", res_alta['mensagem'])
+
+        # Com forcar=True, deve aprovar e sincronizar
+        with patch.object(MercadoLivreConnector, 'atualizar_preco') as mock_prc:
+            mock_prc.return_value = (True, "Preço atualizado", None)
+            res_forcar = AnuncioSincronizacaoService.sincronizar_preco_anuncio(
+                self.anuncio_unitario, Decimal('40.00'), usuario=self.user_admin, forcar=True
+            )
+            self.assertTrue(res_forcar['sucesso'])
+            self.anuncio_unitario.refresh_from_db()
+            self.assertEqual(self.anuncio_unitario.preco_venda, Decimal('40.00'))
+
+    def test_circuit_breaker_zeramento_lote(self):
+        """Valida o bloqueio preventivo de operações massivas com risco de zeramento acidental."""
+        # 6 de 10 anúncios zerando (> 5 e > 50%)
+        ok, msg = AnuncioSincronizacaoService.validar_zeramento_em_lote(10, 6, forcar=False)
+        self.assertFalse(ok)
+        self.assertIn("Circuit Breaker acionado: Tentativa de zeramento em massa", msg)
+
+        # Com forcar=True, deve aprovar
+        ok_forcado, _ = AnuncioSincronizacaoService.validar_zeramento_em_lote(10, 6, forcar=True)
+        self.assertTrue(ok_forcado)
+
+        # 2 de 10 anúncios zerando (dentro do limite aceitável)
+        ok_normal, _ = AnuncioSincronizacaoService.validar_zeramento_em_lote(10, 2, forcar=False)
+        self.assertTrue(ok_normal)
+
+    def test_signals_produto_disparam_sincronizacao_anuncios(self):
+        """Valida que salvar Produto com alteração de estoque dispara sincronização dos anúncios vinculados."""
+        with patch.object(MercadoLivreConnector, 'atualizar_estoque') as mock_sync_est:
+            mock_sync_est.return_value = (True, "OK", None)
+
+            # Altera estoque do Headset de 20 para 2 (afeta cota unitária e do kit)
+            self.produto_gamer.estoque = 2
+            self.produto_gamer.save()
+
+            # Deve ter sincronizado tanto o anúncio unitário quanto o kit
+            # Unitário: cota 2 (era 20)
+            # Kit: min(2//1, 6//2) = min(2, 3) = 2 (era 3)
+            chamadas_ids = [call[0][0] for call in mock_sync_est.call_args_list]
+            self.assertIn("MLB2001", chamadas_ids)
+            self.assertIn("MLB2002", chamadas_ids)
+
+    def test_idempotencia_evita_requisicao_externa_redundante(self):
+        """Valida que se o estoque calculado for idêntico ao já publicado, a chamada de rede é poupada."""
+        self.anuncio_unitario.estoque_publicado = 20
+        self.anuncio_unitario.save()
+
+        with patch.object(MercadoLivreConnector, 'atualizar_estoque') as mock_att:
+            res = AnuncioSincronizacaoService.sincronizar_estoque_anuncio(self.anuncio_unitario, forcar=False)
+            self.assertTrue(res['sucesso'])
+            self.assertTrue(res.get('ignorado_idempotencia'))
+            self.assertEqual(mock_att.call_count, 0)

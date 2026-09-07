@@ -12,3 +12,6 @@ class AnunciosConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.anuncios'
     verbose_name = 'Gestão de Anúncios e Kits de Marketplaces'
+
+    def ready(self):
+        import apps.anuncios.signals  # noqa
