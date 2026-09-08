@@ -366,3 +366,53 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         self.assertNotIn(anuncio, res_detail_depois.context['anuncios_pendentes_sync'])
         self.assertEqual(anuncio.ultima_sincronizacao, anuncio.data_sincronizacao)
 
+    def test_anuncio_cancelado_reabre_pendencia_sob_alteracao_fisica_estoque(self):
+        """Valida que anúncio CANCELADO volta automaticamente para PENDENTE ao sofrer alteração física."""
+        from apps.anuncios.models import Anuncio, AnuncioComposicao, HistoricoSincronizacaoAnuncio
+
+        anuncio = Anuncio.objects.create(
+            conta=self.conta_ml,
+            item_id_externo="MLB_REOPEN_1",
+            titulo="Notebook Reopen",
+            preco_venda=Decimal('5000.00'),
+            estoque_publicado=10,
+            status_sincronizacao='CANCELADO'
+        )
+        AnuncioComposicao.objects.create(anuncio=anuncio, produto=self.produto, quantidade=1)
+
+        self.client.login(username='admin_cat', password='password123')
+        url_detail = reverse('produto_detail', kwargs={'pk': self.produto.pk})
+        url_baixa = reverse('produto_baixa_avaria', kwargs={'pk': self.produto.pk})
+
+        # Inicialmente está CANCELADO e com cota igual ao publicado (10 un), logo não está pendente
+        res_antes = self.client.get(url_detail)
+        self.assertNotIn(anuncio, res_antes.context['anuncios_pendentes_sync'])
+
+        # Registra baixa por avaria de 2 unidades (10 -> 8)
+        res_baixa = self.client.post(url_baixa, {
+            'quantidade': 2,
+            'tipo_baixa': TipoAjusteEstoqueEnum.SAIDA_AVARIA,
+            'justificativa': 'Produto danificado'
+        })
+        self.assertEqual(res_baixa.status_code, 302)
+
+        # O anúncio vinculado DEVE ter reaberto para PENDENTE
+        anuncio.refresh_from_db()
+        self.assertEqual(anuncio.status_sincronizacao, 'PENDENTE')
+        self.assertEqual(anuncio.calcular_cota_disponivel(), 8)
+
+        # Fila do modal e badge refletem o anúncio pendente
+        res_depois = self.client.get(url_detail)
+        self.assertIn(anuncio, res_depois.context['anuncios_pendentes_sync'])
+        self.assertEqual(len(res_depois.context['anuncios_pendentes_sync']), 1)
+        self.assertContains(res_depois, '<span class="badge bg-danger rounded-pill ms-2">1</span>')
+        self.assertContains(res_depois, '1 ação(ões) de sincronização aguardando decisão')
+
+        # Linha em HistoricoSincronizacaoAnuncio com status_resultante='PENDENTE'
+        hist_pend = HistoricoSincronizacaoAnuncio.objects.filter(
+            anuncio=anuncio, status_resultante='PENDENTE'
+        ).first()
+        self.assertIsNotNone(hist_pend)
+        self.assertEqual(hist_pend.estoque_anterior, 10)
+        self.assertEqual(hist_pend.estoque_proposto, 8)
+

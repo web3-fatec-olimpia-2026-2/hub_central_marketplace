@@ -5,6 +5,7 @@ from typing import Optional
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from apps.marketplaces.models import ContaMarketplace
 from apps.catalogo.models import Produto
@@ -157,8 +158,6 @@ class Anuncio(models.Model):
         """
         O QUE FAZ: Verifica se o anúncio possui divergência física de cota ou preço em relação ao catálogo.
         """
-        if self.status_sincronizacao == 'CANCELADO':
-            return False
         if self.status_sincronizacao == 'PENDENTE':
             return True
         cota = self.calcular_cota_disponivel()
@@ -283,7 +282,7 @@ class HistoricoSincronizacaoAnuncio(models.Model):
         verbose_name="Data / Hora da Pendência"
     )
     criado_em = models.DateTimeField(
-        auto_now_add=True,
+        default=timezone.now,
         verbose_name="Data / Hora da Decisão / Registro"
     )
 

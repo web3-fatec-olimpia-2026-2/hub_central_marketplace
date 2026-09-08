@@ -8,9 +8,14 @@
 
 {% block toolbar_actions %}
     {% if pode_alterar_preco or pode_ajustar_estoque_geral or pode_sincronizar %}
-        <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#modalSyncGlobal" title="Sincronizar Preço e Estoque no Canal">
-            <i class="bi bi-arrow-repeat me-1"></i> Sincronizar Preço e Estoque no Canal
-        </button>
+        <span class="d-inline-block" data-bs-toggle="tooltip" data-bs-placement="bottom" title="{% if anuncios_pendentes_sync %}{{ anuncios_pendentes_sync|length }} ação(ões) de sincronização aguardando decisão (Envio ou Cancelamento){% else %}Nenhuma pendência de sincronização no momento{% endif %}">
+            <button type="button" class="btn btn-warning" id="btnSyncGlobal" data-bs-toggle="modal" data-bs-target="#modalSyncGlobal">
+                <i class="bi bi-arrow-repeat me-1"></i> Sincronizar Preço e Estoque no Canal
+                {% if anuncios_pendentes_sync %}
+                    <span class="badge bg-danger rounded-pill ms-2">{{ anuncios_pendentes_sync|length }}</span>
+                {% endif %}
+            </button>
+        </span>
     {% endif %}
     {% if pode_ajustar_estoque_geral %}
         <a href="{% url 'produto_ajuste_estoque' pk=produto.pk %}" class="btn btn-outline-primary">
@@ -335,6 +340,9 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+    const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+
     const selectAll = document.getElementById('selectAllAnuncios');
     if (selectAll) {
         selectAll.addEventListener('change', function() {

@@ -83,11 +83,13 @@ def disparar_sincronizacao_anuncios_produto(sender, instance: Produto, created: 
             from apps.anuncios.models import Anuncio, HistoricoSincronizacaoAnuncio
             anuncios = Anuncio.objects.filter(composicoes__produto=instance).distinct()
             agora = timezone.now()
+            usuario = getattr(instance, '_usuario_operacao', None)
             for anc in anuncios:
-                if anc.status_sincronizacao != 'CANCELADO':
-                    preco_ant = anc.preco_venda
-                    cota_ant = anc.estoque_publicado
-                    cota_nova = anc.calcular_cota_disponivel()
+                preco_ant = anc.preco_venda
+                cota_ant = anc.estoque_publicado
+                cota_nova = anc.calcular_cota_disponivel()
+
+                if cota_nova != cota_ant or anc.preco_venda != instance.preco:
                     anc.status_sincronizacao = 'PENDENTE'
                     anc.save(update_fields=['status_sincronizacao', 'atualizado_em'])
 
@@ -98,8 +100,9 @@ def disparar_sincronizacao_anuncios_produto(sender, instance: Produto, created: 
                         preco_proposto=instance.preco,
                         estoque_anterior=cota_ant,
                         estoque_proposto=cota_nova,
-                        data_pendencia=agora,
-                        motivo=f"Alteração física no produto {instance.sku}"
+                        usuario=usuario,
+                        motivo="Alteração no catálogo físico (pendente de envio ao canal)",
+                        data_pendencia=agora
                     )
         except Exception as exc:
             logger.error(f"Erro ao marcar pendência nos anúncios vinculados ao produto {instance.pk}: {exc}", exc_info=True)

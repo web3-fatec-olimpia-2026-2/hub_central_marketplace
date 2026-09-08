@@ -365,7 +365,11 @@ class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
         context['anuncios_ativos_sync'] = [a for a in anuncios if a.status_sincronizacao != 'CANCELADO']
         context['anuncios_pendentes_sync'] = [
             a for a in anuncios
-            if a.status_sincronizacao == 'PENDENTE' or a.esta_pendente(self.object.preco)
+            if a.status_sincronizacao == 'PENDENTE' or (
+                a.status_sincronizacao != 'CANCELADO' and (
+                    a.cota_calculada != a.estoque_publicado or a.preco_venda != self.object.preco
+                )
+            )
         ]
         context['historicos'] = self.object.historico_precos.select_related('usuario').order_by('-criado_em')[:25]
         context['form_anuncio'] = AnuncioMarketplaceForm(produto=self.object)
@@ -400,7 +404,10 @@ class ProdutoUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
         estoque_anterior = produto_antigo.estoque
 
         with transaction.atomic():
-            self.object = form.save()
+            self.object = form.save(commit=False)
+            self.object._usuario_operacao = self.request.user
+            self.object.save()
+            form.save_m2m()
 
             if preco_anterior != self.object.preco or estoque_anterior != self.object.estoque:
                 HistoricoPreco.objects.create(
@@ -509,6 +516,7 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogO
             saldo_anterior = prod_locked.estoque
             novo_saldo = saldo_anterior - qtd
             prod_locked.estoque = novo_saldo
+            prod_locked._usuario_operacao = self.request.user
             prod_locked.save(update_fields=['estoque', 'atualizado_em'])
 
             HistoricoPreco.objects.create(
@@ -575,6 +583,7 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, Catalog
             prod_locked = Produto.objects.select_for_update().get(pk=self.produto.pk)
             saldo_anterior = prod_locked.estoque
             prod_locked.estoque = novo_saldo
+            prod_locked._usuario_operacao = self.request.user
             prod_locked.save(update_fields=['estoque', 'atualizado_em'])
 
             HistoricoPreco.objects.create(
@@ -714,17 +723,32 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
                 a.status_sincronizacao = 'CANCELADO'
                 a.save(update_fields=['status_sincronizacao', 'atualizado_em'])
 
-                HistoricoSincronizacaoAnuncio.objects.create(
-                    anuncio=a,
-                    status_resultante='CANCELADO',
-                    preco_anterior=a.preco_venda,
-                    preco_proposto=produto.preco,
-                    estoque_anterior=a.estoque_publicado,
-                    estoque_proposto=a.calcular_cota_disponivel(),
-                    usuario=request.user,
-                    motivo=motivo_desc,
-                    data_pendencia=timezone.now()
-                )
+                hist_pendente = HistoricoSincronizacaoAnuncio.objects.filter(
+                    anuncio=a, status_resultante='PENDENTE'
+                ).order_by('-criado_em').first()
+
+                if hist_pendente:
+                    hist_pendente.status_resultante = 'CANCELADO'
+                    hist_pendente.preco_anterior = a.preco_venda
+                    hist_pendente.preco_proposto = produto.preco
+                    hist_pendente.estoque_anterior = a.estoque_publicado
+                    hist_pendente.estoque_proposto = a.calcular_cota_disponivel()
+                    hist_pendente.usuario = request.user
+                    hist_pendente.motivo = motivo_desc
+                    hist_pendente.criado_em = timezone.now()
+                    hist_pendente.save()
+                else:
+                    HistoricoSincronizacaoAnuncio.objects.create(
+                        anuncio=a,
+                        status_resultante='CANCELADO',
+                        preco_anterior=a.preco_venda,
+                        preco_proposto=produto.preco,
+                        estoque_anterior=a.estoque_publicado,
+                        estoque_proposto=a.calcular_cota_disponivel(),
+                        usuario=request.user,
+                        motivo=motivo_desc,
+                        data_pendencia=timezone.now()
+                    )
 
                 HistoricoPreco.objects.create(
                     produto=produto,
@@ -764,16 +788,32 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
 
                 novo_estoque_sync = res_est.get('estoque_sincronizado', a.calcular_cota_disponivel())
 
-                HistoricoSincronizacaoAnuncio.objects.create(
-                    anuncio=a,
-                    status_resultante='ENVIADO',
-                    preco_anterior=preco_ant,
-                    preco_proposto=produto.preco,
-                    estoque_anterior=cota_ant,
-                    estoque_proposto=novo_estoque_sync,
-                    usuario=request.user,
-                    motivo=motivo_desc
-                )
+                hist_pendente = HistoricoSincronizacaoAnuncio.objects.filter(
+                    anuncio=a, status_resultante='PENDENTE'
+                ).order_by('-criado_em').first()
+
+                if hist_pendente:
+                    hist_pendente.status_resultante = 'ENVIADO'
+                    hist_pendente.preco_anterior = preco_ant
+                    hist_pendente.preco_proposto = produto.preco
+                    hist_pendente.estoque_anterior = cota_ant
+                    hist_pendente.estoque_proposto = novo_estoque_sync
+                    hist_pendente.usuario = request.user
+                    hist_pendente.motivo = motivo_desc
+                    hist_pendente.criado_em = timezone.now()
+                    hist_pendente.save()
+                else:
+                    HistoricoSincronizacaoAnuncio.objects.create(
+                        anuncio=a,
+                        status_resultante='ENVIADO',
+                        preco_anterior=preco_ant,
+                        preco_proposto=produto.preco,
+                        estoque_anterior=cota_ant,
+                        estoque_proposto=novo_estoque_sync,
+                        usuario=request.user,
+                        motivo=motivo_desc,
+                        data_pendencia=a.atualizado_em
+                    )
 
                 HistoricoPreco.objects.create(
                     produto=produto,

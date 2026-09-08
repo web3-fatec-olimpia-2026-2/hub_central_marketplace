@@ -590,16 +590,17 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
                 anuncio=self.anuncio_unitario, status_resultante='PENDENTE'
             ).exists())
 
-    def test_signals_respeitam_anuncios_cancelados(self):
-        """Valida que anúncios marcados como CANCELADO não têm seu status alterado para PENDENTE por signals de Produto."""
+    def test_signals_reabrem_anuncios_cancelados_sob_divergencia_fisica(self):
+        """Valida que anúncios marcados como CANCELADO têm seu status alterado para PENDENTE quando houver nova divergência física no Produto."""
         self.anuncio_unitario.status_sincronizacao = 'CANCELADO'
         self.anuncio_unitario.save()
 
+        # Altera estoque físico gerando divergência na cota
         self.produto_gamer.estoque = 5
         self.produto_gamer.save()
 
         self.anuncio_unitario.refresh_from_db()
-        self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'CANCELADO')
+        self.assertEqual(self.anuncio_unitario.status_sincronizacao, 'PENDENTE')
 
     def test_toggle_ignorar_anuncio_view(self):
         """Valida alternância entre status CANCELADO e reativação para PENDENTE/ENVIADO."""
