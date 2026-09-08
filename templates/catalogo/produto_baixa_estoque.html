@@ -20,7 +20,7 @@
                 <i class="bi bi-box-arrow-down me-2"></i>Registro de Perda / Avaria (RN-09)
             </div>
             <div class="card-body p-4">
-                <form method="post" novalidate>
+                <form id="formBaixaEstoque" method="post" novalidate>
                     {% csrf_token %}
 
                     <div class="mb-3">
@@ -88,22 +88,23 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.querySelector('form');
+    const form = document.getElementById('formBaixaEstoque') || document.querySelector('form');
     const btnAbrir = document.getElementById('btnAbrirModalBaixa');
-    const inputQtd = form ? form.querySelector('[name="quantidade"]') : null;
-    const selectTipo = form ? form.querySelector('[name="tipo_baixa"]') : null;
-    const inputJust = form ? form.querySelector('[name="justificativa"]') : null;
+    const inputQtd = document.getElementById('id_quantidade') || (form ? form.querySelector('[name="quantidade"]') : null);
+    const selectTipo = document.getElementById('id_tipo_baixa') || (form ? form.querySelector('[name="tipo_baixa"]') : null);
+    const inputJust = document.getElementById('id_justificativa') || (form ? form.querySelector('[name="justificativa"]') : null);
     const modalEl = document.getElementById('modalConfirmacaoBaixa');
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = modalEl ? new bootstrap.Modal(modalEl) : null;
     const estoqueAtual = {{ produto.estoque }};
 
     if (btnAbrir) {
         btnAbrir.addEventListener('click', function() {
-            const valQtd = inputQtd ? parseInt(inputQtd.value.trim(), 10) : 0;
+            const valQtdRaw = inputQtd ? inputQtd.value.trim() : '';
+            const valQtd = parseInt(valQtdRaw, 10);
             const textTipo = selectTipo && selectTipo.selectedIndex >= 0 ? selectTipo.options[selectTipo.selectedIndex].text : '';
             const valJust = inputJust ? inputJust.value.trim() : '';
 
-            if (isNaN(valQtd) || valQtd <= 0) {
+            if (valQtdRaw === '' || isNaN(valQtd) || valQtd <= 0) {
                 alert('Por favor, informe uma quantidade válida maior que zero para a baixa.');
                 if (inputQtd) inputQtd.focus();
                 return;
@@ -116,12 +117,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            document.getElementById('resumoQtdBaixa').textContent = valQtd;
-            document.getElementById('resumoNovoEstoqueBaixa').textContent = novoSaldo + ' un.';
-            document.getElementById('resumoTipoBaixa').textContent = textTipo || 'Não informado';
-            document.getElementById('resumoJustificativaBaixa').textContent = valJust || 'Sem justificativa informada';
+            const elResumoQtd = document.getElementById('resumoQtdBaixa');
+            const elResumoNovo = document.getElementById('resumoNovoEstoqueBaixa');
+            const elResumoTipo = document.getElementById('resumoTipoBaixa');
+            const elResumoJust = document.getElementById('resumoJustificativaBaixa');
 
-            modal.show();
+            if (elResumoQtd) elResumoQtd.textContent = valQtd;
+            if (elResumoNovo) elResumoNovo.textContent = novoSaldo + ' un.';
+            if (elResumoTipo) elResumoTipo.textContent = textTipo || 'Não informado';
+            if (elResumoJust) elResumoJust.textContent = valJust || 'Sem justificativa informada';
+
+            if (modal) modal.show();
         });
     }
 

@@ -363,6 +363,10 @@ class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
         ).select_related('conta', 'conta__loja').distinct()
         context['anuncios'] = anuncios
         context['anuncios_ativos_sync'] = [a for a in anuncios if a.status_sincronizacao != 'CANCELADO']
+        context['anuncios_pendentes_sync'] = [
+            a for a in anuncios
+            if a.status_sincronizacao == 'PENDENTE' or a.esta_pendente(self.object.preco)
+        ]
         context['historicos'] = self.object.historico_precos.select_related('usuario').order_by('-criado_em')[:25]
         context['form_anuncio'] = AnuncioMarketplaceForm(produto=self.object)
         context['pode_alterar_preco'] = pode_alterar_preco(self.request.user)
@@ -696,18 +700,69 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
             messages.info(request, "Nenhum anúncio válido foi selecionado para envio.")
             return redirect('produto_detail', pk=produto.pk)
 
+        acao = request.POST.get('acao', 'enviar').strip().lower()
+        from django.utils import timezone
+        from apps.anuncios.models import Anuncio, HistoricoSincronizacaoAnuncio
+        from apps.anuncios.services import AnuncioSincronizacaoService
+
+        if acao == 'cancelar':
+            for a in anuncios_alvo:
+                canal = a.conta.get_canal_display() if a.conta else "Marketplace"
+                sku = a.sku_vendedor or produto.sku
+                motivo_desc = f"Sincronização cancelada/descartada pelo operador para {canal} (SKU: {sku}, ID: {a.item_id_externo})"
+
+                a.status_sincronizacao = 'CANCELADO'
+                a.save(update_fields=['status_sincronizacao', 'atualizado_em'])
+
+                HistoricoSincronizacaoAnuncio.objects.create(
+                    anuncio=a,
+                    status_resultante='CANCELADO',
+                    preco_anterior=a.preco_venda,
+                    preco_proposto=produto.preco,
+                    estoque_anterior=a.estoque_publicado,
+                    estoque_proposto=a.calcular_cota_disponivel(),
+                    usuario=request.user,
+                    motivo=motivo_desc,
+                    data_pendencia=timezone.now()
+                )
+
+                HistoricoPreco.objects.create(
+                    produto=produto,
+                    loja=produto.loja,
+                    preco_anterior=produto.preco,
+                    preco_novo=produto.preco,
+                    estoque_anterior=produto.estoque,
+                    estoque_novo=produto.estoque,
+                    usuario=request.user,
+                    motivo=motivo_desc[:200]
+                )
+
+            messages.warning(
+                request,
+                f"Sincronização cancelada/descartada com sucesso para {total_alvo} anúncio(s) selecionado(s)."
+            )
+            return redirect('produto_detail', pk=produto.pk)
+
+        # acao == 'enviar'
         sucessos = 0
         falhas = 0
 
         for a in anuncios_alvo:
             preco_ant = a.preco_venda
             cota_ant = a.estoque_publicado
+            canal = a.conta.get_canal_display() if a.conta else "Marketplace"
+            sku = a.sku_vendedor or produto.sku
+            motivo_desc = f"Sincronização enviada ao canal {canal} (SKU: {sku}, ID: {a.item_id_externo})"
+
             res_est = AnuncioSincronizacaoService.sincronizar_estoque_anuncio(a, usuario=request.user, forcar=True)
             res_prc = AnuncioSincronizacaoService.sincronizar_preco_anuncio(a, produto.preco, usuario=request.user, forcar=True)
             if res_est.get('sucesso') and res_prc.get('sucesso'):
                 a.status_sincronizacao = 'ENVIADO'
-                a.save(update_fields=['status_sincronizacao', 'atualizado_em'])
+                a.data_sincronizacao = timezone.now()
+                a.save(update_fields=['status_sincronizacao', 'data_sincronizacao', 'atualizado_em'])
                 sucessos += 1
+
+                novo_estoque_sync = res_est.get('estoque_sincronizado', a.calcular_cota_disponivel())
 
                 HistoricoSincronizacaoAnuncio.objects.create(
                     anuncio=a,
@@ -715,15 +770,29 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
                     preco_anterior=preco_ant,
                     preco_proposto=produto.preco,
                     estoque_anterior=cota_ant,
-                    estoque_proposto=res_est.get('estoque_sincronizado'),
+                    estoque_proposto=novo_estoque_sync,
                     usuario=request.user,
-                    motivo="Sincronização global confirmada via seleção em lote"
+                    motivo=motivo_desc
+                )
+
+                HistoricoPreco.objects.create(
+                    produto=produto,
+                    loja=produto.loja,
+                    preco_anterior=preco_ant,
+                    preco_novo=produto.preco,
+                    estoque_anterior=cota_ant,
+                    estoque_novo=novo_estoque_sync,
+                    usuario=request.user,
+                    motivo=motivo_desc[:200]
                 )
             else:
                 falhas += 1
 
         for anuncio in anuncios_legado:
             conta = anuncio.conta_marketplace
+            canal = conta.get_canal_display() if conta else "Marketplace"
+            sku = produto.sku
+            motivo_desc = f"Sincronização enviada ao canal {canal} (SKU: {sku}, ID: {anuncio.item_id_externo})"
             connector = get_connector_for_conta(conta)
             sucesso_p, msg_p, log_p = connector.atualizar_preco(anuncio.item_id_externo, produto.preco, usuario=request.user)
             sucesso_e, msg_e, log_e = connector.atualizar_estoque(anuncio.item_id_externo, produto.estoque, usuario=request.user)
@@ -731,6 +800,17 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
                 sucessos += 1
                 anuncio.preco_sincronizado = produto.preco
                 anuncio.save(update_fields=['preco_sincronizado', 'atualizado_em'])
+
+                HistoricoPreco.objects.create(
+                    produto=produto,
+                    loja=produto.loja,
+                    preco_anterior=produto.preco,
+                    preco_novo=produto.preco,
+                    estoque_anterior=produto.estoque,
+                    estoque_novo=produto.estoque,
+                    usuario=request.user,
+                    motivo=motivo_desc[:200]
+                )
             else:
                 falhas += 1
 

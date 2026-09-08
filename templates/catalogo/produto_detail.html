@@ -1,43 +1,10 @@
 <!-- Os códigos foram gerados com auxilio de I.A. -->
 {% extends "base.html" %}
 
-{% block title %}{{ produto.sku }} — {{ produto.nome }} — Hub Marketplaces
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const selectAll = document.getElementById('selectAllAnuncios');
-    if (selectAll) {
-        selectAll.addEventListener('change', function() {
-            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
-        });
-    }
-});
-</script>
-{% endblock %}
+{% block title %}{{ produto.sku }} — {{ produto.nome }} — Hub Marketplaces{% endblock %}
 
-{% block page_title %}{{ produto.nome }}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const selectAll = document.getElementById('selectAllAnuncios');
-    if (selectAll) {
-        selectAll.addEventListener('change', function() {
-            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
-        });
-    }
-});
-</script>
-{% endblock %}
-{% block page_subtitle %}Código SKU: {{ produto.sku }} | Loja: {{ produto.loja.nome }}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const selectAll = document.getElementById('selectAllAnuncios');
-    if (selectAll) {
-        selectAll.addEventListener('change', function() {
-            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
-        });
-    }
-});
-</script>
-{% endblock %}
+{% block page_title %}{{ produto.nome }}{% endblock %}
+{% block page_subtitle %}Código SKU: {{ produto.sku }} | Loja: {{ produto.loja.nome }}{% endblock %}
 
 {% block toolbar_actions %}
     {% if pode_alterar_preco or pode_ajustar_estoque_geral or pode_sincronizar %}
@@ -61,17 +28,6 @@ document.addEventListener('DOMContentLoaded', function() {
     <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left"></i> Voltar
     </a>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const selectAll = document.getElementById('selectAllAnuncios');
-    if (selectAll) {
-        selectAll.addEventListener('change', function() {
-            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
-        });
-    }
-});
-</script>
 {% endblock %}
 
 {% block content %}
@@ -95,6 +51,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <th>Estoque Publicado</th>
                                 <th>Cota Calculada</th>
                                 <th>Status Sincronização</th>
+                                <th>Última Sincronização</th>
                                 <th class="text-end">Ações</th>
                             </tr>
                         </thead>
@@ -140,32 +97,20 @@ document.addEventListener('DOMContentLoaded', function() {
                                             <span class="badge bg-success" title="Sincronizado com o canal"><i class="bi bi-check-circle me-1"></i>Enviado</span>
                                         {% endif %}
                                     </td>
+                                    <td>
+                                        <span class="text-muted small">
+                                            {{ a.ultima_sincronizacao|date:"d/m/Y H:i:s"|default:"—" }}
+                                        </span>
+                                    </td>
                                     <td class="text-end">
-                                        <div class="btn-group btn-group-sm">
-                                            <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalSyncAnuncio-{{ a.pk }}" title="Sincronizar no Canal">
-                                                <i class="bi bi-arrow-repeat me-1"></i> Sincronizar
-                                            </button>
-                                            <form method="post" action="{% url 'anuncio_toggle_ignorar' pk=a.pk %}" class="d-inline">
-                                                {% csrf_token %}
-                                                {% if a.status_sincronizacao == 'CANCELADO' %}
-                                                    <button type="submit" class="btn btn-outline-success" title="Reativar Sincronização">
-                                                        <i class="bi bi-check2-circle"></i>
-                                                    </button>
-                                                {% else %}
-                                                    <button type="submit" class="btn btn-outline-secondary" title="Cancelar / Descartar Sincronização">
-                                                        <i class="bi bi-slash-circle"></i>
-                                                    </button>
-                                                {% endif %}
-                                            </form>
-                                            <a href="{% url 'anuncio_detail' pk=a.pk %}" class="btn btn-outline-secondary" title="Ver Detalhes do Anúncio">
-                                                <i class="bi bi-eye"></i>
-                                            </a>
-                                        </div>
+                                        <a href="{% url 'anuncio_detail' pk=a.pk %}" class="btn btn-outline-secondary btn-sm" title="Ver Detalhes do Anúncio">
+                                            <i class="bi bi-eye"></i> Detalhes
+                                        </a>
                                     </td>
                                 </tr>
                             {% empty %}
                                 <tr>
-                                    <td colspan="7" class="text-center py-3 text-muted">
+                                    <td colspan="8" class="text-center py-3 text-muted">
                                         Nenhum anúncio externo vinculado a este produto via composição.
                                     </td>
                                 </tr>
@@ -314,7 +259,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title fw-bold" id="modalSyncGlobalLabel">
-                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Confirmar Sincronização Global no Canal
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Sincronizar Preço e Estoque no Canal
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
@@ -322,117 +267,71 @@ document.addEventListener('DOMContentLoaded', function() {
                 {% csrf_token %}
                 <div class="modal-body">
                     <p class="mb-3">
-                        Selecione os anúncios que deseja sincronizar (<strong>estoque e preço</strong>) nos respectivos marketplaces para o produto <strong>{{ produto.sku }} — {{ produto.nome }}</strong>.
+                        Gerencie a sincronização de <strong>estoque físico e preço</strong> com os marketplaces para o produto <strong>{{ produto.sku }} — {{ produto.nome }}</strong>.
                     </p>
-                    <div class="alert alert-info py-2 mb-3 small">
-                        <i class="bi bi-info-circle me-1"></i> Anúncios com status <strong>Pendente</strong> vêm pré-selecionados. Você pode marcar ou desmarcar qualquer item antes de confirmar o envio.
-                    </div>
-                    <h6 class="fw-bold mb-2">Anúncios vinculados e seleção de envio:</h6>
-                    <div class="table-responsive border rounded">
-                        <table class="table table-sm table-striped align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width: 35px;" class="text-center">
-                                        <input type="checkbox" id="selectAllAnuncios" class="form-check-input" checked title="Selecionar / Desmarcar Todos">
-                                    </th>
-                                    <th>Canal / Conta</th>
-                                    <th>ID Externo</th>
-                                    <th>Novo Preço</th>
-                                    <th>Nova Cota</th>
-                                    <th>Status Atual</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for a in anuncios %}
-                                    <tr>
-                                        <td class="text-center">
-                                            <input type="checkbox" name="anuncios_selecionados" value="{{ a.pk }}" class="form-check-input check-anuncio" {% if a.status_sincronizacao != 'CANCELADO' %}checked{% endif %}>
-                                        </td>
-                                        <td>{{ a.conta.get_canal_display }} ({{ a.conta.apelido_conta }})</td>
-                                        <td><code>{{ a.item_id_externo }}</code></td>
-                                        <td class="font-monospace text-success fw-bold">R$ {{ produto.preco|floatformat:2 }}</td>
-                                        <td class="font-monospace fw-bold">{{ a.calcular_cota_disponivel }} un.</td>
-                                        <td>
-                                            {% if a.status_sincronizacao == 'CANCELADO' %}
-                                                <span class="badge bg-secondary">Cancelado</span>
-                                            {% elif a.status_sincronizacao == 'PENDENTE' %}
-                                                <span class="badge bg-warning text-dark">Pendente</span>
-                                            {% else %}
-                                                <span class="badge bg-success">Enviado</span>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                {% empty %}
-                                    <tr>
-                                        <td colspan="6" class="text-center text-muted py-2">Nenhum anúncio vinculado via composição.</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-warning fw-bold">
-                        <i class="bi bi-send-check me-1"></i> Confirmar e Enviar Selecionados
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
 
-<!-- MODAIS DE CONFIRMAÇÃO UNITÁRIA PARA CADA ANÚNCIO -->
-{% for a in anuncios %}
-<div class="modal fade" id="modalSyncAnuncio-{{ a.pk }}" tabindex="-1" aria-labelledby="modalSyncAnuncioLabel-{{ a.pk }}" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title fw-bold" id="modalSyncAnuncioLabel-{{ a.pk }}">
-                    <i class="bi bi-arrow-repeat me-2"></i>Sincronizar Anúncio no Canal
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
-            </div>
-            <form method="post" action="{% url 'anuncio_sincronizar' pk=a.pk %}">
-                {% csrf_token %}
-                <div class="modal-body">
-                    <p class="mb-3">
-                        Confirma o envio imediato das informações para o marketplace <strong>{{ a.conta.get_canal_display }}</strong> ({{ a.conta.apelido_conta }})?
-                    </p>
-                    <div class="card bg-light border p-3 mb-3">
-                        <div class="mb-1"><strong>ID Externo:</strong> <code>{{ a.item_id_externo }}</code></div>
-                        <div class="small text-muted mb-2">{{ a.titulo }}</div>
-                        <hr class="my-2">
-                        <div class="row">
-                            <div class="col-6">
-                                <span class="text-muted d-block small">Nova Cota de Estoque:</span>
-                                <span class="fs-5 fw-bold text-dark font-monospace">{{ a.calcular_cota_disponivel }} un.</span>
-                                <span class="d-block text-muted small">(Atual publicado: {{ a.estoque_publicado }} un.)</span>
-                            </div>
-                            <div class="col-6">
-                                <span class="text-muted d-block small">Preço de Venda:</span>
-                                <span class="fs-5 fw-bold text-success font-monospace">R$ {{ a.preco_venda|floatformat:2 }}</span>
-                            </div>
+                    {% if not anuncios_pendentes_sync %}
+                        <div class="alert alert-info py-4 mb-0 text-center">
+                            <i class="bi bi-check-circle-fill text-success fs-3 d-block mb-2"></i>
+                            <strong>Não há anúncios pendentes de sincronização no momento.</strong>
+                            <div class="small text-muted mt-1">Todos os anúncios vinculados já estão atualizados nos canais ou tiveram o envio cancelado/descartado pelo operador.</div>
                         </div>
-                    </div>
-                    {% if a.status_sincronizacao == 'CANCELADO' %}
-                        <div class="alert alert-warning py-2 small mb-0">
-                            <i class="bi bi-exclamation-circle me-1"></i> Atenção: este anúncio está atualmente marcado como <strong>Cancelado</strong>. A sincronização confirmada irá enviar os dados para o canal e reativá-lo para status <strong>Enviado</strong>.
+                    {% else %}
+                        <div class="alert alert-info py-2 mb-3 small">
+                            <i class="bi bi-info-circle me-1"></i> Apenas anúncios com pendências de envio ou divergência de cota/preço são exibidos. Selecione os itens desejados e escolha entre <strong>Confirmar Envio</strong> ou <strong>Cancelar / Descartar</strong>.
+                        </div>
+                        <h6 class="fw-bold mb-2">Fila de anúncios com pendência de sincronização:</h6>
+                        <div class="table-responsive border rounded">
+                            <table class="table table-sm table-striped align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 35px;" class="text-center">
+                                            <input type="checkbox" id="selectAllAnuncios" class="form-check-input" checked title="Selecionar / Desmarcar Todos">
+                                        </th>
+                                        <th>Canal / Conta</th>
+                                        <th>ID Externo</th>
+                                        <th>Novo Preço</th>
+                                        <th>Nova Cota</th>
+                                        <th>Status Atual</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for a in anuncios_pendentes_sync %}
+                                        <tr>
+                                            <td class="text-center">
+                                                <input type="checkbox" name="anuncios_selecionados" value="{{ a.pk }}" class="form-check-input check-anuncio" checked>
+                                            </td>
+                                            <td>{{ a.conta.get_canal_display }} ({{ a.conta.apelido_conta }})</td>
+                                            <td><code>{{ a.item_id_externo }}</code></td>
+                                            <td class="font-monospace text-success fw-bold">R$ {{ produto.preco|floatformat:2 }}</td>
+                                            <td class="font-monospace fw-bold">{{ a.calcular_cota_disponivel }} un.</td>
+                                            <td>
+                                                <span class="badge bg-warning text-dark"><i class="bi bi-clock-history me-1"></i>Pendente</span>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
                         </div>
                     {% endif %}
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary fw-bold">
-                        <i class="bi bi-send-check me-1"></i> Confirmar Envio
-                    </button>
+                <div class="modal-footer d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                    {% if anuncios_pendentes_sync %}
+                        <div class="d-flex gap-2">
+                            <button type="submit" name="acao" value="cancelar" class="btn btn-outline-danger">
+                                <i class="bi bi-slash-circle me-1"></i> Cancelar / Descartar
+                            </button>
+                            <button type="submit" name="acao" value="enviar" class="btn btn-warning fw-bold">
+                                <i class="bi bi-send-check me-1"></i> Confirmar Envio
+                            </button>
+                        </div>
+                    {% endif %}
                 </div>
             </form>
         </div>
     </div>
 </div>
-{% endfor %}
-
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

@@ -113,6 +113,11 @@ class Anuncio(models.Model):
         return f"[{canal}] {self.item_id_externo} — {self.titulo[:40]}"
 
     @property
+    def ultima_sincronizacao(self):
+        """Retorna o timestamp da última sincronização do anúncio."""
+        return self.data_sincronizacao
+
+    @property
     def eh_kit(self) -> bool:
         """Indica se o anúncio é composto por kit (mais de 1 produto ou multiplicador > 1)."""
         itens = self.itens_composicao.all()

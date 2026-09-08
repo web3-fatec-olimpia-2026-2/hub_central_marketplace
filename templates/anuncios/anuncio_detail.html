@@ -200,8 +200,8 @@
                     <table class="table table-hover align-middle mb-0" style="font-size: 0.875rem;">
                         <thead class="table-light">
                             <tr>
+                                <th>Data / Hora Origem</th>
                                 <th>Data / Hora Decisão</th>
-                                <th>Data / Hora Pendência</th>
                                 <th>Ação / Status</th>
                                 <th>Preço (Ant. &rarr; Proposto)</th>
                                 <th>Cota (Ant. &rarr; Proposta)</th>
@@ -212,8 +212,8 @@
                         <tbody>
                             {% for h in historicos_ciclo %}
                                 <tr>
-                                    <td class="text-muted">{{ h.criado_em|date:"d/m/Y H:i:s" }}</td>
-                                    <td class="text-muted">{{ h.data_pendencia|date:"d/m/Y H:i:s"|default:"—" }}</td>
+                                    <td class="text-muted">{{ h.data_pendencia|default:h.criado_em|date:"d/m/Y H:i:s" }}</td>
+                                    <td class="text-muted">{% if h.status_resultante != 'PENDENTE' %}{{ h.criado_em|date:"d/m/Y H:i:s" }}{% else %}—{% endif %}</td>
                                     <td>
                                         {% if h.status_resultante == 'CANCELADO' %}
                                             <span class="badge bg-secondary">Cancelado</span>

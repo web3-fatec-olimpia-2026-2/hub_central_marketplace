@@ -290,10 +290,10 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         anuncio1.refresh_from_db()
         self.assertEqual(anuncio1.status_sincronizacao, 'PENDENTE')
 
-        # 2. Submissão selecionando apenas anuncio1
+        # 2. Submissão selecionando apenas anuncio1 com acao=enviar
         with patch.object(MercadoLivreConnector, 'atualizar_estoque', return_value=(True, "OK", None)), \
              patch.object(MercadoLivreConnector, 'atualizar_preco', return_value=(True, "OK", None)):
-            res_sel = self.client.post(url_sync, {'anuncios_selecionados': [anuncio1.pk]})
+            res_sel = self.client.post(url_sync, {'anuncios_selecionados': [anuncio1.pk], 'acao': 'enviar'})
             self.assertEqual(res_sel.status_code, 302)
 
             anuncio1.refresh_from_db()
@@ -304,4 +304,65 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
             self.assertTrue(HistoricoSincronizacaoAnuncio.objects.filter(
                 anuncio=anuncio1, status_resultante='ENVIADO'
             ).exists())
+
+            # Validação do duplo histórico registrado no Produto com SKU e Canal
+            hist_prod = HistoricoPreco.objects.filter(
+                produto=self.produto,
+                motivo__icontains="Mercado Livre"
+            ).filter(motivo__icontains="MLB_SEL_1")
+            self.assertTrue(hist_prod.exists())
+            self.assertIn("Sincronização enviada ao canal", hist_prod.first().motivo)
+
+    def test_produto_sincronizacao_global_acao_cancelar_e_fila_pendentes(self):
+        """Valida ação de cancelamento com duplo histórico e exclusão do anúncio da fila de pendentes."""
+        from apps.anuncios.models import Anuncio, AnuncioComposicao, HistoricoSincronizacaoAnuncio
+
+        anuncio = Anuncio.objects.create(
+            conta=self.conta_ml,
+            item_id_externo="MLB_CANC_1",
+            titulo="Notebook Canc",
+            preco_venda=Decimal('4900.00'),
+            estoque_publicado=5,
+            status_sincronizacao='PENDENTE'
+        )
+        AnuncioComposicao.objects.create(anuncio=anuncio, produto=self.produto, quantidade=1)
+
+        self.client.login(username='admin_cat', password='password123')
+        url_detail = reverse('produto_detail', kwargs={'pk': self.produto.pk})
+        url_sync = reverse('produto_sincronizar_preco', kwargs={'pk': self.produto.pk})
+
+        # Antes do cancelamento, o anúncio está na fila de pendentes
+        res_detail_antes = self.client.get(url_detail)
+        self.assertIn(anuncio, res_detail_antes.context['anuncios_pendentes_sync'])
+
+        # Dispara cancelamento/descarte no modal
+        res_cancel = self.client.post(url_sync, {
+            'anuncios_selecionados': [anuncio.pk],
+            'acao': 'cancelar'
+        })
+        self.assertEqual(res_cancel.status_code, 302)
+
+        anuncio.refresh_from_db()
+        self.assertEqual(anuncio.status_sincronizacao, 'CANCELADO')
+
+        # 1. Histórico no Anúncio
+        hist_anuncio = HistoricoSincronizacaoAnuncio.objects.filter(
+            anuncio=anuncio, status_resultante='CANCELADO'
+        ).first()
+        self.assertIsNotNone(hist_anuncio)
+        self.assertIn("Mercado Livre", hist_anuncio.motivo)
+        self.assertIn(anuncio.item_id_externo, hist_anuncio.motivo)
+
+        # 2. Histórico no Produto
+        hist_prod = HistoricoPreco.objects.filter(
+            produto=self.produto,
+            motivo__icontains="cancelada/descartada"
+        ).filter(motivo__icontains=anuncio.item_id_externo).first()
+        self.assertIsNotNone(hist_prod)
+        self.assertIn("Mercado Livre", hist_prod.motivo)
+
+        # Após o cancelamento, o anúncio sai da fila de pendentes no modal
+        res_detail_depois = self.client.get(url_detail)
+        self.assertNotIn(anuncio, res_detail_depois.context['anuncios_pendentes_sync'])
+        self.assertEqual(anuncio.ultima_sincronizacao, anuncio.data_sincronizacao)
 

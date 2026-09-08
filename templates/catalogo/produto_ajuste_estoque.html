@@ -20,7 +20,7 @@
                 <i class="bi bi-sliders me-2"></i>Ajuste de Balanço / Inventário (Gestores)
             </div>
             <div class="card-body p-4">
-                <form method="post" novalidate>
+                <form id="formAjusteEstoque" method="post" novalidate>
                     {% csrf_token %}
 
                     <div class="mb-3">
@@ -87,31 +87,36 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.querySelector('form');
+    const form = document.getElementById('formAjusteEstoque') || document.querySelector('form');
     const btnAbrir = document.getElementById('btnAbrirModalAjuste');
-    const inputNovo = form ? form.querySelector('[name="novo_estoque"]') : null;
-    const selectTipo = form ? form.querySelector('[name="tipo_ajuste"]') : null;
-    const inputJust = form ? form.querySelector('[name="justificativa"]') : null;
+    const inputNovo = document.getElementById('id_novo_estoque') || (form ? form.querySelector('[name="novo_estoque"]') : null);
+    const selectTipo = document.getElementById('id_tipo_ajuste') || (form ? form.querySelector('[name="tipo_ajuste"]') : null);
+    const inputJust = document.getElementById('id_justificativa') || (form ? form.querySelector('[name="justificativa"]') : null);
     const modalEl = document.getElementById('modalConfirmacaoAjuste');
-    const modal = new bootstrap.Modal(modalEl);
+    const modal = modalEl ? new bootstrap.Modal(modalEl) : null;
 
     if (btnAbrir) {
         btnAbrir.addEventListener('click', function() {
-            const valNovo = inputNovo ? inputNovo.value.trim() : '';
+            const valNovoRaw = inputNovo ? inputNovo.value.trim() : '';
+            const valNovoNum = parseInt(valNovoRaw, 10);
             const textTipo = selectTipo && selectTipo.selectedIndex >= 0 ? selectTipo.options[selectTipo.selectedIndex].text : '';
             const valJust = inputJust ? inputJust.value.trim() : '';
 
-            if (valNovo === '') {
+            if (valNovoRaw === '' || isNaN(valNovoNum) || valNovoNum < 0) {
                 alert('Por favor, informe o novo saldo de estoque.');
                 if (inputNovo) inputNovo.focus();
                 return;
             }
 
-            document.getElementById('resumoNovoEstoque').textContent = valNovo;
-            document.getElementById('resumoTipoAjuste').textContent = textTipo || 'Não informado';
-            document.getElementById('resumoJustificativa').textContent = valJust || 'Sem justificativa informada';
+            const elResumoNovo = document.getElementById('resumoNovoEstoque');
+            const elResumoTipo = document.getElementById('resumoTipoAjuste');
+            const elResumoJust = document.getElementById('resumoJustificativa');
 
-            modal.show();
+            if (elResumoNovo) elResumoNovo.textContent = valNovoNum;
+            if (elResumoTipo) elResumoTipo.textContent = textTipo || 'Não informado';
+            if (elResumoJust) elResumoJust.textContent = valJust || 'Sem justificativa informada';
+
+            if (modal) modal.show();
         });
     }
 
