@@ -542,10 +542,16 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogO
                 ip_origem=self.request.META.get('REMOTE_ADDR')
             )
 
-        messages.success(
-            self.request,
-            f"Baixa de {qtd} un. registrada com sucesso! Novo estoque: {novo_saldo} un."
-        )
+        if prod_locked.anuncios_publicados.count() == 0:
+            messages.warning(
+                self.request,
+                f"Estoque atualizado para {novo_saldo} un. com sucesso — este produto não possui anúncios vinculados, portanto nenhuma sincronização foi enviada ao marketplace."
+            )
+        else:
+            messages.success(
+                self.request,
+                f"Baixa de {qtd} un. registrada com sucesso! Novo estoque: {novo_saldo} un."
+            )
         return redirect('produto_detail', pk=self.produto.pk)
 
     def get_context_data(self, **kwargs):
@@ -609,10 +615,16 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, Catalog
                 ip_origem=self.request.META.get('REMOTE_ADDR')
             )
 
-        messages.success(
-            self.request,
-            f"Estoque do SKU '{self.produto.sku}' atualizado para {novo_saldo} un. com sucesso!"
-        )
+        if prod_locked.anuncios_publicados.count() == 0:
+            messages.warning(
+                self.request,
+                f"Estoque atualizado para {novo_saldo} un. com sucesso — este produto não possui anúncios vinculados, portanto nenhuma sincronização foi enviada ao marketplace."
+            )
+        else:
+            messages.success(
+                self.request,
+                f"Estoque do SKU '{self.produto.sku}' atualizado para {novo_saldo} un. com sucesso!"
+            )
         return redirect('produto_detail', pk=self.produto.pk)
 
     def get_context_data(self, **kwargs):

@@ -141,12 +141,18 @@
                                             {{ item.produto.estoque|default:0 }} / {{ item.quantidade }}
                                         </td>
                                         <td class="text-center">
-                                            <form method="post" action="{% url 'anuncio_composicao_delete' pk=item.pk %}" onsubmit="return confirm('Desvincular produto da composição deste anúncio?');">
-                                                {% csrf_token %}
-                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Desvincular">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </form>
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-outline-danger btn-excluir-item-composicao" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#modalConfirmarExclusaoComposicao"
+                                                    data-id="{{ item.pk }}"
+                                                    data-nome="{{ item.produto.nome|escape }}"
+                                                    data-sku="{{ item.produto.sku|escape }}"
+                                                    data-quantidade="{{ item.quantidade }}"
+                                                    data-delete-url="{% url 'anuncio_composicao_delete' anuncio_id=anuncio.pk pk=item.pk %}"
+                                                    title="Remover componente">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
                                         </td>
                                     </tr>
                                 {% empty %}
@@ -258,4 +264,145 @@
         </div>
     </div>
 </div>
+
+<!-- MODAL DE CONFIRMAÇÃO COM PREVIEW DINÂMICO DE EXCLUSÃO DE COMPOSIÇÃO -->
+<div class="modal fade" id="modalConfirmarExclusaoComposicao" tabindex="-1" aria-labelledby="modalConfirmarExclusaoComposicaoLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-danger text-white py-3">
+                    <h5 class="modal-title fw-bold" id="modalConfirmarExclusaoComposicaoLabel">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>Confirmar Remoção de Componente
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <form method="post" id="formExcluirComposicao" action="">
+                    {% csrf_token %}
+                    <div class="modal-body p-4">
+                        <!-- Item a remover -->
+                        <div class="card bg-light border-danger border-opacity-25 mb-3">
+                            <div class="card-body py-3">
+                                <h6 class="fw-bold text-danger mb-2">
+                                    <i class="bi bi-trash3 me-1"></i> Item a ser Removido da Composição:
+                                </h6>
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <span class="fw-bold fs-6" id="modalPreviewItemNome">—</span>
+                                        <small class="d-block text-muted font-monospace">SKU Físico: <strong id="modalPreviewItemSku">—</strong></small>
+                                    </div>
+                                    <span class="badge bg-danger fs-6" id="modalPreviewItemQtd">1x</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Alerta destacado caso seja o último componente restante -->
+                        <div class="alert alert-danger d-flex align-items-center mb-3 d-none" id="alertaUltimoComponente" role="alert">
+                            <i class="bi bi-exclamation-octagon-fill fs-4 me-3 flex-shrink-0"></i>
+                            <div>
+                                <strong>Atenção:</strong> este é o único produto vinculado a este anúncio. Removê-lo tornará o anúncio órfão de estoque físico.
+                            </div>
+                        </div>
+
+                        <!-- Lista de itens que permanecerão intactos -->
+                        <div id="secaoItensRestantes" class="mt-3">
+                            <h6 class="fw-bold text-secondary mb-2">
+                                <i class="bi bi-shield-check text-success me-1"></i> Itens que Permanecerão Intactos no Anúncio:
+                            </h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered align-middle mb-0" style="font-size: 0.85rem;">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Nome do Produto Físico</th>
+                                            <th class="text-center font-monospace">SKU Físico</th>
+                                            <th class="text-center">Saldo de Estoque</th>
+                                            <th class="text-center">Qtd / Kit</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tabelaItensRestantesCorpo">
+                                        <!-- Preenchido dinamicamente via JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light py-2">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="bi bi-x-circle me-1"></i> Cancelar
+                        </button>
+                        <button type="submit" class="btn btn-danger fw-bold">
+                            <i class="bi bi-trash-fill me-1"></i> Confirmar Remoção
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const itensComposicao = [
+        {% for it in anuncio.itens_composicao.all %}
+        {
+            id: {{ it.pk }},
+            nome: "{{ it.produto.nome|escapejs }}",
+            sku: "{{ it.produto.sku|escapejs }}",
+            estoque: {{ it.produto.estoque|default:0 }},
+            quantidade: {{ it.quantidade }}
+        }{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const modalExclusao = document.getElementById('modalConfirmarExclusaoComposicao');
+    if (modalExclusao) {
+        modalExclusao.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            if (!button) return;
+
+            const itemId = parseInt(button.getAttribute('data-id'), 10);
+            const itemNome = button.getAttribute('data-nome');
+            const itemSku = button.getAttribute('data-sku');
+            const itemQtd = button.getAttribute('data-quantidade');
+            const deleteUrl = button.getAttribute('data-delete-url');
+
+            // Atualiza o action do formulário
+            const form = document.getElementById('formExcluirComposicao');
+            form.action = deleteUrl;
+
+            // Preenche dados do item a ser removido
+            document.getElementById('modalPreviewItemNome').textContent = itemNome;
+            document.getElementById('modalPreviewItemSku').textContent = itemSku;
+            document.getElementById('modalPreviewItemQtd').textContent = itemQtd + 'x';
+
+            // Filtra os itens que permanecerão intactos
+            const itensRestantes = itensComposicao.filter(function(it) {
+                return it.id !== itemId;
+            });
+
+            const alertaUltimo = document.getElementById('alertaUltimoComponente');
+            const secaoRestantes = document.getElementById('secaoItensRestantes');
+            const tbody = document.getElementById('tabelaItensRestantesCorpo');
+
+            tbody.innerHTML = '';
+
+            if (itensRestantes.length === 0) {
+                alertaUltimo.classList.remove('d-none');
+                secaoRestantes.classList.add('d-none');
+            } else {
+                alertaUltimo.classList.add('d-none');
+                secaoRestantes.classList.remove('d-none');
+
+                itensRestantes.forEach(function(it) {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="fw-semibold text-dark">${it.nome}</td>
+                        <td class="text-center font-monospace text-muted">${it.sku}</td>
+                        <td class="text-center"><span class="badge bg-light text-dark border">${it.estoque} un.</span></td>
+                        <td class="text-center"><span class="badge bg-primary">${it.quantidade}x</span></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        });
+    }
+});
+</script>
 {% endblock %}

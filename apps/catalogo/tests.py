@@ -416,3 +416,51 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         self.assertEqual(hist_pend.estoque_anterior, 10)
         self.assertEqual(hist_pend.estoque_proposto, 8)
 
+    def test_ajuste_estoque_produto_sem_anuncios_emite_alerta_warning(self):
+        """
+        Cenário 4: Fluxo de Estoque sem Vínculo.
+        Executar ajuste geral de estoque em produto com 0 anúncios associados.
+        Assertar que nenhuma entrada é criada na fila de sincronização e que a mensagem retornada no contexto possui nível messages.WARNING.
+        """
+        from django.contrib.messages import get_messages
+        from django.contrib import messages as django_messages
+        from apps.anuncios.models import HistoricoSincronizacaoAnuncio
+
+        # Cria um produto sem nenhum anúncio vinculado
+        prod_sem_anuncio = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="SEM-ANUNCIO-01",
+            nome="Produto Sem Anúncio",
+            preco=Decimal('100.00'),
+            estoque=50
+        )
+        self.assertEqual(prod_sem_anuncio.anuncios_publicados.count(), 0)
+
+        self.client.force_login(self.user_admin)
+        url_ajuste = reverse('produto_ajuste_estoque', kwargs={'pk': prod_sem_anuncio.pk})
+
+        resp = self.client.post(url_ajuste, {
+            'novo_estoque': 45,
+            'tipo_ajuste': TipoAjusteEstoqueEnum.CORRECAO_BALANCO,
+            'justificativa': 'Contagem de inventário'
+        }, follow=True)
+
+        self.assertEqual(resp.status_code, 200)
+        prod_sem_anuncio.refresh_from_db()
+        self.assertEqual(prod_sem_anuncio.estoque, 45)
+
+        # Nenhuma entrada deve ter sido criada em HistoricoSincronizacaoAnuncio
+        self.assertEqual(
+            HistoricoSincronizacaoAnuncio.objects.filter(anuncio__in=prod_sem_anuncio.anuncios_publicados).count(),
+            0
+        )
+
+        # Mensagem deve possuir nível WARNING e o texto exato
+        mensagens = list(get_messages(resp.wsgi_request))
+        self.assertTrue(any(m.level == django_messages.WARNING for m in mensagens))
+        msg_warning = [m for m in mensagens if m.level == django_messages.WARNING][0]
+        self.assertIn("este produto não possui anúncios vinculados, portanto nenhuma sincronização foi enviada ao marketplace", msg_warning.message)
+        self.assertIn("Estoque atualizado para 45 un. com sucesso", msg_warning.message)
+
+

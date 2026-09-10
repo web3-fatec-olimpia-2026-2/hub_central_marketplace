@@ -14,7 +14,7 @@ from apps.tenancy.permissions import (
 )
 from apps.marketplaces.models import ContaMarketplace
 from apps.catalogo.models import Produto
-from apps.anuncios.models import Anuncio, AnuncioComposicao
+from apps.anuncios.models import Anuncio, AnuncioComposicao, HistoricoSincronizacaoAnuncio
 from apps.anuncios.services import AnuncioImportacaoService
 from apps.anuncios.forms import AnuncioComposicaoForm
 
@@ -187,23 +187,70 @@ class AnuncioComposicaoCreateView(LoginRequiredMixin, ModuloRequeridoMixin, View
 
 class AnuncioComposicaoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, View):
     """
-    O QUE FAZ: Remove um item da composição de um anúncio.
+    O QUE FAZ: Remove um item da composição de um anúncio com blindagem transacional e snapshots de auditoria.
     """
     modulo_requerido = 'marketplaces'
 
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
             raise PermissionDenied("Acesso negado.")
 
-        item = get_object_or_404(AnuncioComposicao, pk=pk)
+        anuncio_id = self.kwargs.get('anuncio_id') or request.POST.get('anuncio_id')
+        if anuncio_id:
+            item = get_object_or_404(AnuncioComposicao, pk=self.kwargs['pk'], anuncio_id=anuncio_id)
+        else:
+            item = get_object_or_404(AnuncioComposicao, pk=self.kwargs['pk'])
+
         anuncio = item.anuncio
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
             if not perfil or not perfil.loja or anuncio.conta.loja_id != perfil.loja_id:
                 raise PermissionDenied("Acesso negado.")
 
-        produto_nome = item.produto.nome
-        item.delete()
+        with transaction.atomic():
+            snapshot_antes = [
+                {
+                    'composicao_id': comp.pk,
+                    'produto_id': comp.produto_id,
+                    'sku': comp.produto.sku,
+                    'nome': comp.produto.nome,
+                    'quantidade': comp.quantidade,
+                    'estoque_fisico': comp.produto.estoque,
+                }
+                for comp in anuncio.itens_composicao.select_related('produto').all()
+            ]
+            cota_antes = anuncio.calcular_cota_disponivel()
+            produto_nome = item.produto.nome
+            produto_sku = item.produto.sku
+
+            item.delete()
+
+            snapshot_depois = [
+                {
+                    'composicao_id': comp.pk,
+                    'produto_id': comp.produto_id,
+                    'sku': comp.produto.sku,
+                    'nome': comp.produto.nome,
+                    'quantidade': comp.quantidade,
+                    'estoque_fisico': comp.produto.estoque,
+                }
+                for comp in anuncio.itens_composicao.select_related('produto').all()
+            ]
+            cota_depois = anuncio.calcular_cota_disponivel()
+
+            HistoricoSincronizacaoAnuncio.objects.create(
+                anuncio=anuncio,
+                status_resultante=anuncio.status_sincronizacao,
+                preco_anterior=anuncio.preco_venda,
+                preco_proposto=anuncio.preco_venda,
+                estoque_anterior=cota_antes,
+                estoque_proposto=cota_depois,
+                usuario=request.user,
+                motivo=f"Exclusão de componente da composição: [{produto_sku}] {produto_nome}",
+                snapshot_antes=snapshot_antes,
+                snapshot_depois=snapshot_depois,
+            )
+
         messages.success(request, f"Vínculo com '{produto_nome}' removido da composição.")
         return redirect('anuncio_detail', pk=anuncio.pk)
 

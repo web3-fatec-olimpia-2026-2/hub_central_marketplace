@@ -128,13 +128,20 @@ class Produto(models.Model):
         super().save(*args, **kwargs)
 
     @property
+    def anuncios_publicados(self):
+        """
+        Retorna QuerySet de Anúncios vinculados a este produto via composição.
+        """
+        from apps.anuncios.models import Anuncio
+        return Anuncio.objects.filter(composicoes__produto=self).distinct()
+
+    @property
     def status_sincronizacao_consolidado(self) -> str:
         """
         O QUE FAZ: Calcula dinamicamente o estado de sincronização com base em todos os anúncios vinculados ao produto.
         POR QUE FAZ: Elimina divergências entre o card de informações principais e a tabela de anúncios.
         """
-        from apps.anuncios.models import Anuncio
-        anuncios = list(Anuncio.objects.filter(composicoes__produto=self).distinct())
+        anuncios = list(self.anuncios_publicados)
         if not anuncios:
             return "Sem Anúncios"
 

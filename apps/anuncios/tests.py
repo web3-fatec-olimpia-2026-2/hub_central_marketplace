@@ -648,3 +648,143 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
             self.assertTrue(res['sucesso'])
             self.assertTrue(res.get('ignorado_idempotencia'))
             self.assertEqual(mock_att.call_count, 0)
+
+    def test_exclusao_componente_intermediario_kit_3_itens_preserva_irmas(self):
+        """
+        Cenário 1: Kit com 3 componentes (A, B, C).
+        Exclui o componente intermediário (B).
+        Assertar que A e C continuam intactos no banco, com SKUs, quantidades e vínculos inalterados.
+        Assertar que os produtos físicos continuam existindo.
+        """
+        self.client.force_login(self.user_admin)
+
+        prod_a = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="KIT3-A", nome="Produto A", preco=Decimal('10.00'), estoque=15)
+        prod_b = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="KIT3-B", nome="Produto B", preco=Decimal('20.00'), estoque=25)
+        prod_c = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="KIT3-C", nome="Produto C", preco=Decimal('30.00'), estoque=35)
+
+        anuncio_kit3 = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB-KIT3-01",
+            titulo="Anúncio Kit Triplo ABC",
+            preco_venda=Decimal('60.00'),
+            estoque_publicado=10
+        )
+        comp_a = AnuncioComposicao.objects.create(anuncio=anuncio_kit3, produto=prod_a, quantidade=1)
+        comp_b = AnuncioComposicao.objects.create(anuncio=anuncio_kit3, produto=prod_b, quantidade=2)
+        comp_c = AnuncioComposicao.objects.create(anuncio=anuncio_kit3, produto=prod_c, quantidade=3)
+
+        url_delete = reverse('anuncio_composicao_delete', kwargs={'anuncio_id': anuncio_kit3.pk, 'pk': comp_b.pk})
+        resp = self.client.post(url_delete)
+        self.assertEqual(resp.status_code, 302)
+
+        # B foi excluído da composição
+        self.assertFalse(AnuncioComposicao.objects.filter(pk=comp_b.pk).exists())
+
+        # A e C continuam intactos na composição
+        comp_a.refresh_from_db()
+        comp_c.refresh_from_db()
+        self.assertEqual(comp_a.quantidade, 1)
+        self.assertEqual(comp_a.produto, prod_a)
+        self.assertEqual(comp_c.quantidade, 3)
+        self.assertEqual(comp_c.produto, prod_c)
+
+        # Produtos físicos originais permanecem intactos no catálogo
+        self.assertTrue(Produto.objects.filter(pk=prod_a.pk).exists())
+        self.assertTrue(Produto.objects.filter(pk=prod_b.pk).exists())
+        self.assertTrue(Produto.objects.filter(pk=prod_c.pk).exists())
+
+    def test_exclusao_sequencial_componentes_kit_4_itens(self):
+        """
+        Cenário 2: Kit com 4 componentes (A, B, C, D).
+        Executa a remoção sequencial de dois componentes em requisições isoladas.
+        Assertar a integridade referencial dos registros restantes após cada requisição.
+        """
+        self.client.force_login(self.user_admin)
+
+        prod_a = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="KIT4-A", nome="Item A", preco=Decimal('10.00'), estoque=10)
+        prod_b = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="KIT4-B", nome="Item B", preco=Decimal('10.00'), estoque=10)
+        prod_c = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="KIT4-C", nome="Item C", preco=Decimal('10.00'), estoque=10)
+        prod_d = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="KIT4-D", nome="Item D", preco=Decimal('10.00'), estoque=10)
+
+        anuncio_kit4 = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB-KIT4-01",
+            titulo="Anúncio Kit Quádruplo",
+            preco_venda=Decimal('40.00'),
+            estoque_publicado=5
+        )
+        comp_a = AnuncioComposicao.objects.create(anuncio=anuncio_kit4, produto=prod_a, quantidade=1)
+        comp_b = AnuncioComposicao.objects.create(anuncio=anuncio_kit4, produto=prod_b, quantidade=1)
+        comp_c = AnuncioComposicao.objects.create(anuncio=anuncio_kit4, produto=prod_c, quantidade=1)
+        comp_d = AnuncioComposicao.objects.create(anuncio=anuncio_kit4, produto=prod_d, quantidade=1)
+
+        # 1ª Requisição: Exclui B
+        url_del_b = reverse('anuncio_composicao_delete', kwargs={'anuncio_id': anuncio_kit4.pk, 'pk': comp_b.pk})
+        resp1 = self.client.post(url_del_b)
+        self.assertEqual(resp1.status_code, 302)
+
+        # Valida integridade após 1ª exclusão (restam A, C, D)
+        restantes1 = list(anuncio_kit4.itens_composicao.values_list('produto__sku', flat=True))
+        self.assertEqual(len(restantes1), 3)
+        self.assertCountEqual(restantes1, ["KIT4-A", "KIT4-C", "KIT4-D"])
+
+        # 2ª Requisição: Exclui C
+        url_del_c = reverse('anuncio_composicao_delete', kwargs={'anuncio_id': anuncio_kit4.pk, 'pk': comp_c.pk})
+        resp2 = self.client.post(url_del_c)
+        self.assertEqual(resp2.status_code, 302)
+
+        # Valida integridade após 2ª exclusão (restam A, D)
+        restantes2 = list(anuncio_kit4.itens_composicao.values_list('produto__sku', flat=True))
+        self.assertEqual(len(restantes2), 2)
+        self.assertCountEqual(restantes2, ["KIT4-A", "KIT4-D"])
+
+        # Todos os 4 produtos físicos permanecem íntegros no banco
+        self.assertEqual(Produto.objects.filter(sku__in=["KIT4-A", "KIT4-B", "KIT4-C", "KIT4-D"]).count(), 4)
+
+    def test_validacao_snapshots_auditoria_exclusao_composicao(self):
+        """
+        Cenário 3: Validação de Snapshots de Auditoria.
+        Assertar que, ao excluir um item, o registro criado em HistoricoSincronizacaoAnuncio
+        grava fielmente a lista completa prévia em snapshot_antes e a lista restante exata em snapshot_depois.
+        """
+        self.client.force_login(self.user_admin)
+
+        prod1 = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="SNAP-01", nome="Item 1", preco=Decimal('15.00'), estoque=20)
+        prod2 = Produto.objects.create(loja=self.loja, categoria=self.categoria, sku="SNAP-02", nome="Item 2", preco=Decimal('25.00'), estoque=30)
+
+        anuncio = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB-SNAP-TEST",
+            titulo="Anúncio Teste Snapshots",
+            preco_venda=Decimal('40.00'),
+            estoque_publicado=20
+        )
+        comp1 = AnuncioComposicao.objects.create(anuncio=anuncio, produto=prod1, quantidade=1)
+        comp2 = AnuncioComposicao.objects.create(anuncio=anuncio, produto=prod2, quantidade=2)
+
+        from apps.anuncios.models import HistoricoSincronizacaoAnuncio
+        hist_count_antes = HistoricoSincronizacaoAnuncio.objects.filter(anuncio=anuncio).count()
+
+        # Dispara exclusão do comp1
+        url_del = reverse('anuncio_composicao_delete', kwargs={'anuncio_id': anuncio.pk, 'pk': comp1.pk})
+        resp = self.client.post(url_del)
+        self.assertEqual(resp.status_code, 302)
+
+        # Valida que um novo registro de histórico foi criado com os snapshots
+        hist = HistoricoSincronizacaoAnuncio.objects.filter(anuncio=anuncio).order_by('-criado_em').first()
+        self.assertIsNotNone(hist)
+        self.assertEqual(HistoricoSincronizacaoAnuncio.objects.filter(anuncio=anuncio).count(), hist_count_antes + 1)
+
+        # Validação do snapshot_antes (deve conter comp1 e comp2)
+        skus_antes = [item['sku'] for item in hist.snapshot_antes]
+        self.assertEqual(len(hist.snapshot_antes), 2)
+        self.assertIn("SNAP-01", skus_antes)
+        self.assertIn("SNAP-02", skus_antes)
+
+        # Validação do snapshot_depois (deve conter apenas comp2)
+        skus_depois = [item['sku'] for item in hist.snapshot_depois]
+        self.assertEqual(len(hist.snapshot_depois), 1)
+        self.assertNotIn("SNAP-01", skus_depois)
+        self.assertIn("SNAP-02", skus_depois)
+        self.assertEqual(hist.snapshot_depois[0]['sku'], "SNAP-02")
+        self.assertEqual(hist.snapshot_depois[0]['quantidade'], 2)

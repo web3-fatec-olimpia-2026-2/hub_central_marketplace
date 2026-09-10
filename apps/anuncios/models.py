@@ -285,6 +285,16 @@ class HistoricoSincronizacaoAnuncio(models.Model):
         default=timezone.now,
         verbose_name="Data / Hora da Decisão / Registro"
     )
+    snapshot_antes = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Snapshot Antes da Operação"
+    )
+    snapshot_depois = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Snapshot Depois da Operação"
+    )
 
     class Meta:
         verbose_name = "Histórico de Ciclo do Anúncio"
