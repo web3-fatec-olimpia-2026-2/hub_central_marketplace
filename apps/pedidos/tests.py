@@ -10,7 +10,8 @@ from apps.tenancy.enums import PapelUsuarioEnum
 from apps.marketplaces.models import ContaMarketplace, LogAuditoria
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
 from apps.catalogo.models import Categoria, Produto, AnuncioMarketplace
-from apps.pedidos.models import PedidoVenda, ItemPedidoVenda
+from apps.anuncios.models import Anuncio, AnuncioComposicao
+from apps.pedidos.models import PedidoVenda, ItemPedidoVenda, Pedido, ItemPedido
 from apps.pedidos.services import ProcessamentoPedidoService
 
 
@@ -31,6 +32,9 @@ class PedidosAndAtomicStockTestCase(TestCase):
             cnpj="55.555.555/0001-55"
         )
         self.loja.garantir_modulos_padrao()
+
+        self.user = User.objects.create_user(username='admin_pedidos', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user, papel=PapelUsuarioEnum.ADMIN, loja=self.loja)
 
         self.categoria = Categoria.objects.create(
             loja=self.loja,
@@ -185,3 +189,75 @@ class PedidosAndAtomicStockTestCase(TestCase):
         )
         self.assertEqual(res_magalu.status_code, 200)
         self.assertTrue(PedidoVenda.objects.filter(pedido_id_externo='MAG_ORDER_88').exists())
+
+    def test_webhook_mlb_venda_real_quantity_2_and_pedidos_screen(self):
+        """
+        Valida que venda real no Mercado Livre com quantidade 2:
+        1. Abate exatamente 2 unidades do Produto (5 -> 3).
+        2. Cria a entidade Pedido com valor total, dados do comprador e itens correspondentes.
+        3. Permite acesso via aliases Pedido/ItemPedido (numero_pedido, canal, conta).
+        4. Torna o pedido visível na listagem /pedidos/.
+        """
+        anuncio_ml = Anuncio.objects.create(
+            conta=self.conta_ml,
+            item_id_externo="MLB2856546762",
+            titulo="Teclado Mecânico RGB Pro Anúncio",
+            preco_venda=Decimal('250.00'),
+            estoque_publicado=5,
+            status_sincronizacao='ENVIADO',
+            status='active'
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=anuncio_ml,
+            produto=self.produto,
+            quantidade=1
+        )
+
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/40000012345678',
+            'id': '40000012345678',
+            'user_id': '999888',
+            'total_amount': 500.00,
+            'buyer': {'name': 'Ana Silva', 'nickname': 'anasilva'},
+            'items': [
+                {
+                    'item': {'id': 'MLB2856546762', 'title': 'Teclado Mecânico RGB Pro Anúncio'},
+                    'quantity': 2,
+                    'unit_price': 250.00
+                }
+            ]
+        }
+
+        # Envia webhook via rota de pedidos
+        response = self.client.post(
+            reverse('webhook_mercadolivre'),
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+        self.assertEqual(response.status_code, 200)
+
+        # 1. Estoque físico reduzido de 5 para 3
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.estoque, 3)
+
+        # 2. Pedido e ItemPedido criados
+        pedido = Pedido.objects.filter(pedido_id_externo='40000012345678').first()
+        self.assertIsNotNone(pedido)
+        self.assertEqual(pedido.numero_pedido, '40000012345678')
+        self.assertEqual(pedido.canal, CanalMarketplaceEnum.MERCADOLIVRE)
+        self.assertEqual(pedido.conta, self.conta_ml)
+        self.assertEqual(pedido.valor_total, Decimal('500.00'))
+        self.assertEqual(pedido.itens.count(), 1)
+
+        item = pedido.itens.first()
+        self.assertEqual(item.quantidade, 2)
+        self.assertEqual(item.produto, self.produto)
+        self.assertEqual(item.estoque_anterior, 5)
+        self.assertEqual(item.estoque_posterior, 3)
+
+        # 3. Visível na tela /pedidos/
+        self.client.force_login(self.user)
+        res_tela = self.client.get(reverse('pedido_list'))
+        self.assertEqual(res_tela.status_code, 200)
+        self.assertContains(res_tela, '40000012345678')

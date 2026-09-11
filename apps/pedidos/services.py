@@ -53,7 +53,12 @@ class ProcessamentoPedidoService:
         valor_total = Decimal(str(dados_pedido.get('total_amount', dados_pedido.get('valor_total', '0.00'))))
         valor_frete = Decimal(str(dados_pedido.get('shipping_cost', dados_pedido.get('valor_frete', '0.00'))))
         comprador = dados_pedido.get('buyer', {})
-        comprador_nome = comprador.get('nickname', comprador.get('name', 'Comprador Marketplace'))
+        comprador_nome = (
+            f"{comprador.get('first_name', '')} {comprador.get('last_name', '')}".strip()
+            or comprador.get('name')
+            or comprador.get('nickname')
+            or "Comprador Marketplace"
+        )
 
         with transaction.atomic():
             pedido = PedidoVenda.objects.create(
@@ -84,12 +89,41 @@ class ProcessamentoPedidoService:
                 ).first()
 
                 produto = None
+                multiplicador = 1
+                anuncio_v2 = None
+
                 if anuncio:
                     produto = anuncio.produto
                 else:
                     sku_seller = item_info.get('seller_sku', item_info.get('seller_custom_field', ''))
                     if sku_seller:
                         produto = Produto.objects.filter(loja=loja, sku=sku_seller).first()
+
+                # Se não encontrou por AnuncioMarketplace ou SKU direto, busca pelo Anuncio (apps.anuncios)
+                if not produto:
+                    from apps.anuncios.models import Anuncio
+                    if conta:
+                        anuncio_v2 = Anuncio.objects.filter(
+                            conta=conta, item_id_externo=item_id_ext
+                        ).prefetch_related('itens_composicao__produto').first()
+                    if not anuncio_v2:
+                        anuncio_v2 = Anuncio.objects.filter(
+                            conta__loja=loja, item_id_externo=item_id_ext
+                        ).prefetch_related('itens_composicao__produto').first()
+                    if not anuncio_v2:
+                        anuncio_v2 = Anuncio.objects.filter(
+                            item_id_externo=item_id_ext
+                        ).prefetch_related('itens_composicao__produto').first()
+
+                    if anuncio_v2:
+                        if not titulo or titulo == 'Item Vendido':
+                            titulo = anuncio_v2.titulo
+                        comp = anuncio_v2.itens_composicao.first()
+                        if comp:
+                            produto = comp.produto
+                            multiplicador = comp.quantidade
+                        elif anuncio_v2.sku_vendedor:
+                            produto = Produto.objects.filter(loja=loja, sku=anuncio_v2.sku_vendedor).first()
 
                 estoque_ant = None
                 estoque_pos = None
@@ -100,8 +134,10 @@ class ProcessamentoPedidoService:
                     # LOCK PESSIMISTA CONCORRENTE (RN-05): select_for_update
                     prod_locked = Produto.objects.select_for_update().get(pk=produto.pk)
                     estoque_ant = prod_locked.estoque
-                    estoque_pos = estoque_ant - quantidade
+                    qtd_deduzir = quantidade * multiplicador
+                    estoque_pos = estoque_ant - qtd_deduzir
                     prod_locked.estoque = estoque_pos
+                    prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
                     prod_locked.save(update_fields=['estoque', 'atualizado_em'])
                     estoque_baixado = True
 
@@ -115,7 +151,7 @@ class ProcessamentoPedidoService:
                             detalhes=(
                                 f"ALERTA DE RUPTURA: Venda do pedido #{pedido_id_externo} no canal '{canal}' "
                                 f"deixou o produto SKU '{prod_locked.sku}' com saldo NEGATIVO ({estoque_pos} un.). "
-                                f"Estoque anterior: {estoque_ant} un. | Quantidade vendida: {quantidade} un."
+                                f"Estoque anterior: {estoque_ant} un. | Quantidade vendida: {qtd_deduzir} un."
                             )
                         )
 
@@ -124,13 +160,25 @@ class ProcessamentoPedidoService:
                         loja=loja,
                         evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
                         detalhes=(
-                            f"Baixa automática de {quantidade} un. no SKU '{prod_locked.sku}' por venda #{pedido_id_externo} ({canal}). "
+                            f"Baixa automática de {qtd_deduzir} un. no SKU '{prod_locked.sku}' por venda #{pedido_id_externo} ({canal}). "
                             f"Saldo: {estoque_ant} -> {estoque_pos}."
                         )
                     )
 
                     # BROADCAST MULTICANAL DE ESTOQUE: propaga o novo saldo para outros anúncios
                     cls.propagar_estoque_multicanal(prod_locked, canal_origem=canal)
+
+                    # Se o anúncio possui outros itens de composição, baixa o estoque de cada um também
+                    if anuncio_v2 and anuncio_v2.itens_composicao.count() > 1:
+                        for comp_extra in anuncio_v2.itens_composicao.all()[1:]:
+                            prod_extra = Produto.objects.select_for_update().get(pk=comp_extra.produto_id)
+                            qtd_extra = quantidade * comp_extra.quantidade
+                            saldo_extra_ant = prod_extra.estoque
+                            saldo_extra_pos = saldo_extra_ant - qtd_extra
+                            prod_extra.estoque = saldo_extra_pos
+                            prod_extra._motivo_alteracao = 'VENDA_MARKETPLACE'
+                            prod_extra.save(update_fields=['estoque', 'atualizado_em'])
+                            cls.propagar_estoque_multicanal(prod_extra, canal_origem=canal)
 
                 ItemPedidoVenda.objects.create(
                     pedido=pedido,

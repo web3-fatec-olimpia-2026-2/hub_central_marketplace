@@ -44,15 +44,21 @@ class WebhookMercadoLivreView(View):
         # Log do recebimento de webhook
         user_id = str(payload.get('user_id', ''))
         conta = None
-        if not loja and user_id:
+        if user_id:
             conta = ContaMarketplace.objects.filter(
                 canal=CanalMarketplaceEnum.MERCADOLIVRE, seller_id_externo=user_id
             ).select_related('loja').first()
-            if conta:
-                loja = conta.loja
+
+        if conta and not loja:
+            loja = conta.loja
 
         if not loja:
             loja = Loja.objects.filter(ativo=True).first()
+
+        if not conta and loja:
+            conta = ContaMarketplace.objects.filter(
+                canal=CanalMarketplaceEnum.MERCADOLIVRE, loja=loja
+            ).first()
 
         if not loja:
             return JsonResponse({'status': 'ignored', 'reason': 'Loja não encontrada'}, status=404)
@@ -70,7 +76,17 @@ class WebhookMercadoLivreView(View):
         resource = payload.get('resource', '')
         topic = payload.get('topic', '')
 
-        # Se o payload já contiver os dados do pedido (simulação ou push direto)
+        # Se o payload não contiver os itens diretamente, mas tiver resource e conta, busca na API
+        if resource and '/orders/' in resource and not payload.get('items') and not payload.get('order_items') and conta:
+            try:
+                connector = conta.get_connector()
+                sucesso_det, _, order_data = connector.obter_detalhes_pedido(resource)
+                if sucesso_det and order_data:
+                    payload.update(order_data)
+            except Exception:
+                pass
+
+        # Identifica ID do pedido
         pedido_id = str(payload.get('id', payload.get('order_id', '')))
         if not pedido_id and resource and '/orders/' in resource:
             pedido_id = resource.split('/orders/')[-1]

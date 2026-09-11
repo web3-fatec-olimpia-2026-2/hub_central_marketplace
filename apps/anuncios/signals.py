@@ -76,6 +76,8 @@ def disparar_sincronizacao_anuncios_produto(sender, instance: Produto, created: 
     if not estoque_alterado and not preco_alterado and not created:
         return
 
+    motivo = getattr(instance, '_motivo_alteracao', None)
+
     # Protege contra reentrância na mesma thread
     with mute_sincronizacao_signals():
         try:
@@ -84,6 +86,53 @@ def disparar_sincronizacao_anuncios_produto(sender, instance: Produto, created: 
             anuncios = Anuncio.objects.filter(composicoes__produto=instance).distinct()
             agora = timezone.now()
             usuario = getattr(instance, '_usuario_operacao', None)
+
+            if motivo == 'VENDA_MARKETPLACE':
+                # Venda real originada de Webhook: NÃO deve ficar PENDENTE no modal esperando operador.
+                # Marca como ENVIADO e sincroniza a nova cota física calculada para prevenir ruptura (RN-05).
+                for anc in anuncios:
+                    preco_ant = anc.preco_venda
+                    cota_ant = anc.estoque_publicado
+                    cota_nova = anc.calcular_cota_disponivel()
+
+                    anc.status_sincronizacao = 'ENVIADO'
+                    anc.estoque_publicado = cota_nova
+                    anc.save(update_fields=['status_sincronizacao', 'estoque_publicado', 'atualizado_em'])
+
+                    HistoricoSincronizacaoAnuncio.objects.create(
+                        anuncio=anc,
+                        status_resultante='ENVIADO',
+                        preco_anterior=preco_ant,
+                        preco_proposto=preco_ant,
+                        estoque_anterior=cota_ant,
+                        estoque_proposto=cota_nova,
+                        usuario=usuario,
+                        motivo="Baixa automática por venda de marketplace (VENDA_MARKETPLACE)",
+                        data_pendencia=None
+                    )
+
+                    # Propagação multicanal atômica imediata de cota para todos os canais/anúncios vinculados
+                    try:
+                        connector = anc.conta.get_connector()
+                        connector.atualizar_estoque(anc.item_id_externo, cota_nova, usuario=usuario)
+                    except Exception as exc:
+                        logger.warning(f"Falha ao propagar cota do anúncio {anc.item_id_externo} pós-venda: {exc}")
+
+                # Também sincroniza anúncios do catálogo (AnuncioMarketplace) se houver
+                try:
+                    from apps.catalogo.models import AnuncioMarketplace
+                    for am in AnuncioMarketplace.objects.filter(produto=instance).select_related('conta_marketplace'):
+                        try:
+                            am_conn = am.conta_marketplace.get_connector()
+                            am_conn.atualizar_estoque(am.item_id_externo, instance.estoque, usuario=usuario)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                return
+
+            # Para alterações manuais de operadores (Ajuste Geral de Balanço ou Edição de Preço):
             for anc in anuncios:
                 preco_ant = anc.preco_venda
                 cota_ant = anc.estoque_publicado

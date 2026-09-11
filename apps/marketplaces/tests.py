@@ -16,6 +16,8 @@ from apps.marketplaces.connectors.shopee import ShopeeConnector
 from apps.marketplaces.connectors.magalu import MagaluConnector
 from apps.catalogo.models import Produto, Categoria
 from apps.anuncios.models import Anuncio, AnuncioComposicao
+from apps.pedidos.models import PedidoVenda, ItemPedidoVenda, Pedido, ItemPedido
+from apps.pedidos.enums import StatusPedidoEnum
 
 
 class MarketplacesHubTestCase(TestCase):
@@ -857,6 +859,9 @@ class MercadoLivreWebhookTestCase(TestCase):
         )
         self.loja.garantir_modulos_padrao()
 
+        self.user = User.objects.create_user(username='admin_webhook', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user, papel=PapelUsuarioEnum.ADMIN, loja=self.loja)
+
         self.conta_meli = ContaMarketplace.objects.create(
             loja=self.loja,
             canal=CanalMarketplaceEnum.MERCADOLIVRE,
@@ -1114,6 +1119,207 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertIsNotNone(log)
         self.assertEqual(log.status, WebhookStatusEnum.ERRO)
         self.assertIn("Timeout de conexão", log.error_log)
+
+    def test_webhook_sale_quantity_2_exact_deduction_and_pedido_created(self):
+        """
+        CENÁRIO CRÍTICO DE VENDA REAL (MLB2856546762):
+        1. Venda de 2 unidades via Webhook abatendo exatamente 2 unidades do saldo físico (5 -> 3).
+        2. Criação imediata e atômica da entidade Pedido com comprador, valor total e itens com quantidade 2.
+        3. Status do anúncio atualizado para ENVIADO com cota 3 (sem pendência manual no modal).
+        4. Pedido registrado e visível na tela /pedidos/.
+        """
+        # Cria produto com saldo inicial 5 e anúncio MLB2856546762
+        produto_mlb = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="SKU-MLB-REAL-01",
+            nome="Produto Venda Real Mercado Livre",
+            preco=Decimal('150.00'),
+            estoque=5
+        )
+        anuncio_mlb = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB2856546762",
+            titulo="Anúncio MLB2856546762 Oficial",
+            preco_venda=Decimal('150.00'),
+            estoque_publicado=5,
+            status_sincronizacao='ENVIADO',
+            status='active'
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=anuncio_mlb,
+            produto=produto_mlb,
+            quantidade=1
+        )
+
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/20000077770002',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '20000077770002',
+                'status': 'paid',
+                'total_amount': 300.00,
+                'shipping_cost': 20.00,
+                'buyer': {
+                    'id': 998877,
+                    'nickname': 'COMPRADOR_ML_TESTE',
+                    'first_name': 'Carlos',
+                    'last_name': 'Ferreira'
+                },
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB2856546762', 'title': 'Anúncio MLB2856546762 Oficial'},
+                        'quantity': 2,
+                        'unit_price': 150.00
+                    }
+                ]
+            }
+        }
+
+        # Dispara o webhook
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        # 1. Saldo físico abatido exatamente em 2 unidades (5 -> 3)
+        produto_mlb.refresh_from_db()
+        self.assertEqual(produto_mlb.estoque, 3)
+
+        # 2. Anúncio marcado como ENVIADO com cota 3 (sem ficar PENDENTE para operador)
+        anuncio_mlb.refresh_from_db()
+        self.assertEqual(anuncio_mlb.status_sincronizacao, 'ENVIADO')
+        self.assertEqual(anuncio_mlb.estoque_publicado, 3)
+        self.assertFalse(anuncio_mlb.esta_pendente())
+
+        # 3. Entidade Pedido (PedidoVenda) criada com integridade
+        pedido = PedidoVenda.objects.filter(pedido_id_externo='20000077770002').first()
+        self.assertIsNotNone(pedido)
+        self.assertEqual(pedido.numero_pedido, '20000077770002')
+        self.assertEqual(pedido.canal, CanalMarketplaceEnum.MERCADOLIVRE)
+        self.assertEqual(pedido.conta, self.conta_meli)
+        self.assertEqual(pedido.comprador_nome, 'Carlos Ferreira')
+        self.assertEqual(pedido.valor_total, Decimal('300.00'))
+        self.assertEqual(pedido.status, StatusPedidoEnum.PAGO)
+        self.assertFalse(pedido.teve_ruptura_estoque)
+
+        # Itens do pedido vinculados
+        self.assertEqual(pedido.itens.count(), 1)
+        item = pedido.itens.first()
+        self.assertEqual(item.quantidade, 2)
+        self.assertEqual(item.produto, produto_mlb)
+        self.assertEqual(item.item_id_externo, 'MLB2856546762')
+        self.assertEqual(item.preco_unitario, Decimal('150.00'))
+        self.assertEqual(item.estoque_anterior, 5)
+        self.assertEqual(item.estoque_posterior, 3)
+        self.assertTrue(item.estoque_baixado)
+
+        # 4. Verificação de visibilidade na tela /pedidos/
+        self.client.force_login(self.user)
+        res_pedidos = self.client.get(reverse('pedido_list'))
+        self.assertEqual(res_pedidos.status_code, 200)
+        self.assertContains(res_pedidos, '20000077770002')
+        self.assertContains(res_pedidos, 'Carlos Ferreira')
+
+    def test_webhook_automatic_immediate_sync_no_modal_pending(self):
+        """Valida que venda via webhook não inclui o anúncio em anuncios_pendentes_sync no detalhe do produto."""
+        produto = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="SKU-AUTO-SYNC",
+            nome="Produto Teste Auto Sync",
+            preco=Decimal('80.00'),
+            estoque=5
+        )
+        anuncio = Anuncio.objects.create(
+            conta=self.conta_meli,
+            item_id_externo="MLB99881122",
+            titulo="Anúncio Auto Sync",
+            preco_venda=Decimal('80.00'),
+            estoque_publicado=5,
+            status_sincronizacao='ENVIADO',
+            status='active'
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=anuncio,
+            produto=produto,
+            quantidade=1
+        )
+
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/20000033334444',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '20000033334444',
+                'status': 'paid',
+                'total_amount': 160.00,
+                'buyer': {'nickname': 'comprador_auto'},
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB99881122'},
+                        'quantity': 2,
+                        'unit_price': 80.00
+                    }
+                ]
+            }
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+
+        # Verifica produto_detail: anúncio NÃO deve constar como pendente no modal
+        self.client.force_login(self.user)
+        res_prod = self.client.get(reverse('produto_detail', kwargs={'pk': produto.pk}))
+        self.assertEqual(res_prod.status_code, 200)
+        self.assertNotIn(anuncio, res_prod.context['anuncios_pendentes_sync'])
+
+    @patch.object(MercadoLivreConnector, 'request')
+    def test_obter_detalhes_pedido_real_api_call_without_mock_overwrite(self, mock_request):
+        """
+        Valida que para contas reais (is_mock=False, token real), obter_detalhes_pedido
+        chama a API oficial GET /orders/{order_id} sem desvio indevido para fallback mock.
+        """
+        loja_real = Loja.objects.create(
+            nome="Loja Real API",
+            slug="loja-real-api",
+            cnpj="99.999.999/0001-99"
+        )
+        loja_real.garantir_modulos_padrao()
+
+        conta_real = ContaMarketplace.objects.create(
+            loja=loja_real,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Conta Real",
+            access_token="APP_REAL_TOKEN_PROD_12345",
+            refresh_token="TG_REAL_REFRESH_12345",
+            seller_id_externo="888777666",
+            is_mock=False
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            'id': '20000011122233',
+            'status': 'paid',
+            'order_items': [
+                {
+                    'item': {'id': 'MLB2856546762', 'title': 'Anúncio Real 2x'},
+                    'quantity': 2,
+                    'unit_price': 150.00
+                }
+            ],
+            'total_amount': 300.00
+        }
+        mock_request.return_value = mock_resp
+
+        connector = conta_real.get_connector()
+        sucesso, msg, dados = connector.obter_detalhes_pedido('/orders/20000011122233')
+
+        self.assertTrue(sucesso)
+        mock_request.assert_called_once_with('GET', '/orders/20000011122233')
+        self.assertEqual(len(dados.get('order_items', [])), 1)
+        self.assertEqual(int(dados['order_items'][0]['quantity']), 2)
 
 
 

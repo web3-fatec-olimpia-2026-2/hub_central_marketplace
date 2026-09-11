@@ -1,14 +1,18 @@
 # Os códigos foram gerados com auxilio de I.A.
 import logging
 import traceback
+from decimal import Decimal
 from typing import Dict, Any, Tuple
 from django.db import transaction
 from django.utils import timezone
 
+from apps.tenancy.models import Loja
 from apps.marketplaces.models import ContaMarketplace, WebhookEventLog, LogAuditoria
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum, WebhookStatusEnum
 from apps.anuncios.models import Anuncio
-from apps.catalogo.models import Produto
+from apps.catalogo.models import Produto, AnuncioMarketplace
+from apps.pedidos.models import PedidoVenda, ItemPedidoVenda
+from apps.pedidos.enums import StatusPedidoEnum
 
 logger = logging.getLogger(__name__)
 
@@ -140,12 +144,61 @@ class MercadoLivreWebhookService:
             if not order_items:
                 raise ValueError(f"Pedido '{resource}' retornado sem itens em 'order_items'.")
 
-            # Baixa atômica de estoque por produto
+            # Identificação da Loja
+            loja_pedido = conta.loja if conta else None
+            if not loja_pedido:
+                loja_pedido = Loja.objects.filter(ativo=True).first()
+
+            # Baixa atômica de estoque por produto e persistência do Pedido (RF-06 / RN-05)
             with transaction.atomic():
-                for item_raw in order_items:
-                    item_info = item_raw.get('item', item_raw)
-                    item_id_externo = str(item_info.get('id', item_raw.get('item_id', ''))).strip()
-                    qtd_vendida = int(item_raw.get('quantity', 1))
+                pedido_id_ext = str(
+                    order_data.get('id')
+                    or (resource.split('/orders/')[-1] if '/orders/' in resource else resource)
+                ).strip()
+
+                buyer = order_data.get('buyer') or {}
+                comprador_nome = (
+                    f"{buyer.get('first_name', '')} {buyer.get('last_name', '')}".strip()
+                    or buyer.get('nickname')
+                    or buyer.get('name')
+                    or "Comprador Mercado Livre"
+                )
+                comprador_doc = (
+                    (buyer.get('billing_info') or {}).get('doc_number')
+                    or buyer.get('document')
+                    or ""
+                )
+                valor_total = Decimal(str(order_data.get('total_amount', order_data.get('valor_total', '0.00'))))
+                valor_frete = Decimal(str(order_data.get('shipping_cost', (order_data.get('shipping') or {}).get('cost', '0.00'))))
+
+                pedido, _ = PedidoVenda.objects.update_or_create(
+                    loja=loja_pedido,
+                    canal_origem=CanalMarketplaceEnum.MERCADOLIVRE,
+                    pedido_id_externo=pedido_id_ext,
+                    defaults={
+                        'conta_marketplace': conta,
+                        'status_externo': str(order_data.get('status', 'paid')),
+                        'status': StatusPedidoEnum.PAGO,
+                        'comprador_nome': comprador_nome,
+                        'comprador_documento': comprador_doc,
+                        'valor_total': valor_total,
+                        'valor_frete': valor_frete,
+                        'payload_original': order_data,
+                        'processado_com_sucesso': True,
+                    }
+                )
+
+                # Limpa itens pré-existentes se for reprocessamento
+                pedido.itens.all().delete()
+                houve_ruptura = False
+
+                for order_item in order_items:
+                    item_info = order_item.get('item', {}) if isinstance(order_item.get('item'), dict) else order_item
+                    item_id = item_info.get('id') or order_item.get('item_id') or order_item.get('id')
+                    item_id_externo = str(item_id or '').strip()
+                    qtd_vendida = int(order_item.get('quantity', 1))
+                    unit_price = Decimal(str(order_item.get('unit_price') or order_item.get('full_unit_price') or '0.00'))
+                    titulo_item = item_info.get('title') or order_item.get('title', '')
 
                     # Localiza o Anuncio no sistema
                     anuncio = None
@@ -159,14 +212,36 @@ class MercadoLivreWebhookService:
                             item_id_externo=item_id_externo
                         ).prefetch_related('itens_composicao__produto').first()
 
+                    anuncio_mkt = None
+                    if conta:
+                        anuncio_mkt = AnuncioMarketplace.objects.filter(
+                            conta_marketplace=conta, item_id_externo=item_id_externo
+                        ).first()
+
+                    prod_vinculado = None
+                    saldo_ant_item = None
+                    novo_saldo_item = None
+                    item_ruptura = False
+
                     if anuncio:
+                        if not titulo_item:
+                            titulo_item = anuncio.titulo
                         composicoes = anuncio.itens_composicao.all()
                         if composicoes.exists():
                             for comp in composicoes:
                                 prod_locked = Produto.objects.select_for_update().get(pk=comp.produto_id)
+                                prod_vinculado = prod_locked
                                 qtd_baixa = qtd_vendida * comp.quantidade
                                 saldo_ant = prod_locked.estoque
                                 novo_saldo = max(0, saldo_ant - qtd_baixa)
+                                saldo_ant_item = saldo_ant
+                                novo_saldo_item = novo_saldo
+
+                                if saldo_ant < qtd_baixa:
+                                    item_ruptura = True
+                                    houve_ruptura = True
+
+                                prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
                                 prod_locked.estoque = novo_saldo
                                 prod_locked.save(update_fields=['estoque', 'atualizado_em'])
 
@@ -189,11 +264,24 @@ class MercadoLivreWebhookService:
                                     loja=anuncio.conta.loja, sku=sku
                                 ).first()
                                 if prod_locked:
+                                    prod_vinculado = prod_locked
                                     qtd_baixa = qtd_vendida
                                     saldo_ant = prod_locked.estoque
                                     novo_saldo = max(0, saldo_ant - qtd_baixa)
+                                    saldo_ant_item = saldo_ant
+                                    novo_saldo_item = novo_saldo
+
+                                    if saldo_ant < qtd_baixa:
+                                        item_ruptura = True
+                                        houve_ruptura = True
+
+                                    prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
                                     prod_locked.estoque = novo_saldo
                                     prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+
+                                    anuncio.status_sincronizacao = 'ENVIADO'
+                                    anuncio.estoque_publicado = novo_saldo
+                                    anuncio.save(update_fields=['status_sincronizacao', 'estoque_publicado', 'atualizado_em'])
 
                                     LogAuditoria.objects.create(
                                         loja=prod_locked.loja,
@@ -207,15 +295,24 @@ class MercadoLivreWebhookService:
                     else:
                         # Fallback: tenta localizar produto diretamente por SKU do seller
                         sku = item_info.get('seller_sku', item_info.get('seller_custom_field'))
-                        loja = conta.loja if conta else None
+                        loja = conta.loja if conta else loja_pedido
                         if sku and loja:
                             prod_locked = Produto.objects.select_for_update().filter(
                                 loja=loja, sku=sku
                             ).first()
                             if prod_locked:
+                                prod_vinculado = prod_locked
                                 qtd_baixa = qtd_vendida
                                 saldo_ant = prod_locked.estoque
                                 novo_saldo = max(0, saldo_ant - qtd_baixa)
+                                saldo_ant_item = saldo_ant
+                                novo_saldo_item = novo_saldo
+
+                                if saldo_ant < qtd_baixa:
+                                    item_ruptura = True
+                                    houve_ruptura = True
+
+                                prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
                                 prod_locked.estoque = novo_saldo
                                 prod_locked.save(update_fields=['estoque', 'atualizado_em'])
 
@@ -228,6 +325,25 @@ class MercadoLivreWebhookService:
                                         f"Saldo anterior: {saldo_ant} -> Novo saldo: {novo_saldo} un."
                                     )
                                 )
+
+                    # Registra ItemPedidoVenda
+                    ItemPedidoVenda.objects.create(
+                        pedido=pedido,
+                        produto=prod_vinculado,
+                        anuncio_marketplace=anuncio_mkt,
+                        item_id_externo=item_id_externo,
+                        titulo_anuncio=titulo_item or f"Item {item_id_externo}",
+                        quantidade=qtd_vendida,
+                        preco_unitario=unit_price,
+                        estoque_baixado=True if prod_vinculado else False,
+                        estoque_anterior=saldo_ant_item,
+                        estoque_posterior=novo_saldo_item,
+                        ruptura_estoque=item_ruptura
+                    )
+
+                if houve_ruptura:
+                    pedido.teve_ruptura_estoque = True
+                    pedido.save(update_fields=['teve_ruptura_estoque', 'atualizado_em'])
 
                 # Sucesso: atualiza log para PROCESSADO
                 event_log.status = WebhookStatusEnum.PROCESSADO

@@ -77,6 +77,18 @@ class PedidoVenda(models.Model):
     def __str__(self):
         return f"[{self.get_canal_origem_display()}] Pedido #{self.pedido_id_externo} — R$ {self.valor_total} ({self.loja.nome})"
 
+    @property
+    def numero_pedido(self) -> str:
+        return self.pedido_id_externo
+
+    @property
+    def canal(self) -> str:
+        return self.canal_origem
+
+    @property
+    def conta(self):
+        return self.conta_marketplace
+
 
 class ItemPedidoVenda(models.Model):
     """
@@ -127,3 +139,12 @@ class ItemPedidoVenda(models.Model):
 
     def __str__(self):
         return f"{self.quantidade}x {self.titulo_anuncio or self.item_id_externo} (R$ {self.preco_unitario})"
+
+    @property
+    def item_id(self) -> str:
+        return self.item_id_externo or ""
+
+
+# Aliases de compatibilidade
+Pedido = PedidoVenda
+ItemPedido = ItemPedidoVenda

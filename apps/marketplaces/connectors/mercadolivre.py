@@ -1130,12 +1130,15 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         if '/orders/' in order_id:
             order_id = order_id.split('/orders/')[-1]
 
-        # CENÁRIO SIMULADO / MOCK
-        from apps.mockar_dados.services import is_simular_rotas_mock_ativo
-        simular = is_simular_rotas_mock_ativo() if callable(is_simular_rotas_mock_ativo) else False
+        # CENÁRIO SIMULADO / MOCK: apenas para contas marcadas como is_mock ou com credenciais de teste sintético
         is_mock = getattr(self.conta, 'is_mock', False) if self.conta else False
+        is_test_account = bool(self.conta and self.conta.access_token and self.conta.access_token.startswith(('APP_USR_MOCK_', 'TEST_')))
+        should_mock = (is_mock or is_test_account) and not getattr(self, '_forcar_http_real', False)
 
-        if is_mock or simular:
+        if hasattr(self, '_mock_order_data') and self._mock_order_data:
+            return True, "Pedido mock customizado obtido com sucesso.", self._mock_order_data
+
+        if should_mock:
             itens_mock = []
             if self.conta:
                 anuncios = self.conta.anuncios_publicados.all()[:2]
@@ -1162,6 +1165,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 "total_amount": sum(it['unit_price'] * it['quantity'] for it in itens_mock)
             }
 
+        # CENÁRIO REAL: Executa GET https://api.mercadolibre.com/orders/{order_id} com Bearer token válido
         endpoint = f"/orders/{order_id}"
         try:
             response = self.request("GET", endpoint)
