@@ -22,6 +22,7 @@ urlpatterns = [
 
     # Logs e Telemetria de Sincronização
     path('logs/sincronizacao/', views.LogSincronizacaoListView.as_view(), name='log_sincronizacao_list'),
+    path('logs/webhooks/<int:pk>/replay/', views.WebhookEventReplayView.as_view(), name='webhook_event_replay'),
 
     # Webhooks Nativos Mercado Livre
     path('marketplaces/webhooks/mercadolivre/', views.MercadoLivreWebhookView.as_view(), name='mercadolivre_webhook'),

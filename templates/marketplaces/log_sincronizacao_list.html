@@ -13,10 +13,139 @@
 {% endblock %}
 
 {% block content %}
-<!-- FILTROS -->
+<!-- NAVEGAÇÃO POR ABAS -->
+<ul class="nav nav-pills mb-4">
+    <li class="nav-item">
+        <a class="nav-link {% if aba != 'webhooks' %}active{% endif %}" href="?aba=telemetria">
+            <i class="bi bi-arrow-up-right-circle me-1"></i> Chamadas de Saída (Telemetria)
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if aba == 'webhooks' %}active{% endif %}" href="?aba=webhooks">
+            <i class="bi bi-arrow-down-left-circle me-1"></i> Eventos de Webhook (Entrada)
+        </a>
+    </li>
+</ul>
+
+{% if aba == 'webhooks' %}
+<!-- FILTROS WEBHOOKS -->
 <div class="card mb-4 shadow-sm">
     <div class="card-body py-3">
         <form method="get" class="row g-2 align-items-center">
+            <input type="hidden" name="aba" value="webhooks">
+            <div class="col-md-5">
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" value="{{ termo_busca }}" class="form-control" placeholder="Buscar por recurso (/orders/...), seller ID, tópico ou erro...">
+                </div>
+            </div>
+            {% if is_dev %}
+                <div class="col-md-3">
+                    <select name="loja" class="form-select">
+                        <option value="">Todas as Lojas</option>
+                        {% for l in lojas_disponiveis %}
+                            <option value="{{ l.id }}" {% if loja_filtro == l.id|stringformat:"s" %}selected{% endif %}>{{ l.nome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+            <div class="col-md-3">
+                <select name="status" class="form-select">
+                    <option value="">Todos os Status</option>
+                    {% for st_val, st_lbl in webhook_status_choices %}
+                        <option value="{{ st_val }}" {% if status_filtro == st_val %}selected{% endif %}>{{ st_lbl }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-1 d-flex gap-1">
+                <button type="submit" class="btn btn-secondary w-100" title="Filtrar"><i class="bi bi-funnel"></i></button>
+                {% if termo_busca or status_filtro or loja_filtro %}
+                    <a href="{% url 'log_sincronizacao_list' %}?aba=webhooks" class="btn btn-outline-secondary" title="Limpar Filtros"><i class="bi bi-x-lg"></i></a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- TABELA DE EVENTOS DE WEBHOOK -->
+<div class="card shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" style="font-size: 0.875rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Data / Hora</th>
+                    <th>Marketplace</th>
+                    <th>Tópico</th>
+                    <th>Recurso Notificado</th>
+                    <th>Seller ID</th>
+                    <th class="text-center">Status</th>
+                    <th>Diagnóstico / Justificativa</th>
+                    <th class="text-center">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                    <tr>
+                        <td class="text-nowrap text-muted">{{ log.received_at|date:"d/m/Y H:i:s" }}</td>
+                        <td>
+                            <span class="badge {% if log.marketplace == 'mercadolivre' %}bg-warning text-dark{% elif log.marketplace == 'shopee' %}bg-danger{% elif log.marketplace == 'magalu' %}bg-primary{% else %}bg-dark{% endif %}">
+                                {{ log.marketplace|title }}
+                            </span>
+                        </td>
+                        <td><span class="fw-bold">{{ log.topic }}</span></td>
+                        <td><code>{{ log.resource }}</code></td>
+                        <td><code>{{ log.user_id|default:"—" }}</code></td>
+                        <td class="text-center">
+                            {% if log.status == 'PROCESSADO' %}
+                                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Processado</span>
+                            {% elif log.status == 'ERRO' %}
+                                <span class="badge bg-danger"><i class="bi bi-exclamation-octagon me-1"></i>Erro</span>
+                            {% elif log.status == 'IGNORADO' %}
+                                <span class="badge bg-secondary"><i class="bi bi-slash-circle me-1"></i>Ignorado</span>
+                            {% elif log.status == 'PROCESSANDO' %}
+                                <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>Processando</span>
+                            {% else %}
+                                <span class="badge bg-light text-dark">{{ log.get_status_display }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if log.error_log %}
+                                <span class="text-danger small font-monospace d-inline-block text-truncate" style="max-width: 380px;" title="{{ log.error_log }}">{{ log.error_log }}</span>
+                            {% elif log.status == 'PROCESSADO' %}
+                                <span class="text-success small">Notificação processada com êxito</span>
+                            {% else %}
+                                <span class="text-muted small">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center text-nowrap">
+                            <form method="post" action="{% url 'webhook_event_replay' log.id %}" class="d-inline" onsubmit="return confirm('Deseja reexecutar o processamento deste webhook?');">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline-primary" title="Reexecutar / Replay">
+                                    <i class="bi bi-arrow-repeat"></i> Replay
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                            Nenhum evento de webhook recebido até o momento.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+
+<!-- FILTROS TELEMETRIA DE SAÍDA -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-body py-3">
+        <form method="get" class="row g-2 align-items-center">
+            <input type="hidden" name="aba" value="telemetria">
             <div class="col-md-4">
                 <div class="input-group">
                     <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
@@ -51,14 +180,14 @@
             <div class="col-md-1 d-flex gap-1">
                 <button type="submit" class="btn btn-secondary w-100"><i class="bi bi-funnel"></i></button>
                 {% if termo_busca or canal_filtro or sucesso_filtro or loja_filtro %}
-                    <a href="{% url 'log_sincronizacao_list' %}" class="btn btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+                    <a href="{% url 'log_sincronizacao_list' %}?aba=telemetria" class="btn btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
                 {% endif %}
             </div>
         </form>
     </div>
 </div>
 
-<!-- TABELA DE LOGS -->
+<!-- TABELA DE LOGS DE TELEMETRIA -->
 <div class="card shadow-sm">
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0" style="font-size: 0.875rem;">
@@ -116,7 +245,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="9" class="text-center py-4 text-muted">
+                        <td colspan="{% if is_dev %}9{% else %}8{% endif %}" class="text-center py-4 text-muted">
                             <i class="bi bi-inbox fs-3 d-block mb-2"></i>
                             Nenhum log de sincronização registrado.
                         </td>
@@ -126,4 +255,38 @@
         </table>
     </div>
 </div>
+{% endif %}
+
+<!-- PAGINAÇÃO -->
+{% if is_paginated %}
+<nav class="mt-4" aria-label="Navegação de páginas">
+    <ul class="pagination justify-content-center">
+        {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?aba={{ aba }}&page={{ page_obj.previous_page_number }}{% if termo_busca %}&q={{ termo_busca }}{% endif %}{% if canal_filtro %}&canal={{ canal_filtro }}{% endif %}{% if status_filtro %}&status={{ status_filtro }}{% endif %}{% if sucesso_filtro %}&sucesso={{ sucesso_filtro }}{% endif %}{% if loja_filtro %}&loja={{ loja_filtro }}{% endif %}">Anterior</a>
+            </li>
+        {% else %}
+            <li class="page-item disabled"><span class="page-link">Anterior</span></li>
+        {% endif %}
+
+        {% for p in paginator.page_range %}
+            {% if page_obj.number == p %}
+                <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+            {% elif p > page_obj.number|add:"-3" and p < page_obj.number|add:"3" %}
+                <li class="page-item">
+                    <a class="page-link" href="?aba={{ aba }}&page={{ p }}{% if termo_busca %}&q={{ termo_busca }}{% endif %}{% if canal_filtro %}&canal={{ canal_filtro }}{% endif %}{% if status_filtro %}&status={{ status_filtro }}{% endif %}{% if sucesso_filtro %}&sucesso={{ sucesso_filtro }}{% endif %}{% if loja_filtro %}&loja={{ loja_filtro }}{% endif %}">{{ p }}</a>
+                </li>
+            {% endif %}
+        {% endfor %}
+
+        {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?aba={{ aba }}&page={{ page_obj.next_page_number }}{% if termo_busca %}&q={{ termo_busca }}{% endif %}{% if canal_filtro %}&canal={{ canal_filtro }}{% endif %}{% if status_filtro %}&status={{ status_filtro }}{% endif %}{% if sucesso_filtro %}&sucesso={{ sucesso_filtro }}{% endif %}{% if loja_filtro %}&loja={{ loja_filtro }}{% endif %}">Próxima</a>
+            </li>
+        {% else %}
+            <li class="page-item disabled"><span class="page-link">Próxima</span></li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
 {% endblock %}

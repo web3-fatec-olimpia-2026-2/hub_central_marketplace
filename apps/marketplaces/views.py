@@ -19,8 +19,8 @@ from apps.tenancy.permissions import (
     ModuloRequeridoMixin, IntegracaoConfigPermissionMixin, usuario_is_dev,
     pode_configurar_integracao
 )
-from .models import ContaMarketplace, LogSincronizacao, LogAuditoria
-from .enums import CanalMarketplaceEnum, EventoAuditoriaEnum
+from .models import ContaMarketplace, LogSincronizacao, LogAuditoria, WebhookEventLog
+from .enums import CanalMarketplaceEnum, EventoAuditoriaEnum, WebhookStatusEnum
 from .forms import ContaMarketplaceForm
 from .connectors.factory import get_connector_for_conta
 from .connectors.mercadolivre import MercadoLivreConnector
@@ -237,19 +237,54 @@ class ContaMarketplaceTestarView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
 
 class LogSincronizacaoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
     """
-    O QUE FAZ: Relatório e visualização de telemetria e logs de chamadas externas de integração.
-    POR QUE FAZ: Diagnóstico técnico de erros de precificação, estoque e requisições HTTP (RF-05 / RN-04).
+    O QUE FAZ: Relatório e visualização de telemetria e logs de chamadas externas de integração e eventos de Webhook.
+    POR QUE FAZ: Diagnóstico técnico de erros de precificação, estoque, requisições HTTP e ciclo de vida de Webhooks (RF-05 / RN-04 / Tarefa 3).
     PERMISSÕES RBAC: DEV (todas as lojas); ADMIN, SUPERVISOR e USUARIO (leitura na própria loja).
     MULTI-TENANCY: Filtro obrigatório por loja para não-DEV.
     """
     modulo_requerido = 'marketplaces'
-    model = LogSincronizacao
     template_name = 'marketplaces/log_sincronizacao_list.html'
     context_object_name = 'logs'
     paginate_by = 25
 
     def get_queryset(self):
         user = self.request.user
+        aba = self.request.GET.get('aba', 'telemetria')
+
+        if aba == 'webhooks':
+            queryset = WebhookEventLog.objects.all().order_by('-received_at')
+
+            if not usuario_is_dev(user):
+                perfil = getattr(user, 'perfil', None)
+                if not perfil or not perfil.loja:
+                    return WebhookEventLog.objects.none()
+                seller_ids = list(
+                    ContaMarketplace.objects.filter(loja=perfil.loja).values_list('seller_id_externo', flat=True)
+                )
+                queryset = queryset.filter(user_id__in=[s for s in seller_ids if s])
+            else:
+                loja_id = self.request.GET.get('loja', '').strip()
+                if loja_id:
+                    seller_ids = list(
+                        ContaMarketplace.objects.filter(loja_id=loja_id).values_list('seller_id_externo', flat=True)
+                    )
+                    queryset = queryset.filter(user_id__in=[s for s in seller_ids if s])
+
+            status_filtro = self.request.GET.get('status', '').strip()
+            if status_filtro:
+                queryset = queryset.filter(status=status_filtro)
+
+            busca = self.request.GET.get('q', '').strip()
+            if busca:
+                queryset = queryset.filter(
+                    Q(resource__icontains=busca) |
+                    Q(user_id__icontains=busca) |
+                    Q(error_log__icontains=busca) |
+                    Q(topic__icontains=busca)
+                )
+            return queryset
+
+        # Default: Telemetria (LogSincronizacao)
         queryset = LogSincronizacao.objects.select_related('loja', 'conta_marketplace').order_by('-criado_em')
 
         if usuario_is_dev(user):
@@ -285,8 +320,12 @@ class LogSincronizacaoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListVie
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
+        aba = self.request.GET.get('aba', 'telemetria')
+        context['aba'] = aba
         context['is_dev'] = usuario_is_dev(user)
         context['canais_disponiveis'] = CanalMarketplaceEnum.choices
+        context['webhook_status_choices'] = WebhookStatusEnum.choices
+        context['status_filtro'] = self.request.GET.get('status', '').strip()
         context['termo_busca'] = self.request.GET.get('q', '').strip()
         context['canal_filtro'] = self.request.GET.get('canal', '').strip()
         context['sucesso_filtro'] = self.request.GET.get('sucesso', '').strip()
@@ -298,6 +337,40 @@ class LogSincronizacaoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListVie
             context['minha_loja'] = getattr(user.perfil, 'loja', None)
 
         return context
+
+
+class WebhookEventReplayView(LoginRequiredMixin, ModuloRequeridoMixin, IntegracaoConfigPermissionMixin, View):
+    """
+    O QUE FAZ: Reprocessa manualmente um evento de Webhook a partir da interface de Telemetria (Replay).
+    POR QUE FAZ: Permite ao operador/administrador recuperar eventos que falharam anteriormente (ex: erro de rede temporário) sem depender de ferramentas de tunelamento externas como ngrok.
+    PERMISSÕES RBAC: DEV e ADMIN (com módulo 'marketplaces' ativo).
+    MULTI-TENANCY: Garante que o lojista só reexecute webhooks pertencentes às contas da sua própria loja.
+    """
+    modulo_requerido = 'marketplaces'
+
+    def post(self, request, pk, *args, **kwargs):
+        event_log = get_object_or_404(WebhookEventLog, pk=pk)
+
+        # Multi-tenancy check para não-DEV
+        if not usuario_is_dev(request.user):
+            perfil = getattr(request.user, 'perfil', None)
+            if not perfil or not perfil.loja:
+                raise PermissionDenied("Acesso negado: usuário sem loja vinculada.")
+            seller_ids = list(
+                ContaMarketplace.objects.filter(loja=perfil.loja).values_list('seller_id_externo', flat=True)
+            )
+            if event_log.user_id not in [s for s in seller_ids if s]:
+                raise PermissionDenied("Acesso negado: este evento pertence a outra loja.")
+
+        # Reúso estrito da mesma função de processamento do serviço (Ajuste 3)
+        status_code, resposta = MercadoLivreWebhookService.processar_notificacao(event_log.payload_raw)
+
+        if status_code == 200 and resposta.get('status') in ['ok', 'ignored']:
+            messages.success(request, f"Replay do evento #{pk} executado: {resposta.get('message', 'Processado com sucesso')}")
+        else:
+            messages.error(request, f"Falha no replay do evento #{pk}: {resposta.get('message', 'Erro no processamento')}")
+
+        return redirect(reverse('log_sincronizacao_list') + '?aba=webhooks')
 
 
 # ==============================================================================

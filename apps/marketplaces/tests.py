@@ -10,6 +10,7 @@ from apps.tenancy.models import Loja, PerfilUsuario
 from apps.tenancy.enums import PapelUsuarioEnum
 from apps.marketplaces.models import ContaMarketplace, LogSincronizacao, WebhookEventLog, LogAuditoria
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum, WebhookStatusEnum
+from apps.marketplaces.services import MercadoLivreWebhookService
 from apps.marketplaces.connectors.factory import get_connector_for_conta
 from apps.marketplaces.connectors.mercadolivre import MercadoLivreConnector
 from apps.marketplaces.connectors.shopee import ShopeeConnector
@@ -1320,6 +1321,379 @@ class MercadoLivreWebhookTestCase(TestCase):
         mock_request.assert_called_once_with('GET', '/orders/20000011122233')
         self.assertEqual(len(dados.get('order_items', [])), 1)
         self.assertEqual(int(dados['order_items'][0]['quantity']), 2)
+
+    def test_webhook_multitenant_resolucao_correta_duas_contas(self):
+        """
+        1. Multi-tenant — resolução correta: duas ContaMarketplace cadastradas para canal='mercadolivre'
+        com seller_id diferentes em lojas diferentes. Webhook chega para uma delas → PedidoVenda criado
+        estritamente na loja/tenant correspondente, nunca na primeira conta do banco.
+        """
+        loja_2 = Loja.objects.create(
+            nome="Loja Filial 2",
+            slug="loja-filial-2",
+            cnpj="22.222.222/0001-22"
+        )
+        loja_2.garantir_modulos_padrao()
+
+        cat_2 = Categoria.objects.create(
+            loja=loja_2,
+            nome="Geral 2",
+            slug="geral-2"
+        )
+
+        conta_loja_2 = ContaMarketplace.objects.create(
+            loja=loja_2,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Filial 2",
+            seller_id_externo="seller_filial_999",
+            is_mock=True,
+            ativo=True
+        )
+
+        prod_2 = Produto.objects.create(
+            loja=loja_2,
+            categoria=cat_2,
+            sku="SKU-LOJA-2",
+            nome="Produto Loja 2",
+            preco=Decimal('100.00'),
+            estoque=10
+        )
+        anc_2 = Anuncio.objects.create(
+            conta=conta_loja_2,
+            item_id_externo="MLB_LOJA_2",
+            titulo="Anuncio Loja 2",
+            preco_venda=Decimal('100.00'),
+            estoque_publicado=10,
+            status='active'
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=anc_2,
+            produto=prod_2,
+            quantidade=1
+        )
+
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/200000_TENANT_2',
+            'user_id': 'seller_filial_999',
+            'order_data': {
+                'id': '200000_TENANT_2',
+                'status': 'paid',
+                'total_amount': 200.00,
+                'buyer': {'name': 'Cliente Loja 2'},
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB_LOJA_2', 'title': 'Anuncio Loja 2'},
+                        'quantity': 2,
+                        'unit_price': 100.00
+                    }
+                ]
+            }
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        pedido = PedidoVenda.objects.filter(pedido_id_externo="200000_TENANT_2").first()
+        self.assertIsNotNone(pedido)
+        self.assertEqual(pedido.loja, loja_2)
+        self.assertNotEqual(pedido.loja, self.loja)
+        self.assertEqual(pedido.conta_marketplace, conta_loja_2)
+
+        prod_2.refresh_from_db()
+        self.assertEqual(prod_2.estoque, 8)
+
+    def test_webhook_conta_nao_localizada_erro_explicito(self):
+        """
+        2. Conta não localizada: seller_id do payload não corresponde a nenhuma conta cadastrada →
+        assertar erro explícito registrado em log, sem crash e sem resolver para uma conta incorreta.
+        """
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/99999999',
+            'user_id': 'seller_inexistente_99999'
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'error')
+        self.assertIn("ContaMarketplace não localizada para o seller_id seller_inexistente_99999", res.json().get('message'))
+
+        log = WebhookEventLog.objects.filter(resource='/orders/99999999').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, WebhookStatusEnum.ERRO)
+        self.assertIn("ContaMarketplace não localizada para o seller_id seller_inexistente_99999", log.error_log)
+        self.assertEqual(PedidoVenda.objects.filter(pedido_id_externo="99999999").count(), 0)
+
+    def test_webhook_conta_inativa_erro_distinto_de_nao_localizada(self):
+        """
+        Ajuste 1: Conta existe com seller_id_externo mas está ativo=False →
+        assertar mensagem de erro específica de conta inativa, distinta de 'não localizada'.
+        """
+        loja_inativa = Loja.objects.create(
+            nome="Loja Inativa",
+            slug="loja-inativa",
+            cnpj="11.111.111/0001-11"
+        )
+        loja_inativa.garantir_modulos_padrao()
+
+        ContaMarketplace.objects.create(
+            loja=loja_inativa,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Conta Inativa",
+            seller_id_externo="seller_inativo_123",
+            is_mock=True,
+            ativo=False
+        )
+
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/88888888',
+            'user_id': 'seller_inativo_123'
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'error')
+        msg = res.json().get('message')
+        self.assertIn("ContaMarketplace encontrada para o seller_id seller_inativo_123, mas está inativa", msg)
+        self.assertNotIn("não localizada", msg)
+
+        log = WebhookEventLog.objects.filter(resource='/orders/88888888').first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.status, WebhookStatusEnum.ERRO)
+        self.assertIn("mas está inativa", log.error_log)
+        self.assertEqual(PedidoVenda.objects.filter(pedido_id_externo="88888888").count(), 0)
+
+    def test_webhook_replay_evento_com_falha_previa_executa_com_sucesso(self):
+        """
+        3. Replay de evento com falha prévia: evento que abortou antes de persistir (ex: erro de rede prévio)
+        deve permitir que o reprocessamento crie o PedidoVenda normalmente.
+        """
+        WebhookEventLog.objects.create(
+            marketplace='mercadolivre',
+            topic='orders_v2',
+            resource='/orders/200000_REPLAY_1',
+            user_id='777888999',
+            status=WebhookStatusEnum.ERRO,
+            error_log="Falha anterior antes da persistência"
+        )
+
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/200000_REPLAY_1',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '200000_REPLAY_1',
+                'status': 'paid',
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB1001001', 'title': 'Anúncio Unitário'},
+                        'quantity': 2,
+                        'unit_price': 50.00
+                    }
+                ]
+            }
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        pedido = PedidoVenda.objects.filter(pedido_id_externo="200000_REPLAY_1").first()
+        self.assertIsNotNone(pedido)
+
+        self.produto_unit.refresh_from_db()
+        self.assertEqual(self.produto_unit.estoque, 8)
+
+    def test_webhook_replay_pedido_ja_concluido_bloqueia_duplicidade(self):
+        """
+        4. Replay de evento já concluído: um PedidoVenda já persistido com sucesso (inclusive com item em
+        pendente_vinculo) recebe o mesmo webhook novamente → assertar que NÃO duplica o PedidoVenda nem altera estoque.
+        """
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/200000_JA_PERSISTIDO',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '200000_JA_PERSISTIDO',
+                'status': 'paid',
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB1001001', 'title': 'Anúncio Unitário'},
+                        'quantity': 1,
+                        'unit_price': 50.00
+                    }
+                ]
+            }
+        }
+
+        # 1ª execução
+        res1 = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(res1.json().get('status'), 'ok')
+
+        self.produto_unit.refresh_from_db()
+        estoque_apos_1 = self.produto_unit.estoque
+
+        # 2ª execução (Replay)
+        res2 = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(res2.json().get('status'), 'ignored')
+
+        self.produto_unit.refresh_from_db()
+        self.assertEqual(self.produto_unit.estoque, estoque_apos_1)
+        self.assertEqual(PedidoVenda.objects.filter(pedido_id_externo="200000_JA_PERSISTIDO").count(), 1)
+
+    def test_webhook_item_sem_vinculo_persiste_venda_com_status_pendente(self):
+        """
+        5. Item sem vínculo local: item vendido (MLB...) ainda sem produto físico vinculado no catálogo daquela loja →
+        assertar que o PedidoVenda é persistido com sucesso, o item marcado com pendente_vinculo, e nenhuma exceção não tratada é lançada.
+        """
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/200000_SEM_VINCULO',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '200000_SEM_VINCULO',
+                'status': 'paid',
+                'total_amount': 99.00,
+                'buyer': {'name': 'Comprador Desconhecido'},
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB_SEM_VINCULO_999', 'title': 'Item Sem Vínculo de Catálogo'},
+                        'quantity': 1,
+                        'unit_price': 99.00
+                    }
+                ]
+            }
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        pedido = PedidoVenda.objects.filter(pedido_id_externo="200000_SEM_VINCULO").first()
+        self.assertIsNotNone(pedido)
+        self.assertEqual(pedido.loja, self.loja)
+        self.assertEqual(pedido.itens.count(), 1)
+
+        item = pedido.itens.first()
+        self.assertEqual(item.status_integracao, 'pendente_vinculo')
+        self.assertIsNone(item.produto)
+        self.assertFalse(item.estoque_baixado)
+
+        auditoria = LogAuditoria.objects.filter(
+            evento=EventoAuditoriaEnum.ALERTA_RUPTURA_ESTOQUE,
+            loja=self.loja,
+            detalhes__contains="AVISO DE RECONCILIAÇÃO"
+        ).first()
+        self.assertIsNotNone(auditoria)
+
+    def test_webhook_concorrencia_race_condition_bloqueada_por_constraint(self):
+        """
+        Ajuste 2: Duas requisições simultâneas onde a constraint de banco IntegrityError
+        impede a criação duplicada de PedidoVenda, sendo tratada graciosamente como ignorada/duplicata.
+        """
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/200000_RACE_01',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '200000_RACE_01',
+                'status': 'paid',
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB1001001', 'title': 'Anúncio Unitário'},
+                        'quantity': 1,
+                        'unit_price': 50.00
+                    }
+                ]
+            }
+        }
+
+        with patch('apps.pedidos.models.PedidoVenda.objects.update_or_create') as mock_create:
+            mock_create.side_effect = IntegrityError("UNIQUE constraint failed: pedidos_pedidovenda.canal_origem, pedidos_pedidovenda.pedido_id_externo")
+
+            status_code, resp = MercadoLivreWebhookService.processar_notificacao(payload)
+            self.assertEqual(status_code, 200)
+            self.assertEqual(resp.get('status'), 'ignored')
+
+            log = WebhookEventLog.objects.filter(resource='/orders/200000_RACE_01').first()
+            self.assertIsNotNone(log)
+            self.assertEqual(log.status, WebhookStatusEnum.IGNORADO)
+            self.assertIn("bloqueada por constraint de banco", log.error_log)
+
+    def test_webhook_replay_view_reprocessa_com_sucesso(self):
+        """
+        Ajuste 3 & 4: Staff/ADMIN autenticado reprocessa evento através da WebhookEventReplayView.
+        """
+        payload_evento = {
+            'topic': 'orders_v2',
+            'resource': '/orders/200000_REPLAY_VIEW',
+            'user_id': '777888999',
+            'order_data': {
+                'id': '200000_REPLAY_VIEW',
+                'status': 'paid',
+                'order_items': [
+                    {
+                        'item': {'id': 'MLB1001001', 'title': 'Anúncio Unitário'},
+                        'quantity': 1,
+                        'unit_price': 50.00
+                    }
+                ]
+            }
+        }
+
+        event_log = WebhookEventLog.objects.create(
+            marketplace='mercadolivre',
+            topic='orders_v2',
+            resource='/orders/200000_REPLAY_VIEW',
+            user_id='777888999',
+            payload_raw=payload_evento,
+            status=WebhookStatusEnum.ERRO,
+            error_log="Erro simulado para teste de replay"
+        )
+
+        self.client.force_login(self.user)
+        url_replay = reverse('webhook_event_replay', kwargs={'pk': event_log.pk})
+
+        res = self.client.post(url_replay)
+        self.assertEqual(res.status_code, 302)
+        self.assertIn(reverse('log_sincronizacao_list'), res.url)
+
+        # PedidoVenda criado com sucesso
+        pedido = PedidoVenda.objects.filter(pedido_id_externo="200000_REPLAY_VIEW").first()
+        self.assertIsNotNone(pedido)
+
+    def test_webhook_replay_view_nega_acesso_sem_permissao(self):
+        """
+        Ajuste 3 & 4: Usuário sem papel ADMIN/DEV recebe 403 Forbidden ao tentar disparar Replay.
+        """
+        user_comum = User.objects.create_user(username='usuario_operador', password='password123')
+        PerfilUsuario.objects.create(usuario=user_comum, papel=PapelUsuarioEnum.USUARIO, loja=self.loja)
+
+        event_log = WebhookEventLog.objects.create(
+            marketplace='mercadolivre',
+            topic='orders_v2',
+            resource='/orders/200000_FORBIDDEN',
+            user_id='777888999',
+            payload_raw={'topic': 'orders_v2'},
+            status=WebhookStatusEnum.ERRO
+        )
+
+        url_replay = reverse('webhook_event_replay', kwargs={'pk': event_log.pk})
+
+        # Usuário sem permissão
+        self.client.force_login(user_comum)
+        res = self.client.post(url_replay)
+        self.assertEqual(res.status_code, 403)
+
+        # Não autenticado redireciona para login
+        self.client.logout()
+        res_anon = self.client.post(url_replay)
+        self.assertEqual(res_anon.status_code, 302)
 
 
 

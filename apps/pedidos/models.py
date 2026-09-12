@@ -72,6 +72,12 @@ class PedidoVenda(models.Model):
         verbose_name = "Pedido de Venda"
         verbose_name_plural = "Pedidos de Venda"
         unique_together = ('loja', 'canal_origem', 'pedido_id_externo')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['canal_origem', 'pedido_id_externo'],
+                name='unique_pedido_canal_id_externo'
+            )
+        ]
         ordering = ['-criado_em']
 
     def __str__(self):
@@ -97,6 +103,11 @@ class ItemPedidoVenda(models.Model):
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO.
     MULTI-TENANCY: Herda o tenant do pedido pai.
     """
+    STATUS_INTEGRACAO_CHOICES = [
+        ('vinculado', 'Vinculado'),
+        ('pendente_vinculo', 'Pendente de Vínculo'),
+    ]
+
     pedido = models.ForeignKey(
         PedidoVenda, on_delete=models.CASCADE, related_name='itens', verbose_name="Pedido"
     )
@@ -119,6 +130,12 @@ class ItemPedidoVenda(models.Model):
     )
     preco_unitario = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal('0.00'), verbose_name="Preço Unitário (R$)"
+    )
+    status_integracao = models.CharField(
+        max_length=30,
+        choices=STATUS_INTEGRACAO_CHOICES,
+        default='vinculado',
+        verbose_name="Status de Integração do Item"
     )
     estoque_baixado = models.BooleanField(
         default=False, verbose_name="Estoque Baixado Automaticamente"

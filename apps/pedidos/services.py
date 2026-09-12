@@ -1,7 +1,7 @@
 # Os códigos foram gerados com auxilio de I.A.
 from decimal import Decimal
 from typing import Dict, Any, Tuple, Optional
-from django.db import transaction
+from django.db import transaction, IntegrityError
 
 from apps.tenancy.models import Loja
 from apps.marketplaces.models import ContaMarketplace, LogAuditoria
@@ -61,18 +61,24 @@ class ProcessamentoPedidoService:
         )
 
         with transaction.atomic():
-            pedido = PedidoVenda.objects.create(
-                loja=loja,
-                conta_marketplace=conta,
-                canal_origem=canal,
-                pedido_id_externo=pedido_id_externo,
-                status_externo=dados_pedido.get('status', 'paid'),
-                status=StatusPedidoEnum.PAGO,
-                comprador_nome=comprador_nome,
-                valor_total=valor_total,
-                valor_frete=valor_frete,
-                payload_original=dados_pedido
-            )
+            try:
+                pedido = PedidoVenda.objects.create(
+                    loja=loja,
+                    conta_marketplace=conta,
+                    canal_origem=canal,
+                    pedido_id_externo=pedido_id_externo,
+                    status_externo=dados_pedido.get('status', 'paid'),
+                    status=StatusPedidoEnum.PAGO,
+                    comprador_nome=comprador_nome,
+                    valor_total=valor_total,
+                    valor_frete=valor_frete,
+                    payload_original=dados_pedido
+                )
+            except IntegrityError:
+                pedido_existente = PedidoVenda.objects.filter(
+                    canal_origem=canal, pedido_id_externo=pedido_id_externo
+                ).first()
+                return True, f"Pedido #{pedido_id_externo} já processado anteriormente.", pedido_existente
 
             houve_ruptura_geral = False
 
@@ -188,6 +194,7 @@ class ProcessamentoPedidoService:
                     titulo_anuncio=titulo,
                     quantidade=quantidade,
                     preco_unitario=unit_price,
+                    status_integracao='vinculado' if produto else 'pendente_vinculo',
                     estoque_baixado=estoque_baixado,
                     estoque_anterior=estoque_ant,
                     estoque_posterior=estoque_pos,
