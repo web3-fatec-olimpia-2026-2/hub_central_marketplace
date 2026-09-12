@@ -9,6 +9,7 @@ from django.utils import timezone
 from apps.tenancy.models import Loja
 from apps.marketplaces.models import ContaMarketplace, WebhookEventLog, LogAuditoria
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum, WebhookStatusEnum
+from apps.marketplaces.utils import safe_decimal, safe_int
 from apps.anuncios.models import Anuncio
 from apps.catalogo.models import Produto, AnuncioMarketplace
 from apps.pedidos.models import PedidoVenda, ItemPedidoVenda
@@ -181,20 +182,36 @@ class MercadoLivreWebhookService:
                     or (resource.split('/orders/')[-1] if '/orders/' in resource else resource)
                 ).strip()
 
-                buyer = order_data.get('buyer') or {}
+                buyer = order_data.get('buyer')
+                if not isinstance(buyer, dict):
+                    buyer = {}
                 comprador_nome = (
                     f"{buyer.get('first_name', '')} {buyer.get('last_name', '')}".strip()
                     or buyer.get('nickname')
                     or buyer.get('name')
                     or "Comprador Mercado Livre"
                 )
-                comprador_doc = (
-                    (buyer.get('billing_info') or {}).get('doc_number')
-                    or buyer.get('document')
-                    or ""
-                )
-                valor_total = Decimal(str(order_data.get('total_amount', order_data.get('valor_total', '0.00'))))
-                valor_frete = Decimal(str(order_data.get('shipping_cost', (order_data.get('shipping') or {}).get('cost', '0.00'))))
+                billing = buyer.get('billing_info')
+                if not isinstance(billing, dict):
+                    billing = {}
+                comprador_doc = str(billing.get('doc_number') or buyer.get('document') or '').strip()
+
+                total_val = order_data.get('total_amount')
+                if total_val is None:
+                    total_val = order_data.get('valor_total')
+                if total_val is None:
+                    total_val = order_data.get('paid_amount')
+                valor_total = safe_decimal(total_val, Decimal('0.00'))
+
+                shipping_data = order_data.get('shipping')
+                if not isinstance(shipping_data, dict):
+                    shipping_data = {}
+                frete_val = order_data.get('shipping_cost')
+                if frete_val is None:
+                    frete_val = shipping_data.get('cost')
+                if frete_val is None:
+                    frete_val = order_data.get('valor_frete')
+                valor_frete = safe_decimal(frete_val, Decimal('0.00'))
 
                 # Ajuste 2: Proteção de concorrência com captura de IntegrityError no banco
                 try:
@@ -230,11 +247,19 @@ class MercadoLivreWebhookService:
                 houve_ruptura = False
 
                 for order_item in order_items:
+                    if not isinstance(order_item, dict):
+                        continue
                     item_info = order_item.get('item', {}) if isinstance(order_item.get('item'), dict) else order_item
                     item_id = item_info.get('id') or order_item.get('item_id') or order_item.get('id')
                     item_id_externo = str(item_id or '').strip()
-                    qtd_vendida = int(order_item.get('quantity', 1))
-                    unit_price = Decimal(str(order_item.get('unit_price') or order_item.get('full_unit_price') or '0.00'))
+                    qtd_vendida = max(1, safe_int(order_item.get('quantity'), default=1))
+
+                    unit_price_val = order_item.get('unit_price')
+                    if unit_price_val is None:
+                        unit_price_val = order_item.get('full_unit_price')
+                    if unit_price_val is None:
+                        unit_price_val = order_item.get('price')
+                    unit_price = safe_decimal(unit_price_val, Decimal('0.00'))
                     titulo_item = item_info.get('title') or order_item.get('title', '')
 
                     # Localiza o Anuncio no sistema estritamente no escopo da conta

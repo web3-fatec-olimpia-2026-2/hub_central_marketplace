@@ -7,6 +7,7 @@ from apps.tenancy.models import Loja
 from apps.marketplaces.models import ContaMarketplace, LogAuditoria
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
 from apps.marketplaces.connectors.factory import get_connector_for_conta
+from apps.marketplaces.utils import safe_decimal, safe_int
 from apps.catalogo.models import Produto, AnuncioMarketplace
 from .models import PedidoVenda, ItemPedidoVenda
 from .enums import StatusPedidoEnum
@@ -50,9 +51,26 @@ class ProcessamentoPedidoService:
             return True, f"Pedido #{pedido_id_externo} já processado anteriormente.", pedido_existente
 
         itens_payload = dados_pedido.get('items', dados_pedido.get('order_items', []))
-        valor_total = Decimal(str(dados_pedido.get('total_amount', dados_pedido.get('valor_total', '0.00'))))
-        valor_frete = Decimal(str(dados_pedido.get('shipping_cost', dados_pedido.get('valor_frete', '0.00'))))
+        total_val = dados_pedido.get('total_amount')
+        if total_val is None:
+            total_val = dados_pedido.get('valor_total')
+        if total_val is None:
+            total_val = dados_pedido.get('paid_amount')
+        valor_total = safe_decimal(total_val, Decimal('0.00'))
+
+        shipping_data = dados_pedido.get('shipping')
+        if not isinstance(shipping_data, dict):
+            shipping_data = {}
+        frete_val = dados_pedido.get('shipping_cost')
+        if frete_val is None:
+            frete_val = shipping_data.get('cost')
+        if frete_val is None:
+            frete_val = dados_pedido.get('valor_frete')
+        valor_frete = safe_decimal(frete_val, Decimal('0.00'))
+
         comprador = dados_pedido.get('buyer', {})
+        if not isinstance(comprador, dict):
+            comprador = {}
         comprador_nome = (
             f"{comprador.get('first_name', '')} {comprador.get('last_name', '')}".strip()
             or comprador.get('name')
@@ -83,11 +101,23 @@ class ProcessamentoPedidoService:
             houve_ruptura_geral = False
 
             for item_raw in itens_payload:
+                if not isinstance(item_raw, dict):
+                    continue
                 item_info = item_raw.get('item', item_raw)
-                item_id_ext = str(item_info.get('id', item_raw.get('item_id', '')))
+                if not isinstance(item_info, dict):
+                    item_info = item_raw
+                item_id_ext = str(item_info.get('id', item_raw.get('item_id', ''))).strip()
                 titulo = item_info.get('title', item_raw.get('titulo', 'Item Vendido'))
-                quantidade = int(item_raw.get('quantity', 1))
-                unit_price = Decimal(str(item_raw.get('unit_price', '0.00')))
+                quantidade = max(1, safe_int(item_raw.get('quantity'), default=1))
+
+                unit_price_val = item_raw.get('unit_price')
+                if unit_price_val is None:
+                    unit_price_val = item_raw.get('full_unit_price')
+                if unit_price_val is None:
+                    unit_price_val = item_raw.get('preco_unitario')
+                if unit_price_val is None:
+                    unit_price_val = item_raw.get('price')
+                unit_price = safe_decimal(unit_price_val, Decimal('0.00'))
 
                 # Localiza o produto no catálogo do Hub via AnuncioMarketplace ou SKU
                 anuncio = AnuncioMarketplace.objects.filter(

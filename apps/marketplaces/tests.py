@@ -1695,6 +1695,126 @@ class MercadoLivreWebhookTestCase(TestCase):
         res_anon = self.client.post(url_replay)
         self.assertEqual(res_anon.status_code, 302)
 
+    def test_safe_decimal_e_safe_int_conversoes_defensivas(self):
+        """
+        Valida que safe_decimal e safe_int toleram todos os tipos de entrada sem lançar exceções.
+        """
+        from apps.marketplaces.utils import safe_decimal, safe_int
+
+        # safe_decimal
+        self.assertEqual(safe_decimal(None), Decimal('0.00'))
+        self.assertEqual(safe_decimal('None'), Decimal('0.00'))
+        self.assertEqual(safe_decimal('null'), Decimal('0.00'))
+        self.assertEqual(safe_decimal(''), Decimal('0.00'))
+        self.assertEqual(safe_decimal('   '), Decimal('0.00'))
+        self.assertEqual(safe_decimal('invalid_text'), Decimal('0.00'))
+        self.assertEqual(safe_decimal(0), Decimal('0'))
+        self.assertEqual(safe_decimal(0.0), Decimal('0.0'))
+        self.assertEqual(safe_decimal(150.50), Decimal('150.5'))
+        self.assertEqual(safe_decimal('150.50'), Decimal('150.50'))
+        self.assertEqual(safe_decimal('150,50'), Decimal('150.50'))
+        self.assertEqual(safe_decimal('1.250,50'), Decimal('1250.50'))
+        self.assertEqual(safe_decimal('1,250.50'), Decimal('1250.50'))
+        self.assertEqual(safe_decimal(None, default=Decimal('10.00')), Decimal('10.00'))
+
+        # safe_int
+        self.assertEqual(safe_int(None), 1)
+        self.assertEqual(safe_int('None'), 1)
+        self.assertEqual(safe_int('null'), 1)
+        self.assertEqual(safe_int(''), 1)
+        self.assertEqual(safe_int('invalid'), 1)
+        self.assertEqual(safe_int(0), 0)
+        self.assertEqual(safe_int(5), 5)
+        self.assertEqual(safe_int('5'), 5)
+        self.assertEqual(safe_int('5.0'), 5)
+
+    def test_webhook_pedido_com_shipping_cost_null_processa_com_sucesso(self):
+        """
+        Valida que notificação com 'shipping_cost': null e 'shipping': {'cost': null}
+        é processada com sucesso sem estourar decimal.InvalidOperation: ConversionSyntax.
+        """
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/2000018428049332',
+            'user_id': self.conta_meli.seller_id_externo,
+            'order_data': {
+                'id': '2000018428049332',
+                'status': 'paid',
+                'shipping_cost': None,
+                'shipping': {
+                    'id': 123456,
+                    'cost': None
+                },
+                'total_amount': 250.00,
+                'order_items': [
+                    {
+                        'item': {
+                            'id': self.anuncio_unit.item_id_externo,
+                            'title': self.anuncio_unit.titulo
+                        },
+                        'quantity': 2,
+                        'unit_price': 125.00
+                    }
+                ]
+            }
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        pedido = PedidoVenda.objects.filter(pedido_id_externo='2000018428049332').first()
+        self.assertIsNotNone(pedido)
+        self.assertEqual(pedido.valor_frete, Decimal('0.00'))
+        self.assertEqual(pedido.valor_total, Decimal('250.00'))
+        self.assertEqual(pedido.itens.count(), 1)
+        item = pedido.itens.first()
+        self.assertEqual(item.quantidade, 2)
+        self.assertEqual(item.preco_unitario, Decimal('125.00'))
+
+    def test_webhook_pedido_com_total_amount_null_e_unit_price_null(self):
+        """
+        Valida resiliência total a múltiplos campos nulos: total_amount: null,
+        shipping_cost: null, unit_price: null, quantity: null.
+        """
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/2000018428049999',
+            'user_id': self.conta_meli.seller_id_externo,
+            'order_data': {
+                'id': '2000018428049999',
+                'status': 'paid',
+                'shipping_cost': None,
+                'shipping': None,
+                'total_amount': None,
+                'paid_amount': 99.00,
+                'order_items': [
+                    {
+                        'item': {
+                            'id': self.anuncio_unit.item_id_externo,
+                            'title': self.anuncio_unit.titulo
+                        },
+                        'quantity': None,
+                        'unit_price': None,
+                        'full_unit_price': 99.00
+                    }
+                ]
+            }
+        }
+
+        res = self.client.post(self.url, data=payload, content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        pedido = PedidoVenda.objects.filter(pedido_id_externo='2000018428049999').first()
+        self.assertIsNotNone(pedido)
+        self.assertEqual(pedido.valor_frete, Decimal('0.00'))
+        self.assertEqual(pedido.valor_total, Decimal('99.00'))
+        item = pedido.itens.first()
+        self.assertEqual(item.quantidade, 1)
+        self.assertEqual(item.preco_unitario, Decimal('99.00'))
+
+
 
 
 
