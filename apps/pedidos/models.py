@@ -56,7 +56,7 @@ class PedidoVenda(models.Model):
         default=True, verbose_name="Processado com Sucesso"
     )
     teve_ruptura_estoque = models.BooleanField(
-        default=False, verbose_name="Houve Ruptura de Estoque (RN-05)"
+        default=False, verbose_name="Houve Ruptura de Estoque"
     )
     payload_original = models.JSONField(
         default=dict, blank=True, verbose_name="Payload Original do Webhook"

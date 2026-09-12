@@ -166,8 +166,13 @@ class ProcessamentoPedidoService:
                 teve_ruptura = False
                 estoque_baixado = False
 
+                try:
+                    canal_label = CanalMarketplaceEnum(canal).label
+                except (ValueError, TypeError):
+                    canal_label = str(canal or 'Marketplace').title()
+
                 if produto:
-                    # LOCK PESSIMISTA CONCORRENTE (RN-05): select_for_update
+                    # LOCK PESSIMISTA CONCORRENTE: select_for_update
                     prod_locked = Produto.objects.select_for_update().get(pk=produto.pk)
                     estoque_ant = prod_locked.estoque
                     qtd_deduzir = quantidade * multiplicador
@@ -177,7 +182,14 @@ class ProcessamentoPedidoService:
                     prod_locked.save(update_fields=['estoque', 'atualizado_em'])
                     estoque_baixado = True
 
-                    # Alerta de Ruptura (RN-05): Saldo ficou negativo
+                    # Registro de Auditoria no Histórico de Preço e Estoque do Produto
+                    prod_locked.registrar_historico(
+                        estoque_anterior=estoque_ant,
+                        novo_estoque=estoque_pos,
+                        motivo=f"Baixa por venda via {canal_label} - Pedido #{pedido_id_externo}"
+                    )
+
+                    # Alerta de Ruptura: Saldo ficou negativo
                     if estoque_pos < 0:
                         teve_ruptura = True
                         houve_ruptura_geral = True
@@ -214,6 +226,13 @@ class ProcessamentoPedidoService:
                             prod_extra.estoque = saldo_extra_pos
                             prod_extra._motivo_alteracao = 'VENDA_MARKETPLACE'
                             prod_extra.save(update_fields=['estoque', 'atualizado_em'])
+
+                            prod_extra.registrar_historico(
+                                estoque_anterior=saldo_extra_ant,
+                                novo_estoque=saldo_extra_pos,
+                                motivo=f"Baixa por venda via {canal_label} - Pedido #{pedido_id_externo}"
+                            )
+
                             cls.propagar_estoque_multicanal(prod_extra, canal_origem=canal)
 
                 ItemPedidoVenda.objects.create(

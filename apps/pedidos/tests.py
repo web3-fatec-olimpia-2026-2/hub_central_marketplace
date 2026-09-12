@@ -9,7 +9,7 @@ from apps.tenancy.models import Loja, PerfilUsuario
 from apps.tenancy.enums import PapelUsuarioEnum
 from apps.marketplaces.models import ContaMarketplace, LogAuditoria
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
-from apps.catalogo.models import Categoria, Produto, AnuncioMarketplace
+from apps.catalogo.models import Categoria, Produto, AnuncioMarketplace, HistoricoPreco
 from apps.anuncios.models import Anuncio, AnuncioComposicao
 from apps.pedidos.models import PedidoVenda, ItemPedidoVenda, Pedido, ItemPedido
 from apps.pedidos.services import ProcessamentoPedidoService
@@ -95,6 +95,15 @@ class PedidosAndAtomicStockTestCase(TestCase):
         self.produto.refresh_from_db()
         self.assertEqual(self.produto.estoque, 3)  # 5 - 2 = 3
         self.assertFalse(pedido.teve_ruptura_estoque)
+
+        # Valida que o HistoricoPreco foi registrado
+        historico = HistoricoPreco.objects.filter(produto=self.produto).latest('criado_em')
+        self.assertEqual(historico.estoque_anterior, 5)
+        self.assertEqual(historico.estoque_novo, 3)
+        self.assertEqual(historico.preco_anterior, Decimal('250.00'))
+        self.assertEqual(historico.preco_novo, Decimal('250.00'))
+        self.assertIn("ORD-1001", historico.motivo)
+        self.assertIn("Mercado Livre", historico.motivo)
 
     def test_idempotency_prevents_duplicate_deduction(self):
         """Valida que reprocessar o mesmo pedido não duplica o débito de estoque."""
@@ -261,3 +270,55 @@ class PedidosAndAtomicStockTestCase(TestCase):
         res_tela = self.client.get(reverse('pedido_list'))
         self.assertEqual(res_tela.status_code, 200)
         self.assertContains(res_tela, '40000012345678')
+
+        # 4. Histórico de Alteração de Preço e Estoque registrado
+        historico = HistoricoPreco.objects.filter(produto=self.produto).latest('criado_em')
+        self.assertEqual(historico.estoque_anterior, 5)
+        self.assertEqual(historico.estoque_novo, 3)
+        self.assertEqual(historico.preco_anterior, Decimal('250.00'))
+        self.assertEqual(historico.preco_novo, Decimal('250.00'))
+        self.assertIn('40000012345678', historico.motivo)
+
+    def test_historico_preco_estoque_gravado_na_baixa_de_venda(self):
+        """
+        Valida que ao processar um pedido com baixa atômica de estoque:
+        1. É persistido o registro em HistoricoPreco.
+        2. Mantém preco_anterior e novo_preco iguais ao preço do produto.
+        3. Registra estoque_anterior e novo_estoque corretos.
+        4. Define usuario responsável (admin da loja) e motivo com canal e id externo.
+        """
+        payload = {
+            'order_id': 'ORD-HIST-01',
+            'total_amount': 250.00,
+            'buyer': {'name': 'Cliente Historico'},
+            'items': [
+                {
+                    'item': {'id': 'MLB776655', 'title': 'Teclado Mecânico RGB Pro'},
+                    'quantity': 1,
+                    'unit_price': 250.00
+                }
+            ]
+        }
+
+        sucesso, msg, pedido = ProcessamentoPedidoService.processar_pedido_venda(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            pedido_id_externo="ORD-HIST-01",
+            dados_pedido=payload,
+            conta=self.conta_ml
+        )
+
+        self.assertTrue(sucesso)
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.estoque, 4)
+
+        historico = HistoricoPreco.objects.filter(produto=self.produto, estoque_novo=4).first()
+        self.assertIsNotNone(historico)
+        self.assertEqual(historico.loja, self.loja)
+        self.assertEqual(historico.preco_anterior, Decimal('250.00'))
+        self.assertEqual(historico.preco_novo, Decimal('250.00'))
+        self.assertEqual(historico.estoque_anterior, 5)
+        self.assertEqual(historico.estoque_novo, 4)
+        self.assertEqual(historico.usuario, self.user)
+        self.assertIn("ORD-HIST-01", historico.motivo)
+        self.assertIn("Mercado Livre", historico.motivo)

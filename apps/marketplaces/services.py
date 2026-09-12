@@ -298,6 +298,12 @@ class MercadoLivreWebhookService:
                                 prod_locked.estoque = novo_saldo
                                 prod_locked.save(update_fields=['estoque', 'atualizado_em'])
 
+                                prod_locked.registrar_historico(
+                                    estoque_anterior=saldo_ant,
+                                    novo_estoque=novo_saldo,
+                                    motivo=f"Baixa por venda via Mercado Livre - Pedido #{pedido_id_ext}"
+                                )
+
                                 LogAuditoria.objects.create(
                                     loja=prod_locked.loja,
                                     evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
@@ -332,6 +338,12 @@ class MercadoLivreWebhookService:
                                     prod_locked.estoque = novo_saldo
                                     prod_locked.save(update_fields=['estoque', 'atualizado_em'])
 
+                                    prod_locked.registrar_historico(
+                                        estoque_anterior=saldo_ant,
+                                        novo_estoque=novo_saldo,
+                                        motivo=f"Baixa por venda via Mercado Livre - Pedido #{pedido_id_ext}"
+                                    )
+
                                     anuncio.status_sincronizacao = 'ENVIADO'
                                     anuncio.estoque_publicado = novo_saldo
                                     anuncio.save(update_fields=['status_sincronizacao', 'estoque_publicado', 'atualizado_em'])
@@ -361,6 +373,12 @@ class MercadoLivreWebhookService:
                         prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
                         prod_locked.estoque = novo_saldo
                         prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+
+                        prod_locked.registrar_historico(
+                            estoque_anterior=saldo_ant,
+                            novo_estoque=novo_saldo,
+                            motivo=f"Baixa por venda via Mercado Livre - Pedido #{pedido_id_ext}"
+                        )
                     else:
                         # Fallback por SKU do seller dentro da loja identificada
                         sku = item_info.get('seller_sku', item_info.get('seller_custom_field'))
@@ -383,6 +401,12 @@ class MercadoLivreWebhookService:
                                 prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
                                 prod_locked.estoque = novo_saldo
                                 prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+
+                                prod_locked.registrar_historico(
+                                    estoque_anterior=saldo_ant,
+                                    novo_estoque=novo_saldo,
+                                    motivo=f"Baixa por venda via Mercado Livre - Pedido #{pedido_id_ext}"
+                                )
 
                     # Tarefa 2: Se o produto não foi localizado no catálogo da loja, registra com status pendente de vínculo
                     if prod_vinculado:

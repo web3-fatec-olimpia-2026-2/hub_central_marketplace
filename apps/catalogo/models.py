@@ -179,6 +179,47 @@ class Produto(models.Model):
             return "bg-secondary text-white"
         return "bg-light text-dark border"
 
+    def registrar_historico(
+        self,
+        estoque_anterior=None,
+        novo_estoque=None,
+        preco_anterior=None,
+        novo_preco=None,
+        usuario=None,
+        motivo=None,
+        **kwargs
+    ):
+        """
+        O QUE FAZ: Registra mutação de preço e/ou estoque físico em HistoricoPreco.
+        POR QUE FAZ: Garante rastreabilidade e auditoria unificada no catálogo (RN-04 / RF-05).
+        """
+        if preco_anterior is None:
+            preco_anterior = self.preco
+        if novo_preco is None:
+            novo_preco = kwargs.get('preco_novo', self.preco)
+        if estoque_anterior is None:
+            estoque_anterior = self.estoque
+        if novo_estoque is None:
+            novo_estoque = kwargs.get('estoque_novo', self.estoque)
+
+        if not usuario and self.loja:
+            perfil = self.loja.usuarios.filter(papel__in=['ADMIN', 'DEV']).select_related('usuario').first()
+            if not perfil:
+                perfil = self.loja.usuarios.select_related('usuario').first()
+            if perfil:
+                usuario = perfil.usuario
+
+        return HistoricoPreco.objects.create(
+            produto=self,
+            loja=self.loja,
+            preco_anterior=preco_anterior,
+            preco_novo=novo_preco,
+            estoque_anterior=estoque_anterior,
+            estoque_novo=novo_estoque,
+            usuario=usuario,
+            motivo=motivo
+        )
+
 
 
 class AnuncioMarketplace(models.Model):
@@ -282,3 +323,4 @@ class HistoricoPreco(models.Model):
 
 
 HistoricoAlteracao = HistoricoPreco
+HistoricoPrecoEstoque = HistoricoPreco

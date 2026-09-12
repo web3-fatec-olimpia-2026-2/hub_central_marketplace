@@ -15,7 +15,7 @@ from apps.marketplaces.connectors.factory import get_connector_for_conta
 from apps.marketplaces.connectors.mercadolivre import MercadoLivreConnector
 from apps.marketplaces.connectors.shopee import ShopeeConnector
 from apps.marketplaces.connectors.magalu import MagaluConnector
-from apps.catalogo.models import Produto, Categoria
+from apps.catalogo.models import Produto, Categoria, HistoricoPreco
 from apps.anuncios.models import Anuncio, AnuncioComposicao
 from apps.pedidos.models import PedidoVenda, ItemPedidoVenda, Pedido, ItemPedido
 from apps.pedidos.enums import StatusPedidoEnum
@@ -1014,6 +1014,15 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertIsNotNone(auditoria)
         self.assertIn('SKU-UNIT-01', auditoria.detalhes)
         self.assertIn('Saldo anterior: 10 -> Novo saldo: 8', auditoria.detalhes)
+
+        # HistoricoPreco registrado para o Produto
+        historico = HistoricoPreco.objects.filter(produto=self.produto_unit).latest('criado_em')
+        self.assertEqual(historico.estoque_anterior, 10)
+        self.assertEqual(historico.estoque_novo, 8)
+        self.assertEqual(historico.preco_anterior, Decimal('50.00'))
+        self.assertEqual(historico.preco_novo, Decimal('50.00'))
+        self.assertIn('2000001234567890', historico.motivo)
+        self.assertIn('Mercado Livre', historico.motivo)
 
     def test_webhook_successful_kit_product_stock_deduction(self):
         """Valida que venda de Kit de 3 unidades abate a quantidade correta (2 kits = 6 itens)."""
