@@ -112,8 +112,15 @@ class ContaMarketplaceCreateView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
         return response
 
     def get_context_data(self, **kwargs):
+        import json
+        from apps.marketplaces.constants import CANAL_REGISTRY
         context = super().get_context_data(**kwargs)
         context['modo_edicao'] = False
+        context['canal_registry'] = CANAL_REGISTRY
+        context['canal_registry_json'] = json.dumps(CANAL_REGISTRY)
+        host = self.request.get_host()
+        scheme = self.request.scheme
+        context['base_url'] = f"{scheme}://{host}"
         return context
 
 
@@ -158,9 +165,24 @@ class ContaMarketplaceUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
         return response
 
     def get_context_data(self, **kwargs):
+        import json
+        from apps.marketplaces.constants import CANAL_REGISTRY, get_canal_config
         context = super().get_context_data(**kwargs)
         context['modo_edicao'] = True
         context['conta'] = self.object
+        context['canal_registry'] = CANAL_REGISTRY
+        context['canal_registry_json'] = json.dumps(CANAL_REGISTRY)
+        host = self.request.get_host()
+        scheme = self.request.scheme
+        context['base_url'] = f"{scheme}://{host}"
+        canal_cfg = get_canal_config(self.object.canal)
+        context['canal_config'] = canal_cfg
+        context['webhook_url_individual'] = f"{scheme}://{host}/api/v1/webhooks/{self.object.canal}/{self.object.webhook_uuid}/"
+        context['callback_url'] = f"{scheme}://{host}/marketplaces/{self.object.canal}/callback/"
+        has_ping = False
+        if self.object.seller_id_externo:
+            has_ping = WebhookEventLog.objects.filter(user_id=self.object.seller_id_externo).exists()
+        context['has_webhook_ping'] = has_ping
         return context
 
 
@@ -584,6 +606,114 @@ class MercadoLivreWebhookView(View):
 
         status_code, resposta = MercadoLivreWebhookService.processar_notificacao(payload)
         return JsonResponse(resposta, status=status_code)
+
+    def get(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(['POST'])
+
+    def put(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(['POST'])
+
+    def delete(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(['POST'])
+
+    def patch(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(['POST'])
+
+
+# ==============================================================================
+# INGESTÃO UNIVERSAL DE WEBHOOKS HTTP (GLOBAL & INDIVIDUAL COM SEGMENTAÇÃO UUID)
+# ==============================================================================
+
+@method_decorator(csrf_exempt, name='dispatch')
+class WebhookIngestionView(View):
+    """
+    O QUE FAZ: Endpoint unificado de ingestão de Webhooks HTTP para múltiplos marketplaces.
+    POR QUE FAZ: Suporta roteamento híbrido:
+      - Fluxo Individual: /api/v1/webhooks/<canal>/<uuid:webhook_uuid>/
+      - Fluxo Global: /api/v1/webhooks/<canal>/
+    SEGURANÇA: Fail-Fast simétrico com rejeição prévia de requisições com timestamp fora da janela de 300s (Anti-Replay)
+               ou HMAC inválido antes do parse de payload JSON ou consumo de banco de dados.
+    """
+    def post(self, request, canal: str, webhook_uuid=None, *args, **kwargs):
+        from apps.marketplaces.security_webhook import validar_assinatura_e_anti_replay
+        from apps.marketplaces.constants import get_canal_config
+
+        canal_normalizado = canal.strip().lower()
+        config = get_canal_config(canal_normalizado)
+        if not config and canal_normalizado not in ['mercadolivre', 'meli', 'shopee', 'magalu', 'amazon']:
+            return JsonResponse({'error': f"Canal '{canal}' não reconhecido."}, status=404)
+
+        canal_key = config.get('canal_key', canal_normalizado)
+        if canal_key == 'meli':
+            canal_key = 'mercadolivre'
+
+        # ----------------------------------------------------------------------
+        # FLUXO INDIVIDUAL: /api/v1/webhooks/<canal>/<uuid>/
+        # ----------------------------------------------------------------------
+        if webhook_uuid:
+            # 1. Busca conta diretamente pelo webhook_uuid indexado (404 imediato se inexistente)
+            conta = ContaMarketplace.objects.filter(webhook_uuid=webhook_uuid).select_related('loja').first()
+            if not conta:
+                return JsonResponse({'error': 'Conta não localizada para o webhook UUID fornecido.'}, status=404)
+
+            # 2. Descriptografa webhook_secret e valida Fail-Fast (Anti-Replay < 300s + HMAC)
+            secret = conta.webhook_secret
+            if secret:
+                valido, status_code, motivo = validar_assinatura_e_anti_replay(request, secret=secret, canal=canal_key)
+                if not valido:
+                    return JsonResponse({'error': motivo}, status=status_code)
+
+            # 3. Parse seguro do corpo
+            try:
+                if not request.body:
+                    return JsonResponse({'error': 'Corpo da requisição vazio.'}, status=400)
+                payload = json.loads(request.body.decode('utf-8'))
+            except (ValueError, json.JSONDecodeError):
+                return JsonResponse({'error': 'Payload JSON malformado.'}, status=400)
+
+            # 4. Despacha processamento para o respectivo canal
+            if canal_key == 'mercadolivre':
+                status_code, resposta = MercadoLivreWebhookService.processar_notificacao(payload, conta=conta)
+                return JsonResponse(resposta, status=status_code)
+            else:
+                return JsonResponse({
+                    'status': 'received',
+                    'canal': canal_key,
+                    'conta_id': conta.id,
+                    'loja_id': conta.loja_id
+                }, status=200)
+
+        # ----------------------------------------------------------------------
+        # FLUXO GLOBAL: /api/v1/webhooks/<canal>/
+        # ----------------------------------------------------------------------
+        else:
+            # 1. Extrai chave global da memória (.env / settings)
+            global_secret = (
+                getattr(settings, 'MELI_GLOBAL_WEBHOOK_SECRET', '')
+                or getattr(settings, 'MERCADOLIVRE_CLIENT_SECRET', '')
+                if canal_key == 'mercadolivre' else ''
+            )
+
+            # 2. Valida timestamp (< 300s) e HMAC antes de qualquer consulta ao banco
+            if global_secret:
+                valido, status_code, motivo = validar_assinatura_e_anti_replay(request, secret=global_secret, canal=canal_key)
+                if not valido:
+                    return JsonResponse({'error': motivo}, status=status_code)
+
+            # 3. Parse do payload
+            try:
+                if not request.body:
+                    return JsonResponse({'error': 'Corpo da requisição vazio.'}, status=400)
+                payload = json.loads(request.body.decode('utf-8'))
+            except (ValueError, json.JSONDecodeError):
+                return JsonResponse({'error': 'Payload JSON malformado.'}, status=400)
+
+            # 4. Despacha processamento
+            if canal_key == 'mercadolivre':
+                status_code, resposta = MercadoLivreWebhookService.processar_notificacao(payload)
+                return JsonResponse(resposta, status=status_code)
+            else:
+                return JsonResponse({'status': 'received', 'canal': canal_key}, status=200)
 
     def get(self, request, *args, **kwargs):
         return HttpResponseNotAllowed(['POST'])

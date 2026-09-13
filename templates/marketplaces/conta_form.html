@@ -2,135 +2,448 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {% if modo_edicao %}Conta: {{ conta.apelido_conta }}{% else %}Conectar Conta de Marketplace{% endif %}
+    {% if modo_edicao %}Configurar Conexão: {{ conta.get_canal_display }} — {{ conta.apelido_conta }}{% else %}Conectar Nova Conta de Marketplace{% endif %}
 {% endblock %}
 
 {% block page_title %}
-    {% if modo_edicao %}Conta: {{ conta.apelido_conta }}{% else %}Conectar Nova Conta de Marketplace{% endif %}
+    {% if modo_edicao %}Configurar Conexão: {{ conta.get_canal_display }}{% else %}Conectar Nova Conta de Marketplace{% endif %}
 {% endblock %}
-{% block page_subtitle %}Gestão Desacoplada de Conexões e Autenticação OAuth 2.0{% endblock %}
+{% block page_subtitle %}Gestão Híbrida de Credenciais (Global vs Individual) e Webhooks com Proteção Fernet{% endblock %}
 
 {% block toolbar_actions %}
     <a href="{% url 'canal_list' %}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left"></i> Voltar à Lista de Canais
+        <i class="bi bi-arrow-left"></i> Voltar aos Marketplaces
     </a>
 {% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-lg-8">
-        <!-- PAINEL DE STATUS DA CONEXÃO OAUTH (EM MODO DE EDIÇÃO) -->
+    <div class="col-lg-9 col-xl-8">
+
+        <!-- PAINEL DE STATUS DA CONEXÃO & WEBHOOK (EM MODO DE EDIÇÃO) -->
         {% if modo_edicao %}
-            <div class="card shadow-sm mb-4 border-start border-4 {% if conta.access_token %}border-success{% else %}border-danger{% endif %}">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                    <span class="fw-bold"><i class="bi bi-shield-lock me-2 text-primary"></i>Status da Conexão OAuth 2.0</span>
-                    {% if conta.access_token %}
-                        <span class="badge bg-success px-3 py-2"><i class="bi bi-shield-check me-1"></i> Conectado</span>
-                    {% else %}
-                        <span class="badge bg-danger px-3 py-2"><i class="bi bi-shield-x me-1"></i> Desconectado</span>
-                    {% endif %}
+            <div class="card shadow-sm mb-4 border-start border-4 {% if conta.access_token %}border-success{% else %}border-warning{% endif %}">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                    <span class="fw-bold text-dark">
+                        <i class="bi bi-shield-lock me-2 text-primary"></i>Diagnóstico da Conexão
+                    </span>
+                    <div class="d-flex gap-2">
+                        {% if conta.access_token %}
+                            <span class="badge bg-success px-3 py-2"><i class="bi bi-shield-check me-1"></i> Conectado</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark px-3 py-2"><i class="bi bi-exclamation-triangle me-1"></i> Não Autenticado</span>
+                        {% endif %}
+                        {% if has_webhook_ping %}
+                            <span class="badge bg-info text-dark px-3 py-2"><i class="bi bi-activity me-1"></i> Webhook Ativo</span>
+                        {% else %}
+                            <span class="badge bg-secondary px-3 py-2"><i class="bi bi-hourglass-split me-1"></i> Aguardando Primeiro Ping</span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <small class="text-muted d-block">Canal:</small>
+                            <small class="text-muted d-block">Canal / Marketplace:</small>
                             <span class="badge {% if conta.canal == 'mercadolivre' %}bg-warning text-dark{% elif conta.canal == 'shopee' %}bg-danger{% elif conta.canal == 'magalu' %}bg-primary{% else %}bg-dark{% endif %} px-2 py-1">
                                 {{ conta.get_canal_display }}
                             </span>
                         </div>
                         <div class="col-md-6">
-                            <small class="text-muted d-block">Seller ID Externo:</small>
-                            <span class="font-monospace fw-bold">{{ conta.seller_id_externo|default:"Não vinculado" }}</span>
+                            <small class="text-muted d-block">Identificador Externo (Seller ID):</small>
+                            <span class="font-monospace fw-bold">{{ conta.seller_id_externo|default:"Aguardando vínculo via OAuth" }}</span>
                         </div>
                         <div class="col-md-6">
-                            <small class="text-muted d-block">Última Sincronização / Conexão:</small>
-                            <span>{{ conta.ultima_sincronizacao|date:"d/m/Y H:i:s"|default:"—" }}</span>
+                            <small class="text-muted d-block">Arquitetura de Conexão:</small>
+                            <span class="fw-semibold text-primary">
+                                {% if conta.tipo_aplicacao == 'INDIVIDUAL' %}
+                                    <i class="bi bi-person-badge me-1"></i> Aplicação Própria / Individual
+                                {% else %}
+                                    <i class="bi bi-cloud-check me-1"></i> Aplicação Global do Hub
+                                {% endif %}
+                            </span>
                         </div>
                         <div class="col-md-6">
-                            <small class="text-muted d-block">Criptografia em Repouso:</small>
-                            <span class="text-success small fw-semibold"><i class="bi bi-lock-fill"></i> Fernet AES-128 Criptografado</span>
+                            <small class="text-muted d-block">Segurança Criptográfica em Repouso:</small>
+                            <span class="text-success small fw-semibold">
+                                <i class="bi bi-shield-fill-check"></i> Fernet AES-128 Criptografado
+                            </span>
                         </div>
                     </div>
 
-                    <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top justify-content-between align-items-center">
-                        <div>
-                            {% if conta.canal == 'mercadolivre' %}
-                                {% if conta.ultima_sincronizacao %}
+                    {% if conta.canal == 'mercadolivre' %}
+                        <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top justify-content-between align-items-center">
+                            <div>
+                                {% if conta.ultima_sincronizacao or conta.access_token %}
                                     <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-outline-warning btn-sm">
                                         <i class="bi bi-arrow-repeat me-1"></i> Reconectar Conta
                                     </a>
                                 {% else %}
                                     <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-warning fw-bold">
-                                        <i class="bi bi-box-arrow-up-right me-1"></i> Conectar com Mercado Livre
+                                        <i class="bi bi-box-arrow-up-right me-1"></i> 🔐 Conectar com Mercado Livre (OAuth 2.0)
                                     </a>
                                 {% endif %}
+                            </div>
+
+                            {% if conta.access_token %}
+                                <form method="post" action="{% url 'conta_marketplace_desconectar' pk=conta.pk %}" class="d-inline" onsubmit="return confirm('Tem certeza que deseja revogar os tokens desta conta?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        <i class="bi bi-power me-1"></i> Desconectar Conta
+                                    </button>
+                                </form>
                             {% endif %}
                         </div>
-
-                        {% if conta.access_token %}
-                            <form method="post" action="{% url 'conta_marketplace_desconectar' pk=conta.pk %}" class="d-inline" onsubmit="return confirm('Tem certeza que deseja desconectar esta conta? Os tokens serão removidos.');">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-outline-danger btn-sm">
-                                    <i class="bi bi-power me-1"></i> Desconectar Conta
-                                </button>
-                            </form>
-                        {% endif %}
-                    </div>
+                    {% endif %}
                 </div>
             </div>
         {% endif %}
 
-        <!-- FORMULÁRIO DE DADOS GERAIS DA CONTA -->
+        <!-- FORMULÁRIO DE CONFIGURAÇÃO DA CONTA -->
         <div class="card shadow-sm">
-            <div class="card-header fw-bold bg-white">
-                <i class="bi bi-sliders me-2 text-primary"></i>Dados da Conta no Hub
+            <div class="card-header fw-bold bg-white py-3">
+                <i class="bi bi-sliders me-2 text-primary"></i>Configurar Conexão com Marketplace
             </div>
             <div class="card-body p-4">
-                <form method="post" novalidate>
+                <form method="post" novalidate id="contaMarketplaceForm">
                     {% csrf_token %}
 
-                    <div class="row g-3">
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger mb-4">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <!-- 1. DADOS DE IDENTIFICAÇÃO BÁSICA -->
+                    <div class="row g-3 mb-4">
                         <div class="col-md-6">
                             <label class="form-label fw-semibold">Canal de Marketplace *</label>
                             {{ form.canal }}
                             {% if modo_edicao %}
-                                <div class="form-text text-muted small"><i class="bi bi-lock-fill text-secondary"></i> O canal de marketplace é imutável após a conexão.</div>
+                                <div class="form-text text-muted small"><i class="bi bi-lock-fill text-secondary"></i> O canal é imutável após a criação.</div>
                             {% endif %}
                             {% if form.canal.errors %}<div class="text-danger small mt-1">{{ form.canal.errors.0 }}</div>{% endif %}
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label fw-semibold">Apelido da Conta *</label>
+                            <label class="form-label fw-semibold">Nome da Conta / Identificador *</label>
                             {{ form.apelido_conta }}
                             {% if form.apelido_conta.errors %}<div class="text-danger small mt-1">{{ form.apelido_conta.errors.0 }}</div>{% endif %}
                         </div>
 
                         <div class="col-md-12">
-                            <label class="form-label fw-semibold">Loja (Tenant) *</label>
+                            <label class="form-label fw-semibold">Loja / Tenant *</label>
                             {{ form.loja }}
                             {% if modo_edicao %}
-                                <div class="form-text text-muted small"><i class="bi bi-lock-fill text-secondary"></i> A loja (tenant) vinculada é imutável após a conexão.</div>
+                                <div class="form-text text-muted small"><i class="bi bi-lock-fill text-secondary"></i> A loja vinculada é imutável após a criação.</div>
                             {% endif %}
                             {% if form.loja.errors %}<div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>{% endif %}
                         </div>
+                    </div>
 
-                        <div class="col-12 mt-3">
+                    <!-- 2. MODO DE INTEGRAÇÃO DA APLICAÇÃO (GLOBAL VS INDIVIDUAL) -->
+                    <div class="border rounded-3 p-3 mb-4 bg-light">
+                        <label class="form-label fw-bold text-dark d-block mb-2">
+                            <i class="bi bi-diagram-3-fill me-1 text-primary"></i> Modo de Integração da Aplicação
+                        </label>
+                        <div class="row g-2">
+                            {% for radio in form.tipo_aplicacao %}
+                                <div class="col-md-6">
+                                    <div class="form-check p-3 bg-white rounded border h-100">
+                                        {{ radio.tag }}
+                                        <label class="form-check-label fw-semibold" for="{{ radio.id_for_label }}">
+                                            {{ radio.choice_label }}
+                                        </label>
+                                        <div class="small text-muted mt-1">
+                                            {% if radio.data.value == 'GLOBAL' %}
+                                                Padrão SaaS compartilhado. Utiliza as credenciais centrais homologadas do Hub (.env).
+                                            {% else %}
+                                                Credenciais exclusivas do lojista registradas no console de desenvolvedor do canal.
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        {% if form.tipo_aplicacao.errors %}
+                            <div class="text-danger small mt-1">{{ form.tipo_aplicacao.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    <!-- 3. BLOCO INFORMATIVO: MODO GLOBAL -->
+                    <div id="secaoModoGlobal" class="alert alert-info border-0 shadow-sm mb-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-info-circle-fill fs-4 me-3 text-info"></i>
+                            <div>
+                                <h6 class="fw-bold mb-1">Aplicativo Global do Hub Ativo</h6>
+                                <p class="mb-0 small text-muted">
+                                    Esta conta utilizará automaticamente as credenciais centralizadas do Hub Central. O lojista não necessita criar aplicação própria no portal de desenvolvedores.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. BLOCO DINÂMICO: MODO INDIVIDUAL -->
+                    <div id="secaoModoIndividual" class="mb-4" style="display: none;">
+                        <!-- CREDENCIAIS DO DESENVOLVEDOR -->
+                        <div class="card border mb-3">
+                            <div class="card-header bg-light py-2 fw-semibold">
+                                <i class="bi bi-key-fill me-1 text-warning"></i> Credenciais do Desenvolvedor (<span id="canalDevLabel">Mercado Livre Dev</span>)
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-semibold" id="labelAppId">App ID (Client ID) *</label>
+                                        {{ form.app_key_or_id }}
+                                        {% if form.app_key_or_id.errors %}
+                                            <div class="text-danger small mt-1">{{ form.app_key_or_id.errors.0 }}</div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-semibold" id="labelAppSecret">Client Secret *</label>
+                                        <div class="input-group">
+                                            {{ form.app_secret }}
+                                            <button class="btn btn-outline-secondary" type="button" onclick="alternarVisibilidadeSenha('{{ form.app_secret.id_for_label }}', this)">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                        </div>
+                                        {% if form.app_secret.errors %}
+                                            <div class="text-danger small mt-1">{{ form.app_secret.errors.0 }}</div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="small text-muted">
+                                            <i class="bi bi-arrow-return-right me-1"></i>
+                                            <strong>Redirect URI esperada:</strong>
+                                            <code class="user-select-all ms-1" id="redirectUriDisplay">
+                                                {{ callback_url|default:"https://hub.meudominio.com/marketplaces/mercadolivre/callback/" }}
+                                            </code>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- NOTIFICAÇÕES EM TEMPO REAL (WEBHOOKS) -->
+                        <div class="card border" id="blocoWebhooksContainer">
+                            <div class="card-header bg-light py-2 fw-semibold">
+                                <i class="bi bi-broadcast me-1 text-primary"></i> Notificações em Tempo Real (Webhooks)
+                            </div>
+                            <div class="card-body">
+                                <!-- CASO WEBHOOK HTTP -->
+                                <div id="webhookHttpConfig">
+                                    <label class="form-label fw-semibold">URL de Notificação (Segmentada na Origem via UUID)</label>
+                                    <div class="input-group mb-2">
+                                        <input type="text" class="form-control font-monospace bg-light" id="inputWebhookUrl"
+                                               value="{% if modo_edicao %}{{ webhook_url_individual }}{% else %}{{ base_url }}/api/v1/webhooks/mercadolivre/{{ form.instance.webhook_uuid|default:'<uuid>' }}/{% endif %}" readonly>
+                                        <button class="btn btn-outline-primary" type="button" id="btnCopiarWebhook" onclick="copiarWebhookUrl()">
+                                            <i class="bi bi-clipboard me-1"></i> <span id="btnCopiarTexto">Copiar URL</span>
+                                        </button>
+                                    </div>
+                                    <div class="form-text small text-muted mb-3">
+                                        <i class="bi bi-info-circle me-1"></i> Cadastre esta URL no campo <em>Notification URL</em> do painel de desenvolvedores do canal.
+                                    </div>
+
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold">Tópicos Necessários</label>
+                                            <div id="topicosNecessariosContainer">
+                                                <span class="badge bg-secondary me-1">orders_v2</span>
+                                                <span class="badge bg-secondary me-1">items</span>
+                                                <span class="badge bg-secondary me-1">shipments</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold">Webhook Secret (HMAC)</label>
+                                            <div class="input-group">
+                                                {{ form.webhook_secret }}
+                                                <button class="btn btn-outline-secondary" type="button" onclick="alternarVisibilidadeSenha('{{ form.webhook_secret.id_for_label }}', this)">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                            </div>
+                                            <div class="form-text small text-muted">
+                                                Chave para validação de hash HMAC (Anti-Replay &lt; 300s).
+                                            </div>
+                                            {% if form.webhook_secret.errors %}
+                                                <div class="text-danger small mt-1">{{ form.webhook_secret.errors.0 }}</div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- CASO MENSAGERIA / QUEUE EVENT (AMAZON) -->
+                                <div id="webhookQueueConfig" style="display: none;" class="alert alert-warning border-0 mb-0">
+                                    <h6 class="fw-bold"><i class="bi bi-box-seam me-2"></i>Mensageria Amazon SP-API (SQS / EventBridge)</h6>
+                                    <p class="small mb-1">
+                                        A Amazon SP-API utiliza notificações baseadas em mensageria de fila AWS SQS/EventBridge, não possuindo endpoint HTTP tradicional de webhook direto.
+                                    </p>
+                                    <div class="small">
+                                        <strong>Fila SQS Padrão:</strong> <code>arn:aws:sqs:us-east-1:123456789012:hub-marketplaces-events</code>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5. STATUS GERAIS DA CONTA -->
+                    <div class="row g-3 align-items-center mb-4 pt-2 border-top">
+                        <div class="col-md-6">
                             <div class="form-check form-switch">
                                 {{ form.ativo }}
                                 <label class="form-check-label fw-bold" for="{{ form.ativo.id_for_label }}">Integração Ativa</label>
                             </div>
                         </div>
+                        <div class="col-md-6 text-md-end">
+                            <span class="badge bg-light text-muted border p-2">
+                                <i class="bi bi-lock-fill text-success me-1"></i> Criptografia em Repouso Ativa
+                            </span>
+                        </div>
                     </div>
 
-                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                    <!-- BOTÕES DE SUBMISSÃO -->
+                    <div class="d-flex justify-content-between align-items-center pt-3 border-top">
                         <a href="{% url 'canal_list' %}" class="btn btn-outline-secondary">Cancelar</a>
-                        <button type="submit" class="btn btn-primary fw-bold">
-                            <i class="bi bi-check-lg me-1"></i> Salvar Dados
-                        </button>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary fw-bold px-4">
+                                <i class="bi bi-check-lg me-1"></i> Salvar Configurações
+                            </button>
+                            {% if modo_edicao and conta.canal == 'mercadolivre' %}
+                                <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-warning fw-bold">
+                                    <i class="bi bi-box-arrow-up-right me-1"></i> 🔐 Salvar e Conectar via OAuth 2.0
+                                </a>
+                            {% endif %}
+                        </div>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+    // Dicionário de canais e endpoints vindo do backend
+    const canalRegistry = {{ canal_registry_json|safe|default:"{}" }};
+    const baseUrl = "{{ base_url|default:'' }}";
+    const contaUuid = "{% if modo_edicao %}{{ conta.webhook_uuid }}{% else %}{{ form.instance.webhook_uuid|default:'' }}{% endif %}";
+
+    function getRadioValue(name) {
+        const checked = document.querySelector('input[name="' + name + '"]:checked');
+        return checked ? checked.value : 'GLOBAL';
+    }
+
+    function atualizarVisibilidadeModo() {
+        const modo = getRadioValue('tipo_aplicacao');
+        const secaoGlobal = document.getElementById('secaoModoGlobal');
+        const secaoIndividual = document.getElementById('secaoModoIndividual');
+
+        if (modo === 'INDIVIDUAL') {
+            secaoGlobal.style.display = 'none';
+            secaoIndividual.style.display = 'block';
+        } else {
+            secaoGlobal.style.display = 'block';
+            secaoIndividual.style.display = 'none';
+        }
+        atualizarCamposCanal();
+    }
+
+    function atualizarCamposCanal() {
+        const canalSelect = document.getElementById('id_canal');
+        if (!canalSelect) return;
+        const canal = canalSelect.value.toLowerCase();
+        const config = canalRegistry[canal] || canalRegistry[canalSelect.value] || {};
+
+        // Rótulo Dev
+        const devLabel = document.getElementById('canalDevLabel');
+        if (devLabel) {
+            devLabel.innerText = (config.nome || 'Canal') + ' Developers';
+        }
+
+        // Labels dinâmicos
+        const labelId = document.getElementById('labelAppId');
+        if (labelId) {
+            labelId.innerText = (config.label_id || 'App ID (Client ID)') + ' *';
+        }
+        const labelSecret = document.getElementById('labelAppSecret');
+        if (labelSecret) {
+            labelSecret.innerText = (config.label_secret || 'Client Secret') + ' *';
+        }
+
+        // Redirect URI esperada
+        const redirectDisplay = document.getElementById('redirectUriDisplay');
+        if (redirectDisplay) {
+            const callbackPath = config.callback_path || ('/marketplaces/' + canal + '/callback/');
+            redirectDisplay.innerText = baseUrl + callbackPath;
+        }
+
+        // Mecanismo de notificação (HTTP vs QUEUE)
+        const httpConfig = document.getElementById('webhookHttpConfig');
+        const queueConfig = document.getElementById('webhookQueueConfig');
+        const inputUrl = document.getElementById('inputWebhookUrl');
+
+        if (config.mecanismo_notificacao === 'QUEUE_EVENT') {
+            if (httpConfig) httpConfig.style.display = 'none';
+            if (queueConfig) queueConfig.style.display = 'block';
+        } else {
+            if (httpConfig) httpConfig.style.display = 'block';
+            if (queueConfig) queueConfig.style.display = 'none';
+
+            if (inputUrl) {
+                const uuidPart = contaUuid ? (contaUuid + '/') : '<uuid_da_conta>/';
+                inputUrl.value = baseUrl + '/api/v1/webhooks/' + (config.canal_key || canal) + '/' + uuidPart;
+            }
+
+            // Tópicos necessários
+            const topicosCont = document.getElementById('topicosNecessariosContainer');
+            if (topicosCont && config.topicos_necessarios) {
+                topicosCont.innerHTML = config.topicos_necessarios
+                    .map(t => '<span class="badge bg-secondary me-1">' + t + '</span>')
+                    .join('');
+            }
+        }
+    }
+
+    function alternarVisibilidadeSenha(inputId, btn) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        const icon = btn.querySelector('i');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.className = 'bi bi-eye-slash';
+        } else {
+            input.type = 'password';
+            icon.className = 'bi bi-eye';
+        }
+    }
+
+    function copiarWebhookUrl() {
+        const input = document.getElementById('inputWebhookUrl');
+        if (!input) return;
+        navigator.clipboard.writeText(input.value).then(() => {
+            const btnTexto = document.getElementById('btnCopiarTexto');
+            const original = btnTexto.innerText;
+            btnTexto.innerText = 'Copiado!';
+            setTimeout(() => {
+                btnTexto.innerText = original;
+            }, 2000);
+        }).catch(err => {
+            input.select();
+            document.execCommand('copy');
+            const btnTexto = document.getElementById('btnCopiarTexto');
+            btnTexto.innerText = 'Copiado!';
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const radios = document.querySelectorAll('input[name="tipo_aplicacao"]');
+        radios.forEach(r => r.addEventListener('change', atualizarVisibilidadeModo));
+
+        const canalSelect = document.getElementById('id_canal');
+        if (canalSelect) {
+            canalSelect.addEventListener('change', atualizarCamposCanal);
+        }
+
+        atualizarVisibilidadeModo();
+    });
+</script>
 {% endblock %}

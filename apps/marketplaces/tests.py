@@ -1827,3 +1827,264 @@ class MercadoLivreWebhookTestCase(TestCase):
 
 
 
+
+
+
+# ==============================================================================
+# TESTES: CRIPTOGRAFIA FERNET, MODO HÍBRIDO E WEBHOOK COM SEGMENTAÇÃO UUID
+# ==============================================================================
+import json
+import base64
+import hashlib
+import hmac
+import time
+import uuid
+from django.test import override_settings
+from apps.core.security import get_fernet_instance, EncryptedTextField
+
+
+class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
+    """
+    O QUE FAZ: Suíte de testes para a camada criptográfica Fernet, modo híbrido e segmentação de webhooks por UUID.
+    POR QUE FAZ: Valida proteção de segredos em repouso, short-circuit fail-fast, anti-replay (< 300s) e rotas unificadas.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.loja = Loja.objects.create(
+            nome="Loja Security Test",
+            slug="loja-security-test",
+            cnpj="55.555.555/0001-55"
+        )
+        self.loja.garantir_modulos_padrao()
+
+        self.secret_chave = "super-secret-hmac-key-123456"
+        self.conta_individual = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Individual Tenant",
+            tipo_aplicacao="INDIVIDUAL",
+            app_key_or_id="APP_ID_987654",
+            app_secret="SECRET_APP_987654",
+            webhook_secret=self.secret_chave,
+            seller_id_externo="99887766",
+            is_mock=True
+        )
+
+        self.categoria = Categoria.objects.create(
+            loja=self.loja,
+            nome="Seguranca",
+            slug="seguranca"
+        )
+        self.produto = Produto.objects.create(
+            loja=self.loja,
+            categoria=self.categoria,
+            sku="SKU-SEC-01",
+            nome="Produto Teste Seguranca",
+            preco=Decimal('100.00'),
+            estoque=20
+        )
+        self.anuncio = Anuncio.objects.create(
+            conta=self.conta_individual,
+            item_id_externo="MLB999888777",
+            titulo="Anuncio Seguro MLB999888777",
+            preco_venda=Decimal('100.00'),
+            estoque_publicado=20,
+            status='active'
+        )
+        AnuncioComposicao.objects.create(
+            anuncio=self.anuncio,
+            produto=self.produto,
+            quantidade=1
+        )
+
+    # --------------------------------------------------------------------------
+    # 1. TESTES DA CAMADA CRIPTOGRÁFICA FERNET (apps/core/security.py)
+    # --------------------------------------------------------------------------
+    def test_fernet_key_derivation_deterministic(self):
+        """Valida que get_fernet_instance deriva chave válida determinística a partir de SECRET_KEY."""
+        f1 = get_fernet_instance()
+        f2 = get_fernet_instance()
+        texto = "TokenUltraSecreto123"
+        cifrado = f1.encrypt(texto.encode('utf-8'))
+        decifrado = f2.decrypt(cifrado).decode('utf-8')
+        self.assertEqual(texto, decifrado)
+
+    def test_encrypted_text_field_encryption_in_database(self):
+        """Valida que o valor no banco de dados está criptografado e é descriptografado na leitura do ORM."""
+        conta = ContaMarketplace.objects.get(pk=self.conta_individual.pk)
+        # Na instância do ORM, o valor é recuperado decifrado
+        self.assertEqual(conta.app_secret, "SECRET_APP_987654")
+        self.assertEqual(conta.webhook_secret, self.secret_chave)
+
+        # Na consulta bruta ao banco (sem passar pelo from_db_value), o valor é uma string Fernet
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT app_secret, webhook_secret FROM marketplaces_contamarketplace WHERE id = %s", [conta.pk])
+            raw_app_secret, raw_webhook_secret = cursor.fetchone()
+        self.assertNotEqual(raw_app_secret, "SECRET_APP_987654")
+        self.assertTrue(raw_app_secret.startswith("gAAAAA"))
+        self.assertNotEqual(raw_webhook_secret, self.secret_chave)
+        self.assertTrue(raw_webhook_secret.startswith("gAAAAA"))
+
+    def test_encrypted_text_field_fallback_for_plaintext(self):
+        """Valida fallback gracioso para valores em texto puro já presentes na base (legado)."""
+        field = EncryptedTextField()
+        valor_legado = "legacy-plain-token-12345"
+        res = field.from_db_value(valor_legado, None, None)
+        self.assertEqual(res, valor_legado)
+
+    def test_encrypted_text_field_idempotence(self):
+        """Valida que get_prep_value preserva integridade decifrável sem corrupção de dados."""
+        field = EncryptedTextField()
+        f = get_fernet_instance()
+        texto = "segredo_super_confidencial"
+        cifrado1 = field.get_prep_value(texto)
+        cifrado2 = field.get_prep_value(cifrado1)
+        self.assertEqual(f.decrypt(cifrado1.encode('utf-8')).decode('utf-8'), texto)
+        self.assertEqual(f.decrypt(cifrado2.encode('utf-8')).decode('utf-8'), texto)
+
+    # --------------------------------------------------------------------------
+    # 2. TESTES DE WEBHOOK INDIVIDUAL COM UUID E FAIL-FAST SIMÉTRICO
+    # --------------------------------------------------------------------------
+    def test_webhook_individual_route_404_for_unknown_uuid(self):
+        """Valida que UUID inexistente na rota retorna HTTP 404 imediato sem processar body."""
+        url_inexistente = f"/api/v1/webhooks/mercadolivre/{uuid.uuid4()}/"
+        res = self.client.post(url_inexistente, data={'topic': 'orders_v2'}, content_type='application/json')
+        self.assertEqual(res.status_code, 404)
+
+    def test_webhook_individual_route_401_on_missing_signature(self):
+        """Valida que rota individual com webhook_secret configurado exige assinatura HMAC (HTTP 401)."""
+        url = f"/api/v1/webhooks/mercadolivre/{self.conta_individual.webhook_uuid}/"
+        payload = {'topic': 'orders_v2', 'resource': '/orders/111'}
+        res = self.client.post(url, data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(res.status_code, 401)
+        self.assertIn("ausente", res.json().get('error', '').lower())
+
+    def test_webhook_individual_route_401_on_invalid_hmac(self):
+        """Valida que assinatura HMAC incorreta é rejeitada com HTTP 401 sem parse do body."""
+        url = f"/api/v1/webhooks/mercadolivre/{self.conta_individual.webhook_uuid}/"
+        payload = {'topic': 'orders_v2', 'resource': '/orders/222'}
+        agora_ts = str(int(time.time()))
+        headers = {
+            'HTTP_X_SIGNATURE': 'ts=' + agora_ts + ',v1=hash_completamente_errado_12345',
+            'HTTP_X_TIMESTAMP': agora_ts,
+        }
+        res = self.client.post(url, data=json.dumps(payload), content_type='application/json', **headers)
+        self.assertEqual(res.status_code, 401)
+        self.assertIn("inválida", res.json().get('error', '').lower())
+
+    def test_webhook_individual_route_401_on_timestamp_replay_exceeding_300s(self):
+        """Valida mitigação contra Replay Attack: timestamp com mais de 300 segundos é rejeitado com HTTP 401."""
+        url = f"/api/v1/webhooks/mercadolivre/{self.conta_individual.webhook_uuid}/"
+        payload_bytes = json.dumps({'topic': 'orders_v2', 'resource': '/orders/333'}).encode('utf-8')
+        old_ts = str(int(time.time()) - 350)  # 350 segundos atrás (> 300s)
+
+        # Mesmo com HMAC gerado para o payload, o timestamp expirado bloqueia
+        sig = hmac.new(self.secret_chave.encode('utf-8'), payload_bytes, hashlib.sha256).hexdigest()
+        headers = {
+            'HTTP_X_SIGNATURE': f"ts={old_ts},v1={sig}",
+            'HTTP_X_TIMESTAMP': old_ts,
+        }
+        res = self.client.post(url, data=payload_bytes, content_type='application/json', **headers)
+        self.assertEqual(res.status_code, 401)
+        self.assertIn("anti-replay", res.json().get('error', '').lower())
+
+    def test_webhook_individual_route_success_with_valid_hmac_and_timestamp(self):
+        """Valida sucesso na autenticação HMAC + timestamp recente na rota individual e baixa de estoque."""
+        url = f"/api/v1/webhooks/mercadolivre/{self.conta_individual.webhook_uuid}/"
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/2000099999000001',
+            'user_id': self.conta_individual.seller_id_externo,
+            'order_data': {
+                'id': '2000099999000001',
+                'status': 'paid',
+                'paid_amount': 100.00,
+                'order_items': [
+                    {
+                        'item': {
+                            'id': self.anuncio.item_id_externo,
+                            'title': self.anuncio.titulo
+                        },
+                        'quantity': 2,
+                        'unit_price': 100.00,
+                        'full_unit_price': 100.00
+                    }
+                ]
+            }
+        }
+        payload_bytes = json.dumps(payload).encode('utf-8')
+        agora_ts = str(int(time.time()))
+        sig = hmac.new(self.secret_chave.encode('utf-8'), payload_bytes, hashlib.sha256).hexdigest()
+        headers = {
+            'HTTP_X_SIGNATURE': f"ts={agora_ts},v1={sig}",
+            'HTTP_X_TIMESTAMP': agora_ts,
+        }
+
+        estoque_inicial = self.produto.estoque
+        res = self.client.post(url, data=payload_bytes, content_type='application/json', **headers)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        # Baixa atômica de 2 unidades confirmada
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.estoque, estoque_inicial - 2)
+
+    # --------------------------------------------------------------------------
+    # 3. TESTES DE WEBHOOK GLOBAL COM CHAVE DO .ENV / SETTINGS
+    # --------------------------------------------------------------------------
+    @override_settings(MELI_GLOBAL_WEBHOOK_SECRET="global-secret-key-999")
+    def test_webhook_global_route_fail_fast_hmac_before_db(self):
+        """Valida que a rota global rejeita HMAC inválido com 401 antes de efetuar consulta ao banco."""
+        url = "/api/v1/webhooks/mercadolivre/"
+        payload = {'topic': 'orders_v2', 'resource': '/orders/global_fail'}
+        agora_ts = str(int(time.time()))
+        headers = {
+            'HTTP_X_SIGNATURE': f"ts={agora_ts},v1=invalid_global_signature",
+            'HTTP_X_TIMESTAMP': agora_ts,
+        }
+        res = self.client.post(url, data=json.dumps(payload), content_type='application/json', **headers)
+        self.assertEqual(res.status_code, 401)
+        self.assertIn("inválida", res.json().get('error', '').lower())
+
+    @override_settings(MELI_GLOBAL_WEBHOOK_SECRET="global-secret-key-999")
+    def test_webhook_global_route_success_with_global_secret(self):
+        """Valida que a rota global com HMAC correto resolve o seller_id no banco e processa o pedido."""
+        url = "/api/v1/webhooks/mercadolivre/"
+        payload = {
+            'topic': 'orders_v2',
+            'resource': '/orders/2000099999000002',
+            'user_id': self.conta_individual.seller_id_externo,
+            'order_data': {
+                'id': '2000099999000002',
+                'status': 'paid',
+                'paid_amount': 100.00,
+                'order_items': [
+                    {
+                        'item': {
+                            'id': self.anuncio.item_id_externo,
+                            'title': self.anuncio.titulo
+                        },
+                        'quantity': 1,
+                        'unit_price': 100.00,
+                        'full_unit_price': 100.00
+                    }
+                ]
+            }
+        }
+        payload_bytes = json.dumps(payload).encode('utf-8')
+        agora_ts = str(int(time.time()))
+        sig = hmac.new("global-secret-key-999".encode('utf-8'), payload_bytes, hashlib.sha256).hexdigest()
+        headers = {
+            'HTTP_X_SIGNATURE': f"ts={agora_ts},v1={sig}",
+            'HTTP_X_TIMESTAMP': agora_ts,
+        }
+
+        estoque_antes = self.produto.estoque
+        res = self.client.post(url, data=payload_bytes, content_type='application/json', **headers)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json().get('status'), 'ok')
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.estoque, estoque_antes - 1)

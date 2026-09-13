@@ -2,7 +2,7 @@
 import logging
 import traceback
 from decimal import Decimal
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from django.db import transaction, IntegrityError
 from django.utils import timezone
 
@@ -28,7 +28,7 @@ class MercadoLivreWebhookService:
     """
 
     @classmethod
-    def processar_notificacao(cls, payload: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+    def processar_notificacao(cls, payload: Dict[str, Any], conta: Optional[ContaMarketplace] = None) -> Tuple[int, Dict[str, Any]]:
         """
         O QUE FAZ: Ponto de entrada de processamento da notificação do webhook.
         RETORNO: (status_code_http: int, resposta_json: dict)
@@ -128,9 +128,8 @@ class MercadoLivreWebhookService:
 
         # 3. Execução da busca dos dados do pedido e baixa atômica
         try:
-            # Tarefa 0 / Ajuste 1: Busca estrita sem fallbacks para primeira conta
-            conta = None
-            if user_id:
+            # Resolução de conta: usa conta fornecida (fluxo individual) ou busca por seller_id (fluxo global)
+            if not conta and user_id:
                 conta = ContaMarketplace.objects.filter(
                     canal=CanalMarketplaceEnum.MERCADOLIVRE,
                     seller_id_externo=user_id

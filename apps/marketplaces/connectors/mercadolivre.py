@@ -162,8 +162,12 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 return False, "Erro HTTP 401: Não autorizado: credenciais ausentes ou inválidas no marketplace.", {}, log
 
         # CENÁRIO B: CONTAS MANUAIS / REAIS (is_mock = False)
-        client_id = cls._get_client_id()
-        client_secret = cls._get_client_secret()
+        if conta and getattr(conta, 'tipo_aplicacao', None) == 'INDIVIDUAL' and getattr(conta, 'app_key_or_id', None) and getattr(conta, 'app_secret', None):
+            client_id = conta.app_key_or_id
+            client_secret = conta.app_secret
+        else:
+            client_id = cls._get_client_id()
+            client_secret = cls._get_client_secret()
         redirect_uri = cls._get_redirect_uri()
 
         url = f"{cls.BASE_URL}/oauth/token"
@@ -317,8 +321,12 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         if not self.conta or not self.conta.pk:
             return {"sucesso": False, "mensagem": "Conta não associada ou sem identificador para renovação."}
 
-        client_id = self._get_client_id()
-        client_secret = self._get_client_secret()
+        if self.conta and getattr(self.conta, 'tipo_aplicacao', None) == 'INDIVIDUAL' and getattr(self.conta, 'app_key_or_id', None) and getattr(self.conta, 'app_secret', None):
+            client_id = self.conta.app_key_or_id
+            client_secret = self.conta.app_secret
+        else:
+            client_id = self._get_client_id()
+            client_secret = self._get_client_secret()
 
         with transaction.atomic():
             # Bloqueio pessimista no banco de dados para concorrência

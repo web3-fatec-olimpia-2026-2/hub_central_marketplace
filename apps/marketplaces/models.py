@@ -1,11 +1,12 @@
 # Os códigos foram gerados com auxilio de I.A.
+import uuid
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
 from apps.tenancy.models import Loja
 from .enums import CanalMarketplaceEnum, EventoAuditoriaEnum, StatusSincronizacaoEnum, WebhookStatusEnum
-from .fields import EncryptedTextField
+from apps.core.security import EncryptedTextField
 
 
 class ContaMarketplace(models.Model):
@@ -31,6 +32,50 @@ class ContaMarketplace(models.Model):
     is_mock = models.BooleanField(
         default=False, verbose_name="Conta Simulada / Mock",
         help_text="Indica se a conta pertence ao conjunto de lojas e dados fictícios de teste."
+    )
+
+    TIPO_APLICACAO_CHOICES = [
+        ('GLOBAL', 'Aplicação Global do Hub (Centralizada)'),
+        ('INDIVIDUAL', 'Aplicação Própria do Tenant (Individual)'),
+    ]
+
+    # Estratégia de Aplicação (Híbrida: Global vs Individual)
+    tipo_aplicacao = models.CharField(
+        max_length=20,
+        choices=TIPO_APLICACAO_CHOICES,
+        default='GLOBAL',
+        verbose_name="Tipo de Aplicação",
+        help_text="Define se utiliza credenciais compartilhadas do Hub ou chaves próprias do lojista."
+    )
+
+    # Identificador Público de Roteamento para Webhook Individual (Segmentação na Origem)
+    webhook_uuid = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="UUID do Webhook"
+    )
+
+    # Credenciais do Desenvolvedor (Modo Individual)
+    app_key_or_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="App ID / Partner ID / Client ID",
+        help_text="Identificador público da aplicação: Client ID / Partner ID"
+    )
+    app_secret = EncryptedTextField(
+        blank=True,
+        null=True,
+        verbose_name="App Secret / Client Secret / Partner Key",
+        help_text="Chave secreta da aplicação (criptografada em repouso via Fernet)."
+    )
+    webhook_secret = EncryptedTextField(
+        blank=True,
+        null=True,
+        verbose_name="Webhook Secret",
+        help_text="Chave secreta para validação de assinatura HMAC dos webhooks."
     )
 
     # Credenciais de Integração OAuth / API (Criptografadas em Repouso via Fernet)
@@ -133,6 +178,14 @@ class ContaMarketplace(models.Model):
         super().save(*args, **kwargs)
 
     @property
+    def seller_id_remoto(self):
+        return self.seller_id_externo
+
+    @seller_id_remoto.setter
+    def seller_id_remoto(self, value):
+        self.seller_id_externo = value
+
+    @property
     def has_credentials(self) -> bool:
         """Verifica se a conta possui Access Token configurado."""
         return bool(self.access_token)
@@ -148,6 +201,7 @@ class ContaMarketplace(models.Model):
 
 # Alias de modelo conforme especificação
 ConfiguracaoCanal = ContaMarketplace
+MarketplaceConta = ContaMarketplace
 
 
 class LogSincronizacao(models.Model):

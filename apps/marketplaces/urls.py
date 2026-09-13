@@ -24,6 +24,10 @@ urlpatterns = [
     path('logs/sincronizacao/', views.LogSincronizacaoListView.as_view(), name='log_sincronizacao_list'),
     path('logs/webhooks/<int:pk>/replay/', views.WebhookEventReplayView.as_view(), name='webhook_event_replay'),
 
-    # Webhooks Nativos Mercado Livre
+    # Webhook Unificado com Suporte Híbrido (Global e Individual com UUID)
+    path('api/v1/webhooks/<str:canal>/', views.WebhookIngestionView.as_view(), name='webhook_global'),
+    path('api/v1/webhooks/<str:canal>/<uuid:webhook_uuid>/', views.WebhookIngestionView.as_view(), name='webhook_individual'),
+
+    # Webhooks Nativos Mercado Livre (Legado / Compatibilidade)
     path('marketplaces/webhooks/mercadolivre/', views.MercadoLivreWebhookView.as_view(), name='mercadolivre_webhook'),
 ]

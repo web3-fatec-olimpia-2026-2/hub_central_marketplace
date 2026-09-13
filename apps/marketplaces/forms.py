@@ -11,7 +11,7 @@ from .enums import CanalMarketplaceEnum
 class ContaMarketplaceForm(forms.ModelForm):
     """
     O QUE FAZ: Formulário de cadastro e edição de Contas e Conexões de Marketplaces.
-    POR QUE FAZ: Permite configurar credenciais de múltiplos canais (Mercado Livre, Shopee, Magalu, Amazon) por loja.
+    POR QUE FAZ: Suporta configuração híbrida (Global SaaS vs Individual Tenant) com proteção criptográfica de segredos.
     PERMISSÕES RBAC: DEV e ADMIN (sua própria loja).
     MULTI-TENANCY: Vínculo automático à loja do autor (ou seleção por DEV).
     """
@@ -22,10 +22,49 @@ class ContaMarketplaceForm(forms.ModelForm):
         widget=forms.Select(attrs={'class': 'form-select'})
     )
 
+    tipo_aplicacao = forms.ChoiceField(
+        choices=ContaMarketplace.TIPO_APLICACAO_CHOICES,
+        widget=forms.RadioSelect(attrs={'class': 'form-check-input'}),
+        initial='GLOBAL',
+        required=False,
+        label="Modo de Integração da Aplicação"
+    )
+
+    app_key_or_id = forms.CharField(
+        label="App ID (Client ID) / Partner ID",
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control font-monospace',
+            'placeholder': 'Ex: 1234567890123456',
+            'autocomplete': 'off'
+        })
+    )
+
+    app_secret = forms.CharField(
+        label="Client Secret / Partner Key",
+        required=False,
+        widget=forms.PasswordInput(render_value=True, attrs={
+            'class': 'form-control font-monospace',
+            'placeholder': '••••••••••••••••••••••••••••••••',
+            'autocomplete': 'new-password'
+        })
+    )
+
+    webhook_secret = forms.CharField(
+        label="Webhook Secret (Validação de Assinatura)",
+        required=False,
+        widget=forms.PasswordInput(render_value=True, attrs={
+            'class': 'form-control font-monospace',
+            'placeholder': '••••••••••••••••••••••••••••••••',
+            'autocomplete': 'new-password'
+        })
+    )
+
     class Meta:
         model = ContaMarketplace
         fields = [
-            'loja', 'canal', 'apelido_conta', 'ativo'
+            'loja', 'canal', 'apelido_conta', 'ativo',
+            'tipo_aplicacao', 'app_key_or_id', 'app_secret', 'webhook_secret'
         ]
         widgets = {
             'canal': forms.Select(attrs={'class': 'form-select'}),
@@ -52,12 +91,30 @@ class ContaMarketplaceForm(forms.ModelForm):
             self.fields['loja'].initial = loja_autor
             self.fields['loja'].disabled = True
 
-        # Imutabilidade estrita na tela de edição: Canal e Loja não podem ser alterados
+        # Imutabilidade estrita na edição: Canal e Loja não podem ser alterados
         if self.instance and self.instance.pk:
             self.fields['canal'].disabled = True
             self.fields['canal'].help_text = "O canal de marketplace é imutável após a criação da conta."
             self.fields['loja'].disabled = True
             self.fields['loja'].help_text = "A loja (tenant) vinculada é imutável após a criação da conta."
+
+            # Preenche valores iniciais dos campos sensíveis se existirem
+            if self.instance.tipo_aplicacao:
+                self.fields['tipo_aplicacao'].initial = self.instance.tipo_aplicacao
+            if self.instance.app_key_or_id:
+                self.fields['app_key_or_id'].initial = self.instance.app_key_or_id
+            if self.instance.app_secret:
+                self.fields['app_secret'].initial = self.instance.app_secret
+            if self.instance.webhook_secret:
+                self.fields['webhook_secret'].initial = self.instance.webhook_secret
+
+    def clean_tipo_aplicacao(self):
+        val = self.cleaned_data.get('tipo_aplicacao')
+        if not val:
+            if self.instance and getattr(self.instance, 'tipo_aplicacao', None):
+                return self.instance.tipo_aplicacao
+            return 'GLOBAL'
+        return val
 
     def clean(self):
         cleaned_data = super().clean()
@@ -110,5 +167,24 @@ class ContaMarketplaceForm(forms.ModelForm):
                 qs_apelido = qs_apelido.exclude(pk=self.instance.pk)
             if qs_apelido.exists():
                 self.add_error('apelido_conta', f"Já existe uma conta com o apelido '{apelido_conta}' cadastrada para esta loja.")
+
+        # 4. Validação de credenciais para Modo Individual
+        tipo_app = cleaned_data.get('tipo_aplicacao')
+        if tipo_app == 'INDIVIDUAL':
+            app_key = cleaned_data.get('app_key_or_id')
+            app_sec = cleaned_data.get('app_secret')
+            if not app_key:
+                self.add_error('app_key_or_id', "O App ID (Client ID) é obrigatório para o modo Aplicativo Próprio / Individual.")
+
+            # Preserva segredo já salvo se o campo for submetido em branco durante edição
+            if not app_sec:
+                if self.instance and self.instance.pk and self.instance.app_secret:
+                    cleaned_data['app_secret'] = self.instance.app_secret
+                else:
+                    self.add_error('app_secret', "O Client Secret é obrigatório para o modo Aplicativo Próprio / Individual.")
+
+            # Preserva webhook_secret já salvo se deixado em branco
+            if not cleaned_data.get('webhook_secret') and self.instance and self.instance.pk and self.instance.webhook_secret:
+                cleaned_data['webhook_secret'] = self.instance.webhook_secret
 
         return cleaned_data
