@@ -46,6 +46,11 @@
             --bs-body-color: #0f172a;       /* Cor de Texto Padrão */
         }
 
+        html, body {
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+
         body {
             min-height: 100vh;
             display: flex;
@@ -150,6 +155,69 @@
         [data-bs-theme="dark"] .bg-white {
             background-color: var(--bs-body-bg) !important;
         }
+
+        /* Ajustes de Responsividade da Navbar e Prevenção de Overflow */
+        .navbar-app {
+            padding-top: 0.35rem;
+            padding-bottom: 0.35rem;
+        }
+
+        .navbar-app .navbar-brand {
+            font-size: 0.95rem;
+            white-space: nowrap;
+            letter-spacing: -0.2px;
+        }
+
+        .navbar-app .nav-menu-principal {
+            gap: 2px;
+            align-items: center;
+        }
+
+        .navbar-app .nav-link {
+            white-space: nowrap !important;
+            font-size: 0.82rem;
+            padding: 0.32rem 0.42rem !important;
+            border-radius: 0.3rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            transition: background-color 0.15s ease-in-out;
+        }
+
+        .navbar-app .nav-link:hover,
+        .navbar-app .nav-link:focus {
+            background-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .navbar-app .nav-link i {
+            font-size: 0.88rem;
+        }
+
+        .btn-theme-nav {
+            font-size: 0.78rem;
+            padding: 0.25rem 0.45rem !important;
+            border-radius: 0.3rem;
+            white-space: nowrap;
+        }
+
+        .btn-mock-nav {
+            font-size: 0.78rem;
+            padding: 0.25rem 0.45rem !important;
+            white-space: nowrap;
+        }
+
+        .badge-nav-role {
+            font-size: 0.72rem;
+            padding: 0.25rem 0.45rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .user-nav-dropdown {
+            font-size: 0.82rem;
+            padding: 0.25rem 0.45rem !important;
+            white-space: nowrap;
+        }
     </style>
 
     {% block extra_head %}{% endblock %}
@@ -157,9 +225,9 @@
 <body>
 
     <!-- CABEÇALHO / NAVBAR -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top shadow-sm">
-        <div class="container-fluid px-4">
-            <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="{% url 'home' %}">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top shadow-sm navbar-app">
+        <div class="container-fluid px-2 px-md-3">
+            <a class="navbar-brand d-flex align-items-center gap-2 fw-bold me-2 me-xl-3" href="{% url 'home' %}">
                 <i class="bi bi-diagram-3-fill"></i> Hub Marketplaces
             </a>
             
@@ -168,7 +236,7 @@
             </button>
 
             <div class="collapse navbar-collapse" id="navMenu">
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0 nav-menu-principal">
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'home' %}"><i class="bi bi-house-door"></i> Início</a>
                     </li>
@@ -188,7 +256,7 @@
                         {% if modulos_ativos.pedidos or is_dev %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'pedido_list' %}">
-                                    <i class="bi bi-cart-check"></i> Vendas / Pedidos
+                                    <i class="bi bi-cart-check"></i> Pedidos
                                 </a>
                             </li>
                         {% endif %}
@@ -205,7 +273,7 @@
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'log_sincronizacao_list' %}">
-                                    <i class="bi bi-journal-text"></i> Logs de Integração
+                                    <i class="bi bi-journal-text"></i> Logs
                                 </a>
                             </li>
                         {% endif %}
@@ -213,7 +281,7 @@
                             {% if is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
                                 <li class="nav-item">
                                     <a class="nav-link" href="{% url 'simulador_promocional' %}">
-                                        <i class="bi bi-calculator"></i> Simulador Promoções
+                                        <i class="bi bi-calculator"></i> Simulador
                                     </a>
                                 </li>
                             {% endif %}
@@ -228,18 +296,18 @@
                         {% if is_dev or user.is_superuser %}
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'loja_list' %}">
-                                    <i class="bi bi-buildings"></i> Lojas (Tenants)
+                                    <i class="bi bi-buildings"></i> Lojas
                                 </a>
                             </li>
                         {% endif %}
                     {% endif %}
                 </ul>
 
-                <ul class="navbar-nav ms-auto align-items-center">
+                <ul class="navbar-nav ms-auto align-items-center gap-1">
                     <!-- SELETOR DE TEMA (4 OPÇÕES) -->
-                    <li class="nav-item dropdown me-2">
-                        <button class="btn btn-link nav-link dropdown-toggle text-white d-flex align-items-center py-1 px-2 border border-white border-opacity-25 rounded" id="bd-theme" type="button" aria-expanded="false" data-bs-toggle="dropdown" aria-label="Alternar tema">
-                            <i class="bi bi-circle-half fs-5 me-1" id="bd-theme-icon"></i>
+                    <li class="nav-item dropdown me-1">
+                        <button class="btn btn-link nav-link dropdown-toggle text-white d-flex align-items-center btn-theme-nav border border-white border-opacity-25 rounded" id="bd-theme" type="button" aria-expanded="false" data-bs-toggle="dropdown" aria-label="Alternar tema">
+                            <i class="bi bi-circle-half fs-6 me-1" id="bd-theme-icon"></i>
                             <span class="d-none d-xl-inline small fw-semibold" id="bd-theme-text">Tema</span>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end shadow border-0" aria-labelledby="bd-theme">
@@ -276,13 +344,13 @@
 
                     {% if user.is_authenticated %}
                         {% if is_dev or user.perfil.is_dev or user.is_superuser %}
-                            <li class="nav-item dropdown me-2">
+                            <li class="nav-item dropdown me-1">
                                 <div class="btn-group btn-group-sm">
-                                    <a class="btn btn-warning fw-bold text-dark d-flex align-items-center gap-1 shadow-sm" href="{% url 'mockar_dados_dashboard' %}" title="Ambiente de Testes e Mock de Dados">
+                                    <a class="btn btn-warning fw-bold text-dark d-flex align-items-center gap-1 shadow-sm btn-mock-nav" href="{% url 'mockar_dados_dashboard' %}" title="Ambiente de Testes e Mock de Dados">
                                         <i class="bi bi-database-fill-gear"></i>
-                                        <span class="d-none d-lg-inline">Mockar Dados</span>
+                                        <span class="d-none d-xl-inline">Mock</span>
                                     </a>
-                                    <button type="button" class="btn btn-warning text-dark dropdown-toggle dropdown-toggle-split shadow-sm" data-bs-toggle="dropdown" aria-expanded="false" title="Controle de Simulação Mock">
+                                    <button type="button" class="btn btn-warning text-dark dropdown-toggle dropdown-toggle-split shadow-sm btn-mock-nav" data-bs-toggle="dropdown" aria-expanded="false" title="Controle de Simulação Mock">
                                         <span class="visually-hidden">Controle Mock</span>
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end shadow p-3" style="min-width: 250px;">
@@ -323,23 +391,23 @@
                                 </div>
                             </li>
                         {% endif %}
-                        <li class="nav-item me-2 d-none d-md-block">
+                        <li class="nav-item me-1 d-none d-md-block">
                             {% if user.perfil %}
-                                <span class="badge badge-role-{{ user.perfil.papel|lower }} px-2 py-1">
+                                <span class="badge badge-role-{{ user.perfil.papel|lower }} badge-nav-role">
                                     {{ user.perfil.get_papel_display }}
                                 </span>
                                 {% if user.perfil.loja %}
-                                    <span class="badge bg-light text-dark border px-2 py-1 ms-1">
+                                    <span class="badge bg-light text-dark border badge-nav-role ms-1">
                                         <i class="bi bi-shop"></i> {{ user.perfil.loja.nome }}
                                     </span>
                                 {% endif %}
                             {% elif user.is_superuser %}
-                                <span class="badge bg-danger px-2 py-1">Superusuário</span>
+                                <span class="badge bg-danger badge-nav-role">Superusuário</span>
                             {% endif %}
                         </li>
                         <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-white d-flex align-items-center gap-2" href="#" role="button" data-bs-toggle="dropdown">
-                                <i class="bi bi-person-circle fs-5"></i> {{ user.username }}
+                            <a class="nav-link dropdown-toggle text-white d-flex align-items-center gap-1 user-nav-dropdown" href="#" role="button" data-bs-toggle="dropdown">
+                                <i class="bi bi-person-circle fs-6"></i> {{ user.username }}
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end shadow">
                                 <li>
@@ -463,7 +531,7 @@
             function updateUI(theme) {
                 const themeIcon = document.getElementById('bd-theme-icon');
                 if (themeIcon) {
-                    themeIcon.className = `bi ${THEME_ICONS[theme] || 'bi-circle-half'} fs-5 me-1`;
+                    themeIcon.className = `bi ${THEME_ICONS[theme] || 'bi-circle-half'} fs-6 me-1`;
                 }
 
                 document.querySelectorAll('[data-bs-theme-value]').forEach(element => {
