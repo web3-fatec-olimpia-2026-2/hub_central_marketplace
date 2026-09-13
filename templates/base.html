@@ -158,64 +158,89 @@
 
         /* Ajustes de Responsividade da Navbar e Prevenção de Overflow */
         .navbar-app {
-            padding-top: 0.35rem;
-            padding-bottom: 0.35rem;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            background-color: #0f2b48 !important;
         }
 
         .navbar-app .navbar-brand {
-            font-size: 0.95rem;
+            font-size: 1.05rem;
+            font-weight: 700;
             white-space: nowrap;
             letter-spacing: -0.2px;
+            color: #ffffff !important;
         }
 
         .navbar-app .nav-menu-principal {
-            gap: 2px;
+            gap: 0.6rem;
             align-items: center;
         }
 
         .navbar-app .nav-link {
             white-space: nowrap !important;
-            font-size: 0.82rem;
-            padding: 0.32rem 0.42rem !important;
-            border-radius: 0.3rem;
+            font-size: 0.88rem;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.85) !important;
+            padding: 0.35rem 0.55rem !important;
+            border-radius: 0.375rem;
             display: inline-flex;
             align-items: center;
-            gap: 0.25rem;
-            transition: background-color 0.15s ease-in-out;
+            transition: all 0.15s ease-in-out;
         }
 
         .navbar-app .nav-link:hover,
-        .navbar-app .nav-link:focus {
+        .navbar-app .nav-link:focus,
+        .navbar-app .nav-link.active {
+            color: #ffffff !important;
             background-color: rgba(255, 255, 255, 0.12);
         }
 
-        .navbar-app .nav-link i {
-            font-size: 0.88rem;
-        }
-
         .btn-theme-nav {
-            font-size: 0.78rem;
-            padding: 0.25rem 0.45rem !important;
-            border-radius: 0.3rem;
+            font-size: 0.82rem;
+            font-weight: 500;
+            padding: 0.35rem 0.95rem !important;
+            border-radius: 50rem !important;
             white-space: nowrap;
+            border: 1px solid rgba(255, 255, 255, 0.5) !important;
+            color: #ffffff !important;
+            background: transparent;
+        }
+        .btn-theme-nav:hover {
+            background-color: rgba(255, 255, 255, 0.15) !important;
+            color: #ffffff !important;
         }
 
         .btn-mock-nav {
-            font-size: 0.78rem;
-            padding: 0.25rem 0.45rem !important;
+            font-size: 0.82rem;
+            font-weight: 600;
+            padding: 0.35rem 0.95rem !important;
+            border-radius: 50rem !important;
             white-space: nowrap;
+            background-color: #f59e0b !important;
+            border-color: #f59e0b !important;
+            color: #0f172a !important;
+        }
+        .btn-mock-nav:hover {
+            background-color: #d97706 !important;
+            border-color: #d97706 !important;
+            color: #0f172a !important;
         }
 
         .badge-nav-role {
-            font-size: 0.72rem;
-            padding: 0.25rem 0.45rem;
+            font-size: 0.8rem;
+            padding: 0.38rem 0.95rem !important;
             font-weight: 600;
+            border-radius: 50rem !important;
             white-space: nowrap;
+            background-color: #b91c1c !important;
+            color: #ffffff !important;
         }
 
         .user-nav-dropdown {
-            font-size: 0.82rem;
-            padding: 0.25rem 0.45rem !important;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #ffffff !important;
+            padding: 0.35rem 0.6rem !important;
             white-space: nowrap;
         }
     </style>
@@ -225,10 +250,10 @@
 <body>
 
     <!-- CABEÇALHO / NAVBAR -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top shadow-sm navbar-app">
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top shadow-sm navbar-app">
         <div class="container-fluid px-2 px-md-3">
-            <a class="navbar-brand d-flex align-items-center gap-2 fw-bold me-2 me-xl-3" href="{% url 'home' %}">
-                <i class="bi bi-diagram-3-fill"></i> Hub Marketplaces
+            <a class="navbar-brand fw-bold me-2 me-xl-3" href="{% url 'home' %}">
+                Hub Marketplaces
             </a>
             
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
@@ -238,77 +263,60 @@
             <div class="collapse navbar-collapse" id="navMenu">
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0 nav-menu-principal">
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'home' %}"><i class="bi bi-house-door"></i> Início</a>
+                        <a class="nav-link" href="{% url 'home' %}">Início</a>
                     </li>
                     {% if user.is_authenticated %}
-                        {% if modulos_ativos.catalogo or is_dev %}
+                        {% if is_dev or user.is_superuser %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'produto_list' %}">
-                                    <i class="bi bi-box-seam"></i> Produtos
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'categoria_list' %}">
-                                    <i class="bi bi-tags"></i> Categorias
-                                </a>
+                                <a class="nav-link" href="{% url 'loja_list' %}">Lojas</a>
                             </li>
                         {% endif %}
-                        {% if modulos_ativos.pedidos or is_dev %}
+                        {% if modulos_ativos.catalogo or is_dev %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'pedido_list' %}">
-                                    <i class="bi bi-cart-check"></i> Pedidos
-                                </a>
+                                <a class="nav-link" href="{% url 'categoria_list' %}">Categorias</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'produto_list' %}">Produtos</a>
                             </li>
                         {% endif %}
                         {% if modulos_ativos.marketplaces or is_dev %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'canal_list' %}">
-                                    <i class="bi bi-diagram-3-fill text-warning"></i> Marketplaces
-                                </a>
+                                <a class="nav-link" href="{% url 'canal_list' %}">Marketplaces</a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'anuncio_list' %}">
-                                    <i class="bi bi-megaphone-fill text-info"></i> Anúncios
-                                </a>
+                                <a class="nav-link" href="{% url 'anuncio_list' %}">Anúncios</a>
                             </li>
+                        {% endif %}
+                        {% if modulos_ativos.pedidos or is_dev %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'log_sincronizacao_list' %}">
-                                    <i class="bi bi-journal-text"></i> Logs
-                                </a>
+                                <a class="nav-link" href="{% url 'pedido_list' %}">Pedidos</a>
                             </li>
                         {% endif %}
                         {% if modulos_ativos.financeiro or is_dev %}
                             {% if is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
                                 <li class="nav-item">
-                                    <a class="nav-link" href="{% url 'simulador_promocional' %}">
-                                        <i class="bi bi-calculator"></i> Simulador
-                                    </a>
+                                    <a class="nav-link" href="{% url 'simulador_promocional' %}">Simulador</a>
                                 </li>
                             {% endif %}
                         {% endif %}
-                        {% if is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
+                        {% if modulos_ativos.marketplaces or is_dev %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'usuario_list' %}">
-                                    <i class="bi bi-people"></i> Usuários
-                                </a>
+                                <a class="nav-link" href="{% url 'log_sincronizacao_list' %}">Logs</a>
                             </li>
                         {% endif %}
-                        {% if is_dev or user.is_superuser %}
+                        {% if is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'loja_list' %}">
-                                    <i class="bi bi-buildings"></i> Lojas
-                                </a>
+                                <a class="nav-link" href="{% url 'usuario_list' %}">Usuários</a>
                             </li>
                         {% endif %}
                     {% endif %}
                 </ul>
 
-                <ul class="navbar-nav ms-auto align-items-center gap-1">
-                    <!-- SELETOR DE TEMA (4 OPÇÕES) -->
-                    <li class="nav-item dropdown me-1">
-                        <button class="btn btn-link nav-link dropdown-toggle text-white d-flex align-items-center btn-theme-nav border border-white border-opacity-25 rounded" id="bd-theme" type="button" aria-expanded="false" data-bs-toggle="dropdown" aria-label="Alternar tema">
-                            <i class="bi bi-circle-half fs-6 me-1" id="bd-theme-icon"></i>
-                            <span class="d-none d-xl-inline small fw-semibold" id="bd-theme-text">Tema</span>
+                <ul class="navbar-nav ms-auto align-items-center gap-2">
+                    <!-- SELETOR DE TEMA -->
+                    <li class="nav-item dropdown">
+                        <button class="btn btn-outline-light btn-theme-nav dropdown-toggle" id="bd-theme" type="button" aria-expanded="false" data-bs-toggle="dropdown" aria-label="Alternar tema">
+                            <span id="bd-theme-text">Tema</span>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end shadow border-0" aria-labelledby="bd-theme">
                             <li>
@@ -344,13 +352,12 @@
 
                     {% if user.is_authenticated %}
                         {% if is_dev or user.perfil.is_dev or user.is_superuser %}
-                            <li class="nav-item dropdown me-1">
+                            <li class="nav-item dropdown">
                                 <div class="btn-group btn-group-sm">
-                                    <a class="btn btn-warning fw-bold text-dark d-flex align-items-center gap-1 shadow-sm btn-mock-nav" href="{% url 'mockar_dados_dashboard' %}" title="Ambiente de Testes e Mock de Dados">
-                                        <i class="bi bi-database-fill-gear"></i>
-                                        <span class="d-none d-xl-inline">Mock</span>
+                                    <a class="btn btn-warning fw-semibold text-dark shadow-sm btn-mock-nav" href="{% url 'mockar_dados_dashboard' %}" title="Ambiente de Testes e Mock de Dados">
+                                        Mockar dados
                                     </a>
-                                    <button type="button" class="btn btn-warning text-dark dropdown-toggle dropdown-toggle-split shadow-sm btn-mock-nav" data-bs-toggle="dropdown" aria-expanded="false" title="Controle de Simulação Mock">
+                                    <button type="button" class="btn btn-warning text-dark dropdown-toggle dropdown-toggle-split shadow-sm btn-mock-nav ms-1" data-bs-toggle="dropdown" aria-expanded="false" title="Controle de Simulação Mock">
                                         <span class="visually-hidden">Controle Mock</span>
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end shadow p-3" style="min-width: 250px;">
@@ -391,23 +398,18 @@
                                 </div>
                             </li>
                         {% endif %}
-                        <li class="nav-item me-1 d-none d-md-block">
-                            {% if user.perfil %}
+                        <li class="nav-item">
+                            {% if user.is_superuser %}
+                                <span class="badge bg-danger badge-nav-role">Superusuário</span>
+                            {% elif user.perfil %}
                                 <span class="badge badge-role-{{ user.perfil.papel|lower }} badge-nav-role">
                                     {{ user.perfil.get_papel_display }}
                                 </span>
-                                {% if user.perfil.loja %}
-                                    <span class="badge bg-light text-dark border badge-nav-role ms-1">
-                                        <i class="bi bi-shop"></i> {{ user.perfil.loja.nome }}
-                                    </span>
-                                {% endif %}
-                            {% elif user.is_superuser %}
-                                <span class="badge bg-danger badge-nav-role">Superusuário</span>
                             {% endif %}
                         </li>
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle text-white d-flex align-items-center gap-1 user-nav-dropdown" href="#" role="button" data-bs-toggle="dropdown">
-                                <i class="bi bi-person-circle fs-6"></i> {{ user.username }}
+                                {{ user.username }}
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end shadow">
                                 <li>
@@ -432,8 +434,8 @@
                         </li>
                     {% else %}
                         <li class="nav-item">
-                            <a class="btn btn-outline-light btn-sm" href="{% url 'login' %}">
-                                <i class="bi bi-box-arrow-in-right"></i> Entrar
+                            <a class="btn btn-outline-light btn-sm rounded-pill px-3" href="{% url 'login' %}">
+                                Entrar
                             </a>
                         </li>
                     {% endif %}
@@ -443,6 +445,7 @@
     </nav>
 
     <!-- TOOLBAR / AÇÕES RÁPIDAS -->
+    {% block toolbar %}
     <header class="app-toolbar">
         <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
             <div>
@@ -454,6 +457,7 @@
             </div>
         </div>
     </header>
+    {% endblock %}
 
     <!-- MENSAGENS E ALERTAS -->
     <div class="container-fluid px-4">
