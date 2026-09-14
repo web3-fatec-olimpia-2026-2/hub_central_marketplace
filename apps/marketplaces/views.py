@@ -29,15 +29,10 @@ from .connectors.mercadolivre import MercadoLivreConnector
 def get_effective_scheme(request) -> str:
     """
     Determina o scheme correto ('http' ou 'https') para geração de URLs públicas.
-    Respeita request.is_secure() e cabeçalhos de proxy reverso (SECURE_PROXY_SSL_HEADER).
-    Caso o host seja diferente de localhost/127.0.0.1 (ex.: ngrok ou produção), força estritamente 'https'.
+    Baseia-se exclusivamente na requisição real e no reconhecimento de proxies/túneis
+    via request.is_secure().
     """
-    if request.is_secure():
-        return 'https'
-    host_no_port = request.get_host().split(':')[0].lower()
-    if host_no_port not in ('localhost', '127.0.0.1', 'testserver') and not host_no_port.endswith('.local'):
-        return 'https'
-    return request.scheme or 'http'
+    return 'https' if request.is_secure() else 'http'
 
 
 def get_base_url(request) -> str:

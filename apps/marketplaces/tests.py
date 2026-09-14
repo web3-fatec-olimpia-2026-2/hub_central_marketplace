@@ -2122,23 +2122,30 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
         self.assertTrue(settings.USE_X_FORWARDED_HOST)
         self.assertTrue(settings.USE_X_FORWARDED_PORT)
 
-    def test_get_effective_scheme_and_base_url(self):
-        """Valida a resolução de scheme e base_url para localhost, proxies e ngrok."""
+    def test_get_effective_scheme_and_base_url_strictly_dynamic(self):
+        """Valida que a resolução de scheme é 100% agnóstica a domínios e estritamente baseada em request.is_secure()."""
         from django.test.client import RequestFactory
         from apps.marketplaces.views import get_effective_scheme, get_base_url
         rf = RequestFactory()
 
-        # 1. Localhost HTTP -> deve manter 'http'
+        # 1. Sem HTTPS: qualquer host (localhost, 127.0.0.1 ou domínio externo) retorna 'http'
         req_local = rf.get('/marketplaces/contas/nova/', HTTP_HOST='127.0.0.1:8000')
+        self.assertFalse(req_local.is_secure())
         self.assertEqual(get_effective_scheme(req_local), 'http')
         self.assertEqual(get_base_url(req_local), 'http://127.0.0.1:8000')
 
-        # 2. Localhost com localhost
-        req_local2 = rf.get('/marketplaces/contas/nova/', HTTP_HOST='localhost:8000')
-        self.assertEqual(get_effective_scheme(req_local2), 'http')
-        self.assertEqual(get_base_url(req_local2), 'http://localhost:8000')
+        req_externo_sem_ssl = rf.get('/marketplaces/contas/nova/', HTTP_HOST='material-playing-outshoot.ngrok-free.dev')
+        self.assertFalse(req_externo_sem_ssl.is_secure())
+        self.assertEqual(get_effective_scheme(req_externo_sem_ssl), 'http')
+        self.assertEqual(get_base_url(req_externo_sem_ssl), 'http://material-playing-outshoot.ngrok-free.dev')
 
-        # 3. Ngrok via túnel com header HTTP_X_FORWARDED_PROTO='https'
+        # 2. Com HTTPS nativo (secure=True) -> retorna 'https'
+        req_local_ssl = rf.get('/marketplaces/contas/nova/', HTTP_HOST='localhost:8000', secure=True)
+        self.assertTrue(req_local_ssl.is_secure())
+        self.assertEqual(get_effective_scheme(req_local_ssl), 'https')
+        self.assertEqual(get_base_url(req_local_ssl), 'https://localhost:8000')
+
+        # 3. Com HTTPS via proxy/túnel (HTTP_X_FORWARDED_PROTO='https') -> reconhecido por request.is_secure()
         req_ngrok_proto = rf.get(
             '/marketplaces/contas/nova/',
             HTTP_HOST='material-playing-outshoot.ngrok-free.dev',
@@ -2148,16 +2155,8 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
         self.assertEqual(get_effective_scheme(req_ngrok_proto), 'https')
         self.assertEqual(get_base_url(req_ngrok_proto), 'https://material-playing-outshoot.ngrok-free.dev')
 
-        # 4. Ngrok sem header explícito mas com host externo -> força 'https'
-        req_ngrok_no_header = rf.get(
-            '/marketplaces/contas/nova/',
-            HTTP_HOST='material-playing-outshoot.ngrok-free.dev'
-        )
-        self.assertEqual(get_effective_scheme(req_ngrok_no_header), 'https')
-        self.assertEqual(get_base_url(req_ngrok_no_header), 'https://material-playing-outshoot.ngrok-free.dev')
-
     def test_conta_form_view_renders_https_under_ngrok(self):
-        """Valida que a view do formulário de conta emite https:// para redirect_uri e webhook_url quando acessada via ngrok."""
+        """Valida que a view do formulário de conta emite https:// para redirect_uri e webhook_url quando acessada via ngrok com HTTPS."""
         self.client.force_login(self.user)
         url = reverse('conta_marketplace_update', kwargs={'pk': self.conta.pk})
 
@@ -2185,6 +2184,20 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
         self.assertIn("https://material-playing-outshoot.ngrok-free.dev/marketplaces/mercadolivre/callback/", content)
         self.assertIn(f"https://material-playing-outshoot.ngrok-free.dev/api/v1/webhooks/mercadolivre/{self.conta.webhook_uuid}/", content)
         self.assertNotIn("http://material-playing-outshoot.ngrok-free.dev", content)
+
+    def test_conta_form_view_renders_http_without_https(self):
+        """Valida que quando a requisição não tem HTTPS, emite http:// independentemente do host."""
+        self.client.force_login(self.user)
+        url = reverse('conta_marketplace_update', kwargs={'pk': self.conta.pk})
+
+        response = self.client.get(url, HTTP_HOST='127.0.0.1:8000')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['base_url'], "http://127.0.0.1:8000")
+        self.assertEqual(response.context['callback_url'], "http://127.0.0.1:8000/marketplaces/mercadolivre/callback/")
+        self.assertEqual(
+            response.context['webhook_url_individual'],
+            f"http://127.0.0.1:8000/api/v1/webhooks/mercadolivre/{self.conta.webhook_uuid}/"
+        )
 
     def test_mercadolivre_connector_get_authorization_url_with_request(self):
         """Valida que o conector do Mercado Livre usa https:// na redirect_uri ao receber request sob ngrok."""

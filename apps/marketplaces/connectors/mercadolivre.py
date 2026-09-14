@@ -43,11 +43,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         if request:
             from django.urls import reverse
             host = request.get_host()
-            host_no_port = host.split(':')[0].lower()
-            if request.is_secure() or (host_no_port not in ('localhost', '127.0.0.1', 'testserver') and not host_no_port.endswith('.local')):
-                scheme = 'https'
-            else:
-                scheme = request.scheme or 'http'
+            scheme = 'https' if request.is_secure() else 'http'
             callback_path = reverse('mercadolivre_callback')
             return f"{scheme}://{host}{callback_path}"
         return getattr(settings, 'MERCADOLIVRE_REDIRECT_URI', 'https://oauth.pstmn.io/v1/callback')
