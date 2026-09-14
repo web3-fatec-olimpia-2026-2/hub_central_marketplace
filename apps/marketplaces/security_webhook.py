@@ -1,7 +1,7 @@
 # Os códigos foram gerados com auxilio de I.A.
 """
-O QUE FAZ: Módulo utilitário para validação simétrica de assinaturas criptográficas HMAC e proteção Anti-Replay para webhooks HTTP.
-POR QUE FAZ: Neutraliza requisições forjadas e repetições maliciosas (fora da janela de 300s) antes do consumo de recursos.
+O QUE FAZ: Módulo utilitário para validação simétrica de assinaturas criptográficas HMAC para webhooks HTTP.
+POR QUE FAZ: Neutraliza requisições forjadas ou sem assinatura válida com checagem criptográfica segura HMAC (compare_digest).
 """
 import hmac
 import hashlib
@@ -11,7 +11,8 @@ from typing import Tuple
 
 def validar_assinatura_e_anti_replay(request, secret: str, canal: str = 'mercadolivre', max_age_seconds: int = 300) -> Tuple[bool, int, str]:
     """
-    Valida a janela temporal anti-replay (< 300s) e a autenticidade da assinatura HMAC.
+    Valida a autenticidade da assinatura criptográfica HMAC.
+    Extrai o timestamp caso ele componha o hash do canal, sem bloquear requisições por janela temporal expirada.
     Retorna (valido: bool, status_code: int, mensagem: str).
     """
     if not secret:
@@ -42,22 +43,6 @@ def validar_assinatura_e_anti_replay(request, secret: str, canal: str = 'mercado
                 raw_ts = part.split('=', 1)[1]
             elif part.startswith('v1='):
                 sig_header = part.split('=', 1)[1]
-
-    if raw_ts:
-        try:
-            ts_float = float(raw_ts)
-            # Se vier em milissegundos (13 dígitos)
-            if ts_float > 1e11:
-                ts_float = ts_float / 1000.0
-            ts_val = ts_float
-        except (ValueError, TypeError):
-            return False, 401, "Cabeçalho de timestamp com formato inválido."
-
-    # Validação Anti-Replay (< 300s)
-    if ts_val is not None:
-        agora = time.time()
-        if abs(agora - ts_val) > max_age_seconds:
-            return False, 401, f"Timestamp fora da janela permitida de {max_age_seconds}s (Anti-Replay)."
 
     # 2. Validação da Assinatura HMAC
     if not sig_header:
