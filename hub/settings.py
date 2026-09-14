@@ -45,6 +45,11 @@ LOGIN_DEBUG_EMAIL = env.str('LOGIN_DEBUG_EMAIL', default='devmaster@hub.local')
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost', 'testserver', 'material-playing-outshoot.ngrok-free.dev', '.ngrok-free.dev'])
 CSRF_TRUSTED_ORIGINS = ['https://material-playing-outshoot.ngrok-free.dev']
 
+# Permite que o Django reconheça HTTPS vindo do Ngrok / Reverse Proxy
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
+
 # Application definition
 
 INSTALLED_APPS = [

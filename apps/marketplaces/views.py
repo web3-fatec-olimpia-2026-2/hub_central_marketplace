@@ -26,6 +26,29 @@ from .connectors.factory import get_connector_for_conta
 from .connectors.mercadolivre import MercadoLivreConnector
 
 
+def get_effective_scheme(request) -> str:
+    """
+    Determina o scheme correto ('http' ou 'https') para geração de URLs públicas.
+    Respeita request.is_secure() e cabeçalhos de proxy reverso (SECURE_PROXY_SSL_HEADER).
+    Caso o host seja diferente de localhost/127.0.0.1 (ex.: ngrok ou produção), força estritamente 'https'.
+    """
+    if request.is_secure():
+        return 'https'
+    host_no_port = request.get_host().split(':')[0].lower()
+    if host_no_port not in ('localhost', '127.0.0.1', 'testserver') and not host_no_port.endswith('.local'):
+        return 'https'
+    return request.scheme or 'http'
+
+
+def get_base_url(request) -> str:
+    """
+    Retorna a URL base absoluta com scheme seguro e host devidamente resolvido.
+    """
+    scheme = get_effective_scheme(request)
+    host = request.get_host()
+    return f"{scheme}://{host}"
+
+
 class CanalListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
     """
     O QUE FAZ: Dashboard central multicanal listando todas as contas e canais integrados da Loja.
@@ -118,9 +141,9 @@ class ContaMarketplaceCreateView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
         context['modo_edicao'] = False
         context['canal_registry'] = CANAL_REGISTRY
         context['canal_registry_json'] = json.dumps(CANAL_REGISTRY)
-        host = self.request.get_host()
-        scheme = self.request.scheme
-        context['base_url'] = f"{scheme}://{host}"
+        base_url = get_base_url(self.request)
+        context['base_url'] = base_url
+        context['callback_url'] = f"{base_url}/marketplaces/mercadolivre/callback/"
         return context
 
 
@@ -172,13 +195,13 @@ class ContaMarketplaceUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
         context['conta'] = self.object
         context['canal_registry'] = CANAL_REGISTRY
         context['canal_registry_json'] = json.dumps(CANAL_REGISTRY)
-        host = self.request.get_host()
-        scheme = self.request.scheme
-        context['base_url'] = f"{scheme}://{host}"
+        base_url = get_base_url(self.request)
+        context['base_url'] = base_url
         canal_cfg = get_canal_config(self.object.canal)
         context['canal_config'] = canal_cfg
-        context['webhook_url_individual'] = f"{scheme}://{host}/api/v1/webhooks/{self.object.canal}/{self.object.webhook_uuid}/"
-        context['callback_url'] = f"{scheme}://{host}/marketplaces/{self.object.canal}/callback/"
+        context['webhook_url_individual'] = f"{base_url}/api/v1/webhooks/{self.object.canal}/{self.object.webhook_uuid}/"
+        callback_path = canal_cfg.get('callback_path') or f"/marketplaces/{self.object.canal}/callback/"
+        context['callback_url'] = f"{base_url}{callback_path}"
         has_ping = False
         if self.object.seller_id_externo:
             has_ping = WebhookEventLog.objects.filter(user_id=self.object.seller_id_externo).exists()
@@ -448,7 +471,7 @@ class MercadoLivreAutorizarView(LoginRequiredMixin, ModuloRequeridoMixin, Integr
         request.session['oauth_conta_id'] = conta.pk
 
         connector = conta.get_connector()
-        auth_url = connector.get_authorization_url(state=state)
+        auth_url = connector.get_authorization_url(state=state, request=request)
         return redirect(auth_url)
 
 

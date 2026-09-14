@@ -39,24 +39,34 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         return getattr(settings, 'MERCADOLIVRE_CLIENT_SECRET', None) or getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_SECRET', '') or ''
 
     @classmethod
-    def _get_redirect_uri(cls) -> str:
+    def _get_redirect_uri(cls, request=None) -> str:
+        if request:
+            from django.urls import reverse
+            host = request.get_host()
+            host_no_port = host.split(':')[0].lower()
+            if request.is_secure() or (host_no_port not in ('localhost', '127.0.0.1', 'testserver') and not host_no_port.endswith('.local')):
+                scheme = 'https'
+            else:
+                scheme = request.scheme or 'http'
+            callback_path = reverse('mercadolivre_callback')
+            return f"{scheme}://{host}{callback_path}"
         return getattr(settings, 'MERCADOLIVRE_REDIRECT_URI', 'https://oauth.pstmn.io/v1/callback')
 
-    def get_authorization_url(self, state: str = "") -> str:
+    def get_authorization_url(self, state: str = "", request=None) -> str:
         """
         O QUE FAZ: Constrói dinamicamente a URL de consentimento OAuth 2.0 do Mercado Livre.
         POR QUE FAZ: Permite redirecionar o lojista com o state gerado de forma efêmera e segura.
         """
-        return self.gerar_url_autorizacao(state=state)
+        return self.gerar_url_autorizacao(state=state, request=request)
 
     @classmethod
-    def gerar_url_autorizacao(cls, state: str = "") -> str:
+    def gerar_url_autorizacao(cls, state: str = "", request=None) -> str:
         """
         O QUE FAZ: Constrói dinamicamente a URL de consentimento OAuth 2.0 do Mercado Livre.
         POR QUE FAZ: Elimina URLs e credenciais fixas no código, garantindo tolerância a configurações.
         """
         client_id = cls._get_client_id()
-        redirect_uri = cls._get_redirect_uri()
+        redirect_uri = cls._get_redirect_uri(request=request)
         params = {
             "response_type": "code",
             "client_id": client_id,
@@ -168,7 +178,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         else:
             client_id = cls._get_client_id()
             client_secret = cls._get_client_secret()
-        redirect_uri = cls._get_redirect_uri()
+        redirect_uri = cls._get_redirect_uri(request=request)
 
         url = f"{cls.BASE_URL}/oauth/token"
         headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}

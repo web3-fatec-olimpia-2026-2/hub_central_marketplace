@@ -324,7 +324,13 @@
 <script>
     // Dicionário de canais e endpoints vindo do backend
     const canalRegistry = {{ canal_registry_json|safe|default:"{}" }};
-    const baseUrl = "{{ base_url|default:'' }}";
+    let baseUrl = "{{ base_url|default:'' }}";
+    // Garantia de protocolo HTTPS quando acessado via túnel (ngrok) ou conexão segura
+    if (window.location.protocol === 'https:' || (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) {
+        if (baseUrl.startsWith('http://')) {
+            baseUrl = baseUrl.replace(/^http:\/\//, 'https://');
+        }
+    }
     const contaUuid = "{% if modo_edicao %}{{ conta.webhook_uuid }}{% else %}{{ form.instance.webhook_uuid|default:'' }}{% endif %}";
 
     function getRadioValue(name) {
