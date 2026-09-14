@@ -245,30 +245,20 @@
                                         <i class="bi bi-info-circle me-1"></i> Cadastre esta URL no campo <em>Notification URL</em> do painel de desenvolvedores do canal.
                                     </div>
 
-                                    <div class="row g-3">
-                                        <div class="col-md-6">
-                                            <label class="form-label fw-semibold">Tópicos Necessários</label>
-                                            <div id="topicosNecessariosContainer">
-                                                <span class="badge bg-secondary me-1">orders_v2</span>
-                                                <span class="badge bg-secondary me-1">items</span>
-                                                <span class="badge bg-secondary me-1">shipments</span>
-                                            </div>
+                                    <div class="mb-0">
+                                        <label class="form-label fw-semibold">Webhook Secret (HMAC)</label>
+                                        <div class="input-group">
+                                            {{ form.webhook_secret }}
+                                            <button class="btn btn-outline-secondary" type="button" onclick="alternarVisibilidadeSenha('{{ form.webhook_secret.id_for_label }}', this)">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
                                         </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label fw-semibold">Webhook Secret (HMAC)</label>
-                                            <div class="input-group">
-                                                {{ form.webhook_secret }}
-                                                <button class="btn btn-outline-secondary" type="button" onclick="alternarVisibilidadeSenha('{{ form.webhook_secret.id_for_label }}', this)">
-                                                    <i class="bi bi-eye"></i>
-                                                </button>
-                                            </div>
-                                            <div class="form-text small text-muted">
-                                                Chave para validação de hash HMAC (Anti-Replay &lt; 300s).
-                                            </div>
-                                            {% if form.webhook_secret.errors %}
-                                                <div class="text-danger small mt-1">{{ form.webhook_secret.errors.0 }}</div>
-                                            {% endif %}
+                                        <div class="form-text small text-muted">
+                                            Chave secreta para validação de integridade e autenticidade via assinatura HMAC.
                                         </div>
+                                        {% if form.webhook_secret.errors %}
+                                            <div class="text-danger small mt-1">{{ form.webhook_secret.errors.0 }}</div>
+                                        {% endif %}
                                     </div>
                                 </div>
 
@@ -391,14 +381,6 @@
             if (inputUrl) {
                 const uuidPart = contaUuid ? (contaUuid + '/') : '<uuid_da_conta>/';
                 inputUrl.value = baseUrl + '/api/v1/webhooks/' + (config.canal_key || canal) + '/' + uuidPart;
-            }
-
-            // Tópicos necessários
-            const topicosCont = document.getElementById('topicosNecessariosContainer');
-            if (topicosCont && config.topicos_necessarios) {
-                topicosCont.innerHTML = config.topicos_necessarios
-                    .map(t => '<span class="badge bg-secondary me-1">' + t + '</span>')
-                    .join('');
             }
         }
     }

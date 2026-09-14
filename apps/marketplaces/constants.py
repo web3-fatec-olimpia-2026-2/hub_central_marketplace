@@ -18,7 +18,6 @@ CANAL_REGISTRY = {
         'suporta_global': True,
         'label_id': 'App ID (Client ID)',
         'label_secret': 'Client Secret',
-        'topicos_necessarios': ['orders_v2', 'items', 'shipments'],
     },
     'shopee': {
         'nome': 'Shopee Open Platform',
@@ -33,7 +32,6 @@ CANAL_REGISTRY = {
         'suporta_global': True,
         'label_id': 'Partner ID',
         'label_secret': 'Partner Key',
-        'topicos_necessarios': ['orders', 'items'],
     },
     'amazon': {
         'nome': 'Amazon SP-API',
@@ -45,7 +43,6 @@ CANAL_REGISTRY = {
         'label_id': 'LWA Client ID / IAM Role ARN',
         'label_secret': 'LWA Client Secret',
         'requer_worker_polling': True,
-        'topicos_necessarios': ['ORDER_CHANGE', 'INVENTORY_AVAILABILITY_CHANGE'],
     },
     'magalu': {
         'nome': 'Magalu Open API',
@@ -60,7 +57,6 @@ CANAL_REGISTRY = {
         'suporta_global': True,
         'label_id': 'Client ID',
         'label_secret': 'Client Secret',
-        'topicos_necessarios': ['orders'],
     },
 }
 
