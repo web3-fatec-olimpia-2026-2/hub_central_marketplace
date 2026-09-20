@@ -243,6 +243,46 @@
             padding: 0.35rem 0.6rem !important;
             white-space: nowrap;
         }
+
+        /* Cores sólidas do Navbar para botões e destaques */
+        .btn-hub-solid {
+            background-color: #0f2b48 !important;
+            border-color: #0f2b48 !important;
+            color: #ffffff !important;
+            font-weight: 600;
+            transition: all 0.15s ease-in-out;
+        }
+        .btn-hub-solid:hover,
+        .btn-hub-solid:focus {
+            background-color: #173d63 !important;
+            border-color: #173d63 !important;
+            color: #ffffff !important;
+            box-shadow: 0 4px 12px rgba(15, 43, 72, 0.25);
+        }
+        .btn-hub-solid:active {
+            background-color: #0a1e33 !important;
+            border-color: #0a1e33 !important;
+            color: #ffffff !important;
+        }
+        .btn-hub-solid:disabled {
+            background-color: #4b6b8b !important;
+            border-color: #4b6b8b !important;
+            color: #e2e8f0 !important;
+            opacity: 0.7;
+        }
+        .text-hub-solid {
+            color: #0f2b48 !important;
+        }
+        .border-hub-solid {
+            border-color: #0f2b48 !important;
+        }
+        .bg-hub-solid {
+            background-color: #0f2b48 !important;
+            color: #ffffff !important;
+        }
+        [data-bs-theme="dark"] .text-hub-solid {
+            color: #5c93c4 !important;
+        }
     </style>
 
     {% block extra_head %}{% endblock %}
@@ -309,9 +349,11 @@
                                 <a class="nav-link" href="{% url 'usuario_list' %}">Usuários</a>
                             </li>
                         {% endif %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'testes_concorrencia' %}active{% endif %}" href="{% url 'testes_concorrencia' %}">Testes</a>
-                        </li>
+                        {% if is_dev or user.perfil.is_dev or user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if 'teste' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'testes_dashboard' %}">Testes</a>
+                            </li>
+                        {% endif %}
                     {% endif %}
                 </ul>
 

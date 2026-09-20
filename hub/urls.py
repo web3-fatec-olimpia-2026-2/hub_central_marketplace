@@ -18,7 +18,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
-from apps.core.views_testes import ConcorrenciaTestesView
+from apps.core.views_testes import (
+    TestesDashboardView,
+    ConcorrenciaEstoqueView,
+    ConcorrenciaOAuthView,
+    ConcorrenciaTestesView,
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -31,6 +36,9 @@ urlpatterns = [
     path('', include('apps.pedidos.urls')),
     path('', include('apps.financeiro.urls')),
     path('mockar-dados/', include('apps.mockar_dados.urls')),
+    path('testes/', TestesDashboardView.as_view(), name='testes_dashboard'),
+    path('testes/concorrencia/estoque/', ConcorrenciaEstoqueView.as_view(), name='teste_concorrencia_estoque'),
+    path('testes/concorrencia/oauth/', ConcorrenciaOAuthView.as_view(), name='teste_concorrencia_oauth'),
     path('testes/concorrencia/', ConcorrenciaTestesView.as_view(), name='testes_concorrencia'),
 ]
 
