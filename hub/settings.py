@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     
     # Novos Apps Modulares Desacoplados
+    'apps.core.apps.CoreConfig',
     'apps.tenancy.apps.TenancyConfig',
     'apps.marketplaces.apps.MarketplacesConfig',
     'apps.catalogo.apps.CatalogoConfig',

@@ -309,6 +309,9 @@
                                 <a class="nav-link" href="{% url 'usuario_list' %}">Usuários</a>
                             </li>
                         {% endif %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.resolver_match.url_name == 'testes_concorrencia' %}active{% endif %}" href="{% url 'testes_concorrencia' %}">Testes</a>
+                        </li>
                     {% endif %}
                 </ul>
 

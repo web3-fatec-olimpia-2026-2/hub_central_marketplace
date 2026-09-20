@@ -18,6 +18,8 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from apps.core.views_testes import ConcorrenciaTestesView
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/', include('django.contrib.auth.urls')),
@@ -29,5 +31,6 @@ urlpatterns = [
     path('', include('apps.pedidos.urls')),
     path('', include('apps.financeiro.urls')),
     path('mockar-dados/', include('apps.mockar_dados.urls')),
+    path('testes/concorrencia/', ConcorrenciaTestesView.as_view(), name='testes_concorrencia'),
 ]
 
