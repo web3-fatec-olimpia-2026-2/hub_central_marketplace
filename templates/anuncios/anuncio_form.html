@@ -277,6 +277,10 @@
     </tbody>
 </table>
 
+<!-- DADOS JSON PARA ISOLAMENTO REATIVO MULTI-TENANT (MESMO PARA DEV) -->
+<script id="dados-contas-lojas" type="application/json">{{ contas_lojas_json|default:"{}"|safe }}</script>
+<script id="dados-produtos-lojas" type="application/json">{{ produtos_por_loja_json|default:"{}"|safe }}</script>
+
 <!-- JAVASCRIPT DINÂMICO DE COMPOSIÇÃO E FORMSET -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -287,6 +291,52 @@ document.addEventListener('DOMContentLoaded', function() {
     const btnAdd = document.getElementById('btn-adicionar-produto');
     const badgeContainer = document.getElementById('live-composition-badge');
     const resumoTotal = document.getElementById('total-linhas-ativas');
+    const contaSelect = document.getElementById('id_conta');
+
+    const contasLojasMap = JSON.parse(document.getElementById('dados-contas-lojas')?.textContent || '{}');
+    const produtosPorLojaMap = JSON.parse(document.getElementById('dados-produtos-lojas')?.textContent || '{}');
+
+    function getSelectedLojaId() {
+        if (!contaSelect) return null;
+        const contaVal = contaSelect.value;
+        return contasLojasMap[contaVal] || null;
+    }
+
+    function rebindProductSelect(selectElement, keepCurrentValue = true) {
+        const lojaId = getSelectedLojaId();
+        if (!lojaId || !produtosPorLojaMap[lojaId]) return;
+
+        const currentVal = selectElement.value;
+        const produtos = produtosPorLojaMap[lojaId];
+
+        selectElement.innerHTML = '<option value="">Selecione um produto físico do catálogo...</option>';
+        produtos.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.label;
+            selectElement.appendChild(opt);
+        });
+
+        if (keepCurrentValue && produtos.some(p => String(p.id) === String(currentVal))) {
+            selectElement.value = currentVal;
+        } else {
+            selectElement.value = '';
+        }
+    }
+
+    // Se o operador alterar a conta (em criação ou se DEV alterar), re-filtra todos os produtos
+    if (contaSelect) {
+        contaSelect.addEventListener('change', function() {
+            tbody.querySelectorAll('.select-item-produto').forEach(sel => {
+                rebindProductSelect(sel, false);
+            });
+            const emptySelect = emptyRowTbody.querySelector('.select-item-produto');
+            if (emptySelect) {
+                rebindProductSelect(emptySelect, false);
+            }
+            updateBadgeAndSummary();
+        });
+    }
 
     function updateBadgeAndSummary() {
         const rows = Array.from(tbody.querySelectorAll('.composicao-row'));
@@ -329,6 +379,12 @@ document.addEventListener('DOMContentLoaded', function() {
         tempContainer.innerHTML = templateHtml;
         const newRow = tempContainer.querySelector('.composicao-row');
 
+        // Se houver loja selecionada, re-filtra o select da nova linha
+        const newSelect = newRow.querySelector('.select-item-produto');
+        if (newSelect && getSelectedLojaId()) {
+            rebindProductSelect(newSelect, false);
+        }
+
         tbody.appendChild(newRow);
         totalFormsInput.value = formIndex + 1;
 
@@ -362,6 +418,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (qtdInput) {
             qtdInput.addEventListener('input', updateBadgeAndSummary);
         }
+    }
+
+    // Inicializa template vazio com os produtos da loja atual
+    const emptySelect = emptyRowTbody.querySelector('.select-item-produto');
+    if (emptySelect && getSelectedLojaId()) {
+        rebindProductSelect(emptySelect, false);
     }
 
     // Inicializa linhas existentes

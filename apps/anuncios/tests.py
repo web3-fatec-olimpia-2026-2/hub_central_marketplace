@@ -811,6 +811,9 @@ class AnuncioCriacaoManualEComposicaoTestCase(TestCase):
         self.user_padrao = User.objects.create_user(username='operador_a', password='password123')
         PerfilUsuario.objects.create(usuario=self.user_padrao, papel=PapelUsuarioEnum.USUARIO, loja=self.loja)
 
+        self.user_dev = User.objects.create_user(username='dev_master', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_dev, papel=PapelUsuarioEnum.DEV)
+
         self.categoria = Categoria.objects.create(loja=self.loja, nome="Hardware", slug="hardware")
         self.categoria_b = Categoria.objects.create(loja=self.loja_b, nome="Hardware B", slug="hardware-b")
 
@@ -983,4 +986,53 @@ class AnuncioCriacaoManualEComposicaoTestCase(TestCase):
 
         resp_update = self.client.get(reverse('anuncio_update', kwargs={'pk': anuncio.pk}))
         self.assertEqual(resp_update.status_code, 403)
+
+    def test_dev_restringido_estritamente_produtos_da_loja_do_anuncio(self):
+        """
+        Valida que, mesmo acessando com usuário DEV, o anúncio e o formset são
+        restringidos unicamente aos produtos pertencentes à loja em questão.
+        """
+        self.client.force_login(self.user_dev)
+
+        anuncio = Anuncio.objects.create(
+            conta=self.conta,
+            item_id_externo='MLB-DEV-RESTRICT',
+            titulo='Anúncio Teste DEV',
+            preco_venda=Decimal('150.00'),
+            estoque_publicado=10
+        )
+        AnuncioComposicao.objects.create(anuncio=anuncio, produto=self.produto_a, quantidade=1)
+
+        # 1. GET no AnuncioUpdateView: o dropdown deve conter apenas produtos da Loja A
+        url_edit = reverse('anuncio_update', kwargs={'pk': anuncio.pk})
+        resp = self.client.get(url_edit)
+        self.assertEqual(resp.status_code, 200)
+
+        formset = resp.context['formset']
+        form_prod_qs = formset.forms[0].fields['produto'].queryset
+        # Deve conter produto_a (Loja A), e NÃO pode conter produto_loja_b (Loja B)
+        self.assertIn(self.produto_a, form_prod_qs)
+        self.assertNotIn(self.produto_loja_b, form_prod_qs)
+        self.assertContains(resp, "PROD-A")
+        self.assertNotContains(resp, "PROD-OUTRA-LOJA")
+
+        # 2. POST com produto da Loja B pelo DEV deve ser rejeitado
+        post_data = {
+            'conta': self.conta.pk,
+            'item_id_externo': 'MLB-DEV-RESTRICT',
+            'titulo': 'Tentativa DEV Cross-Tenant',
+            'preco_venda': '150.00',
+            'status': 'active',
+            'itens_composicao-TOTAL_FORMS': '1',
+            'itens_composicao-INITIAL_FORMS': '1',
+            'itens_composicao-MIN_NUM_FORMS': '0',
+            'itens_composicao-MAX_NUM_FORMS': '1000',
+            'itens_composicao-0-produto': self.produto_loja_b.pk,
+            'itens_composicao-0-quantidade': '1',
+        }
+        resp_post = self.client.post(url_edit, post_data)
+        self.assertEqual(resp_post.status_code, 200)
+        # Formset deve conter erro e rejeitar o salvamento
+        self.assertTrue(bool(resp_post.context['formset'].errors))
+
 

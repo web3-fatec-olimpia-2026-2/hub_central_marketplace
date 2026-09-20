@@ -64,7 +64,14 @@ class AnuncioForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.user = user
 
-        if user:
+        # Escopo Multi-Tenant de Contas (ADR-003):
+        # Em edição de anúncio existente, a conta pertence estritamente à loja do anúncio (mesmo para DEV).
+        if self.instance and getattr(self.instance, 'conta_id', None):
+            loja_anuncio = self.instance.conta.loja
+            self.fields['conta'].queryset = ContaMarketplace.objects.filter(
+                loja=loja_anuncio, ativo=True
+            ).order_by('apelido_conta')
+        elif user:
             if usuario_is_dev(user):
                 self.fields['conta'].queryset = ContaMarketplace.objects.filter(
                     ativo=True
@@ -85,6 +92,7 @@ class AnuncioForm(forms.ModelForm):
 class AnuncioComposicaoItemForm(forms.ModelForm):
     """
     Formulário individual para cada componente físico vinculado ao Anúncio na Composição (Ficha Técnica).
+    Garante isolamento estrito por Loja mesmo quando acessado por operador com papel DEV.
     """
     quantidade = forms.IntegerField(
         min_value=1,
@@ -113,16 +121,17 @@ class AnuncioComposicaoItemForm(forms.ModelForm):
         self.loja = loja
         self.user = user
 
-        # Escopo Multi-Tenant de Produtos (ADR-003)
-        if loja:
+        # Se não informada diretamente, infere a loja a partir da instância do anúncio
+        if not self.loja and self.instance and getattr(self.instance, 'anuncio_id', None):
+            self.loja = self.instance.anuncio.conta.loja
+
+        # Escopo Multi-Tenant Estrito de Produtos (ADR-003):
+        # Mesmo para usuário DEV, os produtos DEVEM ser restritos à loja do anúncio em questão.
+        if self.loja:
             self.fields['produto'].queryset = Produto.objects.filter(
-                loja=loja, status=StatusProdutoEnum.ATIVO
+                loja=self.loja, status=StatusProdutoEnum.ATIVO
             ).order_by('nome')
-        elif user and usuario_is_dev(user):
-            self.fields['produto'].queryset = Produto.objects.filter(
-                status=StatusProdutoEnum.ATIVO
-            ).select_related('loja').order_by('nome')
-        elif user:
+        elif user and not usuario_is_dev(user):
             perfil = getattr(user, 'perfil', None)
             loja_user = getattr(perfil, 'loja', None) if perfil else None
             if loja_user:
@@ -132,9 +141,8 @@ class AnuncioComposicaoItemForm(forms.ModelForm):
             else:
                 self.fields['produto'].queryset = Produto.objects.none()
         else:
-            self.fields['produto'].queryset = Produto.objects.filter(
-                status=StatusProdutoEnum.ATIVO
-            ).order_by('nome')
+            # DEV sem loja vinculada à conta ainda não pode vincular produtos aleatórios
+            self.fields['produto'].queryset = Produto.objects.none()
 
         self.fields['produto'].empty_label = "Selecione um produto físico do catálogo..."
 
@@ -143,16 +151,21 @@ class BaseAnuncioComposicaoFormSet(forms.BaseInlineFormSet):
     """
     Formset com validações de integridade e multi-tenancy para composições de anúncios:
     1. Impede a duplicação do mesmo produto físico em mais de uma linha de composição.
-    2. Garante que todos os produtos pertençam estritamente à mesma Loja da conta do anúncio (ADR-003).
+    2. Garante que todos os produtos pertençam estritamente à mesma Loja da conta do anúncio (ADR-003), inclusive para usuário DEV.
     """
     def __init__(self, *args, loja=None, user=None, **kwargs):
         self.loja = loja
         self.user = user
+        if not self.loja and self.instance and getattr(self.instance, 'conta_id', None):
+            self.loja = self.instance.conta.loja
         super().__init__(*args, **kwargs)
 
     def get_form_kwargs(self, index):
         kwargs = super().get_form_kwargs(index)
-        kwargs['loja'] = self.loja
+        loja_efetiva = self.loja
+        if not loja_efetiva and self.instance and getattr(self.instance, 'conta_id', None):
+            loja_efetiva = self.instance.conta.loja
+        kwargs['loja'] = loja_efetiva
         kwargs['user'] = self.user
         return kwargs
 
@@ -183,7 +196,7 @@ class BaseAnuncioComposicaoFormSet(forms.BaseInlineFormSet):
                     )
                 produtos_vistos.add(produto.id)
 
-                # 2. Validação Multi-Tenant Estrita (ADR-003): produto deve pertencer à mesma Loja
+                # 2. Validação Multi-Tenant Estrita (ADR-003) mesmo para DEV: produto deve pertencer à mesma Loja
                 if loja_alvo and produto.loja_id != loja_alvo.id:
                     raise forms.ValidationError(
                         f"O produto '{produto.nome}' pertence à loja '{produto.loja.nome}', mas a conta do anúncio "

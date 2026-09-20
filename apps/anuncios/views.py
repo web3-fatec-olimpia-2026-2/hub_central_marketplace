@@ -116,6 +116,43 @@ class AnuncioDetailView(LoginRequiredMixin, ModuloRequeridoMixin, DetailView):
         return context
 
 
+def _adicionar_mapa_lojas_e_produtos(context, loja_fixa=None):
+    """
+    O QUE FAZ: Constrói mapeamentos JSON de contas->lojas e lojas->produtos ativos.
+    POR QUE FAZ: Permite ao frontend re-filtrar reativamente os selects de produto ao alternar contas em criação.
+                 Quando loja_fixa é informada (ex: em edição ou para operador não-DEV), restringe estritamente
+                 os dados à loja em questão, impedindo que dados de outros tenants apareçam no HTML ou no DOM.
+    """
+    import json
+    from apps.catalogo.enums import StatusProdutoEnum
+    from apps.catalogo.models import Produto
+    from apps.marketplaces.models import ContaMarketplace
+    from apps.tenancy.models import Loja
+
+    if loja_fixa is not None:
+        contas_qs = ContaMarketplace.objects.filter(loja=loja_fixa)
+        lojas_qs = Loja.objects.filter(pk=loja_fixa.pk, ativo=True)
+    else:
+        contas_qs = ContaMarketplace.objects.all()
+        lojas_qs = Loja.objects.filter(ativo=True)
+
+    contas_map = {
+        str(c.pk): str(c.loja_id)
+        for c in contas_qs
+    }
+    produtos_map = {}
+    for l in lojas_qs.prefetch_related('produtos'):
+        produtos_map[str(l.pk)] = [
+            {
+                'id': p.pk,
+                'label': f"[{p.sku}] {p.nome} — R$ {p.preco:.2f} (Estoque: {p.estoque})"
+            }
+            for p in l.produtos.filter(status=StatusProdutoEnum.ATIVO).order_by('nome')
+        ]
+    context['contas_lojas_json'] = json.dumps(contas_map)
+    context['produtos_por_loja_json'] = json.dumps(produtos_map)
+
+
 class AnuncioCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
     """
     O QUE FAZ: Criação manual direta de anúncios com suporte a múltiplos produtos na composição (Kits e Combos).
@@ -133,6 +170,31 @@ class AnuncioCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
             raise PermissionDenied("Acesso negado: seu perfil não tem permissão para criar anúncios.")
         return super().dispatch(request, *args, **kwargs)
 
+    def get_loja_alvo(self):
+        user = self.request.user
+        if not usuario_is_dev(user):
+            perfil = getattr(user, 'perfil', None)
+            return getattr(perfil, 'loja', None) if perfil else None
+
+        conta_id = self.request.POST.get('conta') or self.request.GET.get('conta')
+        if conta_id:
+            conta = ContaMarketplace.objects.filter(pk=conta_id).select_related('loja').first()
+            if conta:
+                return conta.loja
+
+        primeira_conta = ContaMarketplace.objects.filter(ativo=True).select_related('loja').first()
+        return primeira_conta.loja if primeira_conta else None
+
+    def get_initial(self):
+        initial = super().get_initial()
+        if 'conta' in self.request.GET:
+            initial['conta'] = self.request.GET.get('conta')
+        elif usuario_is_dev(self.request.user):
+            primeira_conta = ContaMarketplace.objects.filter(ativo=True).first()
+            if primeira_conta:
+                initial['conta'] = primeira_conta.pk
+        return initial
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['user'] = self.request.user
@@ -141,7 +203,7 @@ class AnuncioCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        loja = None if usuario_is_dev(user) else (getattr(user, 'perfil', None).loja if hasattr(user, 'perfil') and user.perfil else None)
+        loja = self.get_loja_alvo()
 
         if 'formset' not in context:
             if self.request.POST:
@@ -158,13 +220,15 @@ class AnuncioCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
                     user=user
                 )
         context['is_edicao'] = False
+        loja_fixa = None if usuario_is_dev(user) else loja
+        _adicionar_mapa_lojas_e_produtos(context, loja_fixa=loja_fixa)
         return context
 
     def form_valid(self, form):
         user = self.request.user
-        loja = None if usuario_is_dev(user) else (getattr(user, 'perfil', None).loja if hasattr(user, 'perfil') and user.perfil else None)
-
         self.object = form.save(commit=False)
+        loja = self.object.conta.loja if getattr(self.object, 'conta', None) else self.get_loja_alvo()
+
         formset = AnuncioComposicaoInlineFormSet(
             self.request.POST,
             instance=self.object,
@@ -207,6 +271,7 @@ class AnuncioUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, UpdateView):
     POR QUE FAZ: Permite ao operador ajustar preço, SKU, título e reestruturar os produtos do kit via formset unificado.
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR (USUARIO bloqueado com 403).
     MULTI-TENANCY: Isolamento estrito por Loja do usuário logado (anúncio de outra loja bloqueado).
+    RESTRIÇÃO DE COMPOSIÇÃO: Mesmo para usuário DEV, os produtos da composição são restritos rigorosamente à loja do anúncio.
     """
     modulo_requerido = 'marketplaces'
     model = Anuncio
@@ -235,7 +300,8 @@ class AnuncioUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, UpdateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        loja = None if usuario_is_dev(user) else (getattr(user, 'perfil', None).loja if hasattr(user, 'perfil') and user.perfil else None)
+        # A composição do anúncio é restrita estritamente à loja da conta em questão (mesmo para DEV)
+        loja = self.object.conta.loja
 
         if 'formset' not in context:
             if self.request.POST:
@@ -252,11 +318,13 @@ class AnuncioUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, UpdateView):
                     user=user
                 )
         context['is_edicao'] = True
+        _adicionar_mapa_lojas_e_produtos(context, loja_fixa=loja)
         return context
 
     def form_valid(self, form):
         user = self.request.user
-        loja = None if usuario_is_dev(user) else (getattr(user, 'perfil', None).loja if hasattr(user, 'perfil') and user.perfil else None)
+        # A composição do anúncio é restrita estritamente à loja da conta em questão (mesmo para DEV)
+        loja = self.object.conta.loja
 
         formset = AnuncioComposicaoInlineFormSet(
             self.request.POST,
