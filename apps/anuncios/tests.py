@@ -788,3 +788,199 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
         self.assertIn("SNAP-02", skus_depois)
         self.assertEqual(hist.snapshot_depois[0]['sku'], "SNAP-02")
         self.assertEqual(hist.snapshot_depois[0]['quantidade'], 2)
+
+
+class AnuncioCriacaoManualEComposicaoTestCase(TestCase):
+    """
+    O QUE FAZ: Testes automatizados para criação e edição manual de anúncios e composições comerciais (ADR-003, ADR-009).
+    POR QUE FAZ: Valida criação de combos heterogêneos, recálculo dinâmico de cota gargalo, rejeição de duplicidades,
+                 isolamento multi-tenant estrito e autorização RBAC.
+    """
+    def setUp(self):
+        self.client = Client()
+
+        self.loja = Loja.objects.create(nome="Loja A", slug="loja-a", cnpj="11.111.111/0001-11")
+        self.loja.garantir_modulos_padrao()
+
+        self.loja_b = Loja.objects.create(nome="Loja B", slug="loja-b", cnpj="22.222.222/0001-22")
+        self.loja_b.garantir_modulos_padrao()
+
+        self.user_admin = User.objects.create_user(username='admin_a', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_admin, papel=PapelUsuarioEnum.ADMIN, loja=self.loja)
+
+        self.user_padrao = User.objects.create_user(username='operador_a', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_padrao, papel=PapelUsuarioEnum.USUARIO, loja=self.loja)
+
+        self.categoria = Categoria.objects.create(loja=self.loja, nome="Hardware", slug="hardware")
+        self.categoria_b = Categoria.objects.create(loja=self.loja_b, nome="Hardware B", slug="hardware-b")
+
+        self.produto_a = Produto.objects.create(
+            loja=self.loja, categoria=self.categoria, sku="PROD-A", nome="Produto Alpha",
+            preco=Decimal('100.00'), estoque=10
+        )
+        self.produto_b = Produto.objects.create(
+            loja=self.loja, categoria=self.categoria, sku="PROD-B", nome="Produto Beta",
+            preco=Decimal('50.00'), estoque=12
+        )
+        self.produto_loja_b = Produto.objects.create(
+            loja=self.loja_b, categoria=self.categoria_b, sku="PROD-OUTRA-LOJA", nome="Produto Outra Loja",
+            preco=Decimal('30.00'), estoque=50
+        )
+
+        self.conta = ContaMarketplace.objects.create(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            apelido_conta="ML Loja A",
+            seller_id_externo="12345"
+        )
+
+    def test_criacao_manual_anuncio_combo_multiproduto(self):
+        """Valida a criação manual de anúncio com 2 produtos heterogêneos (Combo) e cálculo da cota gargalo."""
+        self.client.force_login(self.user_admin)
+        url = reverse('anuncio_create')
+
+        post_data = {
+            'conta': self.conta.pk,
+            'item_id_externo': 'MLB-COMBO-99',
+            'titulo': 'Combo Teclado + Mouse Gamer',
+            'sku_vendedor': 'COMBO-GAMER',
+            'preco_venda': '149.90',
+            'status': 'active',
+            # Inline formset (prefix 'itens_composicao')
+            'itens_composicao-TOTAL_FORMS': '2',
+            'itens_composicao-INITIAL_FORMS': '0',
+            'itens_composicao-MIN_NUM_FORMS': '0',
+            'itens_composicao-MAX_NUM_FORMS': '1000',
+            # Item 0: Produto A x 2 (10 // 2 = 5)
+            'itens_composicao-0-produto': self.produto_a.pk,
+            'itens_composicao-0-quantidade': '2',
+            # Item 1: Produto B x 3 (12 // 3 = 4 -> gargalo!)
+            'itens_composicao-1-produto': self.produto_b.pk,
+            'itens_composicao-1-quantidade': '3',
+        }
+
+        resp = self.client.post(url, post_data)
+        self.assertEqual(resp.status_code, 302)
+
+        anuncio = Anuncio.objects.filter(item_id_externo='MLB-COMBO-99').first()
+        self.assertIsNotNone(anuncio)
+        self.assertEqual(anuncio.itens_composicao.count(), 2)
+        self.assertEqual(anuncio.tipo_composicao, "Combo Multi-Produto")
+        self.assertEqual(anuncio.tipo_composicao_badge['label'], "Combo Multi-Produto")
+        # Gargalo min(10//2, 12//3) = min(5, 4) = 4
+        self.assertEqual(anuncio.calcular_cota_disponivel(), 4)
+        self.assertEqual(anuncio.estoque_publicado, 4)
+
+    def test_validacao_rejeicao_produtos_duplicados(self):
+        """Valida que o formset rejeita o mesmo produto selecionado mais de uma vez."""
+        self.client.force_login(self.user_admin)
+        url = reverse('anuncio_create')
+
+        post_data = {
+            'conta': self.conta.pk,
+            'item_id_externo': 'MLB-DUP-01',
+            'titulo': 'Anúncio com Duplicidade',
+            'preco_venda': '100.00',
+            'status': 'active',
+            'itens_composicao-TOTAL_FORMS': '2',
+            'itens_composicao-INITIAL_FORMS': '0',
+            'itens_composicao-MIN_NUM_FORMS': '0',
+            'itens_composicao-MAX_NUM_FORMS': '1000',
+            # Linha 0 e 1 usam o mesmo produto_a
+            'itens_composicao-0-produto': self.produto_a.pk,
+            'itens_composicao-0-quantidade': '1',
+            'itens_composicao-1-produto': self.produto_a.pk,
+            'itens_composicao-1-quantidade': '2',
+        }
+
+        resp = self.client.post(url, post_data)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(
+            "adicionado mais de uma vez" in resp.content.decode('utf-8') or
+            "duplicado" in resp.content.decode('utf-8')
+        )
+        self.assertFalse(Anuncio.objects.filter(item_id_externo='MLB-DUP-01').exists())
+
+    def test_validacao_rejeicao_produto_outra_loja_multi_tenant(self):
+        """Valida que produto de outra loja não é aceito no formset (ADR-003)."""
+        self.client.force_login(self.user_admin)
+        url = reverse('anuncio_create')
+
+        post_data = {
+            'conta': self.conta.pk,
+            'item_id_externo': 'MLB-CROSS-TENANT',
+            'titulo': 'Anúncio Cross Tenant Tentativa',
+            'preco_venda': '100.00',
+            'status': 'active',
+            'itens_composicao-TOTAL_FORMS': '1',
+            'itens_composicao-INITIAL_FORMS': '0',
+            'itens_composicao-MIN_NUM_FORMS': '0',
+            'itens_composicao-MAX_NUM_FORMS': '1000',
+            'itens_composicao-0-produto': self.produto_loja_b.pk,
+            'itens_composicao-0-quantidade': '1',
+        }
+
+        resp = self.client.post(url, post_data)
+        # O formulário rejeita porque o produto_loja_b não pertence ao queryset filtrado pela loja
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Anuncio.objects.filter(item_id_externo='MLB-CROSS-TENANT').exists())
+
+    def test_edicao_anuncio_recalculo_cota(self):
+        """Valida atualização do anúncio e recálculo da cota dinâmica via AnuncioUpdateView."""
+        self.client.force_login(self.user_admin)
+
+        anuncio = Anuncio.objects.create(
+            conta=self.conta,
+            item_id_externo='MLB-EDIT-01',
+            titulo='Anúncio para Edição',
+            preco_venda=Decimal('100.00'),
+            estoque_publicado=10
+        )
+        comp_a = AnuncioComposicao.objects.create(anuncio=anuncio, produto=self.produto_a, quantidade=1)
+
+        url = reverse('anuncio_update', kwargs={'pk': anuncio.pk})
+
+        # Altera multiplicador do produto A de 1 para 5 (10 // 5 = 2)
+        post_data = {
+            'conta': self.conta.pk,
+            'item_id_externo': 'MLB-EDIT-01',
+            'titulo': 'Anúncio Editado com Sucesso',
+            'preco_venda': '120.00',
+            'status': 'active',
+            'itens_composicao-TOTAL_FORMS': '1',
+            'itens_composicao-INITIAL_FORMS': '1',
+            'itens_composicao-MIN_NUM_FORMS': '0',
+            'itens_composicao-MAX_NUM_FORMS': '1000',
+            'itens_composicao-0-id': comp_a.pk,
+            'itens_composicao-0-produto': self.produto_a.pk,
+            'itens_composicao-0-quantidade': '5',
+        }
+
+        resp = self.client.post(url, post_data)
+        self.assertEqual(resp.status_code, 302)
+
+        anuncio.refresh_from_db()
+        self.assertEqual(anuncio.titulo, 'Anúncio Editado com Sucesso')
+        self.assertEqual(anuncio.preco_venda, Decimal('120.00'))
+        self.assertEqual(anuncio.calcular_cota_disponivel(), 2)
+        self.assertEqual(anuncio.estoque_publicado, 2)
+        self.assertEqual(anuncio.tipo_composicao, "Kit Homogêneo")
+
+    def test_rbac_usuario_padrao_bloqueado(self):
+        """Valida que perfil USUARIO recebe 403 ao tentar criar ou editar anúncios."""
+        self.client.force_login(self.user_padrao)
+
+        anuncio = Anuncio.objects.create(
+            conta=self.conta,
+            item_id_externo='MLB-RBAC-01',
+            titulo='Anúncio RBAC',
+            preco_venda=Decimal('10.00'),
+            estoque_publicado=5
+        )
+
+        resp_create = self.client.get(reverse('anuncio_create'))
+        self.assertEqual(resp_create.status_code, 403)
+
+        resp_update = self.client.get(reverse('anuncio_update', kwargs={'pk': anuncio.pk}))
+        self.assertEqual(resp_update.status_code, 403)
+

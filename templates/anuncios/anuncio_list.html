@@ -4,6 +4,18 @@
 {% block title %}Catálogo de Anúncios — Hub de Marketplaces{% endblock %}
 
 {% block content %}
+<style>
+    .btn-hub-solid {
+        background-color: #0f2b48 !important;
+        color: #ffffff !important;
+        border: 1px solid #0f2b48 !important;
+    }
+    .btn-hub-solid:hover, .btn-hub-solid:focus {
+        background-color: #18426d !important;
+        color: #ffffff !important;
+        border-color: #18426d !important;
+    }
+</style>
 <div class="container-fluid py-4">
     <!-- CABEÇALHO -->
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -22,32 +34,40 @@
             </p>
         </div>
 
-        {% if pode_sincronizar %}
-            <div class="dropdown">
-                <button class="btn btn-primary dropdown-toggle fw-bold shadow-sm" type="button" id="importarMenu" data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="bi bi-cloud-arrow-down me-1"></i> Importar Anúncios
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="importarMenu">
-                    <li><h6 class="dropdown-header">Selecione a Conta para Sincronizar</h6></li>
-                    {% for c in contas_disponiveis %}
-                        <li>
-                            <form method="post" action="{% url 'anuncio_importar' pk=c.pk %}" class="px-2 py-1">
-                                {% csrf_token %}
-                                <button type="submit" class="dropdown-item rounded d-flex align-items-center justify-content-between">
-                                    <span>
-                                        <i class="bi bi-diagram-3 me-1"></i> {{ c.apelido_conta }}
-                                        <small class="text-muted d-block">({{ c.get_canal_display }})</small>
-                                    </span>
-                                    <span class="badge bg-secondary ms-2">{{ c.seller_id_externo|default:"N/A" }}</span>
-                                </button>
-                            </form>
-                        </li>
-                    {% empty %}
-                        <li><span class="dropdown-item text-muted small">Nenhuma conta ativa disponível</span></li>
-                    {% endfor %}
-                </ul>
-            </div>
-        {% endif %}
+        <div class="d-flex gap-2">
+            {% if pode_sincronizar %}
+                <a href="{% url 'anuncio_create' %}" class="btn btn-hub-solid fw-bold shadow-sm">
+                    <i class="bi bi-plus-circle me-1"></i> Novo Anúncio
+                </a>
+            {% endif %}
+
+            {% if pode_sincronizar %}
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary dropdown-toggle fw-bold shadow-sm" type="button" id="importarMenu" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-cloud-arrow-down me-1"></i> Importar Anúncios
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="importarMenu">
+                        <li><h6 class="dropdown-header">Selecione a Conta para Sincronizar</h6></li>
+                        {% for c in contas_disponiveis %}
+                            <li>
+                                <form method="post" action="{% url 'anuncio_importar' pk=c.pk %}" class="px-2 py-1">
+                                    {% csrf_token %}
+                                    <button type="submit" class="dropdown-item rounded d-flex align-items-center justify-content-between">
+                                        <span>
+                                            <i class="bi bi-diagram-3 me-1"></i> {{ c.apelido_conta }}
+                                            <small class="text-muted d-block">({{ c.get_canal_display }})</small>
+                                        </span>
+                                        <span class="badge bg-secondary ms-2">{{ c.seller_id_externo|default:"N/A" }}</span>
+                                    </button>
+                                </form>
+                            </li>
+                        {% empty %}
+                            <li><span class="dropdown-item text-muted small">Nenhuma conta ativa disponível</span></li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        </div>
     </div>
 
     <!-- FILTROS E BUSCA -->
@@ -185,21 +205,11 @@
                                     {% endwith %}
                                 </td>
                                 <td>
-                                    {% if a.itens_composicao.exists %}
-                                        {% if a.eh_kit %}
-                                            <span class="badge bg-info text-dark">
-                                                <i class="bi bi-boxes me-1"></i> Kit ({{ a.itens_composicao.count }} itens)
-                                            </span>
-                                        {% else %}
-                                            <span class="badge bg-light text-dark border">
-                                                <i class="bi bi-box me-1"></i> Unitário
-                                            </span>
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="badge bg-warning text-dark">
-                                            <i class="bi bi-exclamation-triangle me-1"></i> Sem Vínculo Físico
+                                    {% with badge=a.tipo_composicao_badge %}
+                                        <span class="{{ badge.class }}">
+                                            <i class="bi {{ badge.icon }} me-1"></i> {{ badge.label }}
                                         </span>
-                                    {% endif %}
+                                    {% endwith %}
                                 </td>
                                 <td class="text-center">
                                     {% if a.status == 'active' %}
@@ -213,9 +223,16 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-center">
-                                    <a href="{% url 'anuncio_detail' pk=a.pk %}" class="btn btn-sm btn-outline-primary" title="Gerenciar Kit e Composição">
-                                        <i class="bi bi-sliders me-1"></i> Ficha
-                                    </a>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{% url 'anuncio_detail' pk=a.pk %}" class="btn btn-outline-primary" title="Ficha Técnica">
+                                            <i class="bi bi-sliders"></i>
+                                        </a>
+                                        {% if pode_sincronizar %}
+                                            <a href="{% url 'anuncio_update' pk=a.pk %}" class="btn btn-outline-secondary" title="Editar Anúncio e Composição">
+                                                <i class="bi bi-pencil-square"></i>
+                                            </a>
+                                        {% endif %}
+                                    </div>
                                 </td>
                             </tr>
                         {% empty %}

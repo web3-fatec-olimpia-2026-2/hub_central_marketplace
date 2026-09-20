@@ -17,10 +17,13 @@
         <!-- CARD PRINCIPAL DO ANÚNCIO -->
         <div class="col-lg-5">
             <div class="card shadow-sm border-0 h-100">
-                <div class="card-header bg-white border-bottom py-3">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
                     <h5 class="fw-bold mb-0">
                         <i class="bi bi-info-circle text-primary me-2"></i>Dados do Anúncio Comercial
                     </h5>
+                    <a href="{% url 'anuncio_update' pk=anuncio.pk %}" class="btn btn-sm btn-outline-primary fw-bold" title="Editar Anúncio e Composição">
+                        <i class="bi bi-pencil-square me-1"></i> Editar
+                    </a>
                 </div>
                 <div class="card-body">
                     <div class="text-center mb-4">
@@ -97,11 +100,11 @@
                     <h5 class="fw-bold mb-0">
                         <i class="bi bi-boxes text-info me-2"></i>Ficha Técnica / Composição de Estoque Real
                     </h5>
-                    {% if anuncio.eh_kit %}
-                        <span class="badge bg-info text-dark">Kit Configurado</span>
-                    {% else %}
-                        <span class="badge bg-light text-dark border">Unitário</span>
-                    {% endif %}
+                    {% with badge=anuncio.tipo_composicao_badge %}
+                        <span class="{{ badge.class }}">
+                            <i class="bi {{ badge.icon }} me-1"></i> {{ badge.label }}
+                        </span>
+                    {% endwith %}
                 </div>
                 <div class="card-body">
                     <div class="alert alert-info py-2 small d-flex align-items-center">

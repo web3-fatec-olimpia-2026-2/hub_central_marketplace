@@ -119,48 +119,34 @@ class ProcessamentoPedidoService:
                     unit_price_val = item_raw.get('price')
                 unit_price = safe_decimal(unit_price_val, Decimal('0.00'))
 
-                # Localiza o produto no catálogo do Hub via AnuncioMarketplace ou SKU
-                anuncio = AnuncioMarketplace.objects.filter(
+                # 1. Busca prioritária pelo Anuncio moderno (apps.anuncios.models.Anuncio)
+                from apps.anuncios.models import Anuncio
+                anuncio_v2 = None
+                if conta:
+                    anuncio_v2 = Anuncio.objects.filter(
+                        conta=conta, item_id_externo=item_id_ext
+                    ).prefetch_related('itens_composicao__produto').first()
+                if not anuncio_v2:
+                    anuncio_v2 = Anuncio.objects.filter(
+                        conta__loja=loja, item_id_externo=item_id_ext
+                    ).prefetch_related('itens_composicao__produto').first()
+                if not anuncio_v2:
+                    anuncio_v2 = Anuncio.objects.filter(
+                        item_id_externo=item_id_ext
+                    ).prefetch_related('itens_composicao__produto').first()
+
+                # 2. Localiza anúncio legado AnuncioMarketplace se existir
+                anuncio_legado = AnuncioMarketplace.objects.filter(
                     conta_marketplace__loja=loja, item_id_externo=item_id_ext
                 ).first()
 
+                composicoes = []
+                if anuncio_v2:
+                    if not titulo or titulo == 'Item Vendido':
+                        titulo = anuncio_v2.titulo
+                    composicoes = list(anuncio_v2.itens_composicao.select_related('produto').order_by('produto_id'))
+
                 produto = None
-                multiplicador = 1
-                anuncio_v2 = None
-
-                if anuncio:
-                    produto = anuncio.produto
-                else:
-                    sku_seller = item_info.get('seller_sku', item_info.get('seller_custom_field', ''))
-                    if sku_seller:
-                        produto = Produto.objects.filter(loja=loja, sku=sku_seller).first()
-
-                # Se não encontrou por AnuncioMarketplace ou SKU direto, busca pelo Anuncio (apps.anuncios)
-                if not produto:
-                    from apps.anuncios.models import Anuncio
-                    if conta:
-                        anuncio_v2 = Anuncio.objects.filter(
-                            conta=conta, item_id_externo=item_id_ext
-                        ).prefetch_related('itens_composicao__produto').first()
-                    if not anuncio_v2:
-                        anuncio_v2 = Anuncio.objects.filter(
-                            conta__loja=loja, item_id_externo=item_id_ext
-                        ).prefetch_related('itens_composicao__produto').first()
-                    if not anuncio_v2:
-                        anuncio_v2 = Anuncio.objects.filter(
-                            item_id_externo=item_id_ext
-                        ).prefetch_related('itens_composicao__produto').first()
-
-                    if anuncio_v2:
-                        if not titulo or titulo == 'Item Vendido':
-                            titulo = anuncio_v2.titulo
-                        comp = anuncio_v2.itens_composicao.first()
-                        if comp:
-                            produto = comp.produto
-                            multiplicador = comp.quantidade
-                        elif anuncio_v2.sku_vendedor:
-                            produto = Produto.objects.filter(loja=loja, sku=anuncio_v2.sku_vendedor).first()
-
                 estoque_ant = None
                 estoque_pos = None
                 teve_ruptura = False
@@ -171,74 +157,117 @@ class ProcessamentoPedidoService:
                 except (ValueError, TypeError):
                     canal_label = str(canal or 'Marketplace').title()
 
-                if produto:
-                    # LOCK PESSIMISTA CONCORRENTE: select_for_update
-                    prod_locked = Produto.objects.select_for_update().get(pk=produto.pk)
-                    estoque_ant = prod_locked.estoque
-                    qtd_deduzir = quantidade * multiplicador
-                    estoque_pos = estoque_ant - qtd_deduzir
-                    prod_locked.estoque = estoque_pos
-                    prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
-                    prod_locked.save(update_fields=['estoque', 'atualizado_em'])
-                    estoque_baixado = True
+                if composicoes:
+                    # Composição heterogênea ou homogênea (Kit/Combo/Simples)
+                    # Dedução ordenada por produto_id para prevenir deadlocks (ADR-008, ADR-009)
+                    for comp in composicoes:
+                        prod_locked = Produto.objects.select_for_update().get(pk=comp.produto_id)
+                        if produto is None:
+                            produto = prod_locked
 
-                    # Registro de Auditoria no Histórico de Preço e Estoque do Produto
-                    prod_locked.registrar_historico(
-                        estoque_anterior=estoque_ant,
-                        novo_estoque=estoque_pos,
-                        motivo=f"Baixa por venda via {canal_label} - Pedido #{pedido_id_externo}"
-                    )
+                        qtd_deduzir = quantidade * comp.quantidade
+                        saldo_ant = prod_locked.estoque
+                        saldo_pos = saldo_ant - qtd_deduzir
+                        prod_locked.estoque = saldo_pos
+                        prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
+                        prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+                        estoque_baixado = True
 
-                    # Alerta de Ruptura: Saldo ficou negativo
-                    if estoque_pos < 0:
-                        teve_ruptura = True
-                        houve_ruptura_geral = True
+                        if estoque_ant is None:
+                            estoque_ant = saldo_ant
+                            estoque_pos = saldo_pos
+
+                        # Registro de Histórico de Estoque do Produto
+                        prod_locked.registrar_historico(
+                            estoque_anterior=saldo_ant,
+                            novo_estoque=saldo_pos,
+                            motivo=f"Baixa por venda via {canal_label} - Pedido #{pedido_id_externo} ({comp.quantidade}x)"
+                        )
+
+                        # Alerta de Ruptura se o saldo ficar negativo
+                        if saldo_pos < 0:
+                            teve_ruptura = True
+                            houve_ruptura_geral = True
+                            LogAuditoria.objects.create(
+                                loja=loja,
+                                evento=EventoAuditoriaEnum.ALERTA_RUPTURA_ESTOQUE,
+                                detalhes=(
+                                    f"ALERTA DE RUPTURA: Venda do pedido #{pedido_id_externo} no canal '{canal}' "
+                                    f"deixou o componente SKU '{prod_locked.sku}' com saldo NEGATIVO ({saldo_pos} un.). "
+                                    f"Estoque anterior: {saldo_ant} un. | Quantidade deduzida: {qtd_deduzir} un."
+                                )
+                            )
+
                         LogAuditoria.objects.create(
                             loja=loja,
-                            evento=EventoAuditoriaEnum.ALERTA_RUPTURA_ESTOQUE,
+                            evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
                             detalhes=(
-                                f"ALERTA DE RUPTURA: Venda do pedido #{pedido_id_externo} no canal '{canal}' "
-                                f"deixou o produto SKU '{prod_locked.sku}' com saldo NEGATIVO ({estoque_pos} un.). "
-                                f"Estoque anterior: {estoque_ant} un. | Quantidade vendida: {qtd_deduzir} un."
+                                f"Baixa automática de {qtd_deduzir} un. no componente SKU '{prod_locked.sku}' "
+                                f"por venda #{pedido_id_externo} ({canal}). Saldo: {saldo_ant} -> {saldo_pos}."
                             )
                         )
 
-                    # Log da baixa de estoque por venda
-                    LogAuditoria.objects.create(
-                        loja=loja,
-                        evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
-                        detalhes=(
-                            f"Baixa automática de {qtd_deduzir} un. no SKU '{prod_locked.sku}' por venda #{pedido_id_externo} ({canal}). "
-                            f"Saldo: {estoque_ant} -> {estoque_pos}."
+                        cls.propagar_estoque_multicanal(prod_locked, canal_origem=canal)
+
+                    # Atualiza o estoque publicado no anúncio com a nova cota
+                    anuncio_v2.estoque_publicado = anuncio_v2.calcular_cota_disponivel()
+                    anuncio_v2.save(update_fields=['estoque_publicado', 'atualizado_em'])
+
+                else:
+                    # Anúncio sem composição direta ou busca por SKU direto / legado
+                    if anuncio_v2 and anuncio_v2.sku_vendedor:
+                        produto = Produto.objects.filter(loja=loja, sku=anuncio_v2.sku_vendedor).first()
+                    elif anuncio_legado:
+                        produto = anuncio_legado.produto
+                    else:
+                        sku_seller = item_info.get('seller_sku', item_info.get('seller_custom_field', ''))
+                        if sku_seller:
+                            produto = Produto.objects.filter(loja=loja, sku=sku_seller).first()
+
+                    if produto:
+                        prod_locked = Produto.objects.select_for_update().get(pk=produto.pk)
+                        estoque_ant = prod_locked.estoque
+                        qtd_deduzir = quantidade
+                        estoque_pos = estoque_ant - qtd_deduzir
+                        prod_locked.estoque = estoque_pos
+                        prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
+                        prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+                        estoque_baixado = True
+
+                        prod_locked.registrar_historico(
+                            estoque_anterior=estoque_ant,
+                            novo_estoque=estoque_pos,
+                            motivo=f"Baixa por venda via {canal_label} - Pedido #{pedido_id_externo}"
                         )
-                    )
 
-                    # BROADCAST MULTICANAL DE ESTOQUE: propaga o novo saldo para outros anúncios
-                    cls.propagar_estoque_multicanal(prod_locked, canal_origem=canal)
-
-                    # Se o anúncio possui outros itens de composição, baixa o estoque de cada um também
-                    if anuncio_v2 and anuncio_v2.itens_composicao.count() > 1:
-                        for comp_extra in anuncio_v2.itens_composicao.all()[1:]:
-                            prod_extra = Produto.objects.select_for_update().get(pk=comp_extra.produto_id)
-                            qtd_extra = quantidade * comp_extra.quantidade
-                            saldo_extra_ant = prod_extra.estoque
-                            saldo_extra_pos = saldo_extra_ant - qtd_extra
-                            prod_extra.estoque = saldo_extra_pos
-                            prod_extra._motivo_alteracao = 'VENDA_MARKETPLACE'
-                            prod_extra.save(update_fields=['estoque', 'atualizado_em'])
-
-                            prod_extra.registrar_historico(
-                                estoque_anterior=saldo_extra_ant,
-                                novo_estoque=saldo_extra_pos,
-                                motivo=f"Baixa por venda via {canal_label} - Pedido #{pedido_id_externo}"
+                        if estoque_pos < 0:
+                            teve_ruptura = True
+                            houve_ruptura_geral = True
+                            LogAuditoria.objects.create(
+                                loja=loja,
+                                evento=EventoAuditoriaEnum.ALERTA_RUPTURA_ESTOQUE,
+                                detalhes=(
+                                    f"ALERTA DE RUPTURA: Venda do pedido #{pedido_id_externo} no canal '{canal}' "
+                                    f"deixou o produto SKU '{prod_locked.sku}' com saldo NEGATIVO ({estoque_pos} un.). "
+                                    f"Estoque anterior: {estoque_ant} un. | Quantidade vendida: {qtd_deduzir} un."
+                                )
                             )
 
-                            cls.propagar_estoque_multicanal(prod_extra, canal_origem=canal)
+                        LogAuditoria.objects.create(
+                            loja=loja,
+                            evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
+                            detalhes=(
+                                f"Baixa automática de {qtd_deduzir} un. no SKU '{prod_locked.sku}' por venda #{pedido_id_externo} ({canal}). "
+                                f"Saldo: {estoque_ant} -> {estoque_pos}."
+                            )
+                        )
+
+                        cls.propagar_estoque_multicanal(prod_locked, canal_origem=canal)
 
                 ItemPedidoVenda.objects.create(
                     pedido=pedido,
                     produto=produto,
-                    anuncio_marketplace=anuncio,
+                    anuncio_marketplace=anuncio_legado,
                     item_id_externo=item_id_ext,
                     titulo_anuncio=titulo,
                     quantidade=quantidade,

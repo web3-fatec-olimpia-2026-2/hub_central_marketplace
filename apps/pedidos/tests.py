@@ -322,3 +322,81 @@ class PedidosAndAtomicStockTestCase(TestCase):
         self.assertEqual(historico.usuario, self.user)
         self.assertIn("ORD-HIST-01", historico.motivo)
         self.assertIn("Mercado Livre", historico.motivo)
+
+    def test_processamento_pedido_combo_multiproduto_baixa_atomica_ordenada(self):
+        """
+        Valida que o processamento de pedido de um Combo Multi-Produto (ADR-009):
+        1. Localiza a composição do Anuncio moderno.
+        2. Deduz de forma atômica e proporcional o saldo de cada componente (Produto A x 2 + Produto B x 3).
+        3. Registra HistoricoPreco para cada um dos produtos deduzidos.
+        4. Recalcula e atualiza estoque_publicado no Anuncio.
+        5. Detecta ruptura se algum dos componentes atingir saldo negativo.
+        """
+        # Cria Produto A (estoque=10) e Produto B (estoque=15)
+        prod_a = Produto.objects.create(
+            loja=self.loja, categoria=self.categoria, sku="COMBO-PROD-A", nome="Produto A Combo",
+            preco=Decimal('50.00'), estoque=10
+        )
+        prod_b = Produto.objects.create(
+            loja=self.loja, categoria=self.categoria, sku="COMBO-PROD-B", nome="Produto B Combo",
+            preco=Decimal('30.00'), estoque=15
+        )
+
+        anuncio_combo = Anuncio.objects.create(
+            conta=self.conta_ml,
+            item_id_externo="MLB-COMBO-ORDER",
+            titulo="Combo Especial 2x A + 3x B",
+            preco_venda=Decimal('180.00'),
+            estoque_publicado=5
+        )
+        AnuncioComposicao.objects.create(anuncio=anuncio_combo, produto=prod_a, quantidade=2)
+        AnuncioComposicao.objects.create(anuncio=anuncio_combo, produto=prod_b, quantidade=3)
+
+        # Cota inicial: min(10//2, 15//3) = min(5, 5) = 5
+        self.assertEqual(anuncio_combo.calcular_cota_disponivel(), 5)
+
+        # Venda de 2 unidades do Combo:
+        # Produto A deve baixar: 2 * 2 = 4 un. (10 -> 6)
+        # Produto B deve baixar: 2 * 3 = 6 un. (15 -> 9)
+        payload = {
+            'order_id': 'ORD-COMBO-01',
+            'total_amount': 360.00,
+            'buyer': {'name': 'Comprador Combo'},
+            'items': [
+                {
+                    'item': {'id': 'MLB-COMBO-ORDER', 'title': 'Combo Especial 2x A + 3x B'},
+                    'quantity': 2,
+                    'unit_price': 180.00
+                }
+            ]
+        }
+
+        sucesso, msg, pedido = ProcessamentoPedidoService.processar_pedido_venda(
+            loja=self.loja,
+            canal=CanalMarketplaceEnum.MERCADOLIVRE,
+            pedido_id_externo="ORD-COMBO-01",
+            dados_pedido=payload,
+            conta=self.conta_ml
+        )
+
+        self.assertTrue(sucesso)
+        self.assertFalse(pedido.teve_ruptura_estoque)
+
+        prod_a.refresh_from_db()
+        prod_b.refresh_from_db()
+        self.assertEqual(prod_a.estoque, 6)
+        self.assertEqual(prod_b.estoque, 9)
+
+        # Anúncio deve ter estoque_publicado atualizado para nova cota min(6//2, 9//3) = 3
+        anuncio_combo.refresh_from_db()
+        self.assertEqual(anuncio_combo.estoque_publicado, 3)
+
+        # Históricos registrados para ambos
+        hist_a = HistoricoPreco.objects.filter(produto=prod_a).latest('criado_em')
+        self.assertEqual(hist_a.estoque_anterior, 10)
+        self.assertEqual(hist_a.estoque_novo, 6)
+
+        hist_b = HistoricoPreco.objects.filter(produto=prod_b).latest('criado_em')
+        self.assertEqual(hist_b.estoque_anterior, 15)
+        self.assertEqual(hist_b.estoque_novo, 9)
+

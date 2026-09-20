@@ -1,7 +1,7 @@
 # Os códigos foram gerados com auxilio de I.A.
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy, reverse
-from django.views.generic import ListView, View, DetailView
+from django.views.generic import ListView, View, DetailView, CreateView, UpdateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.db import transaction
@@ -16,7 +16,7 @@ from apps.marketplaces.models import ContaMarketplace
 from apps.catalogo.models import Produto
 from apps.anuncios.models import Anuncio, AnuncioComposicao, HistoricoSincronizacaoAnuncio
 from apps.anuncios.services import AnuncioImportacaoService
-from apps.anuncios.forms import AnuncioComposicaoForm
+from apps.anuncios.forms import AnuncioForm, AnuncioComposicaoInlineFormSet, AnuncioComposicaoForm
 
 
 class AnuncioListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
@@ -114,6 +114,186 @@ class AnuncioDetailView(LoginRequiredMixin, ModuloRequeridoMixin, DetailView):
         context['cota_calculada'] = self.object.calcular_cota_disponivel()
         context['historicos_ciclo'] = self.object.historico_ciclo.select_related('usuario').order_by('-criado_em')[:30]
         return context
+
+
+class AnuncioCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
+    """
+    O QUE FAZ: Criação manual direta de anúncios com suporte a múltiplos produtos na composição (Kits e Combos).
+    POR QUE FAZ: Atende ao ADR-003, ADR-009 e expansão do catálogo comercial sem depender unicamente de importação externa.
+    PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR (USUARIO bloqueado com 403).
+    MULTI-TENANCY: Garante isolamento estrito por Loja do usuário logado.
+    """
+    modulo_requerido = 'marketplaces'
+    model = Anuncio
+    form_class = AnuncioForm
+    template_name = 'anuncios/anuncio_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
+            raise PermissionDenied("Acesso negado: seu perfil não tem permissão para criar anúncios.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        loja = None if usuario_is_dev(user) else (getattr(user, 'perfil', None).loja if hasattr(user, 'perfil') and user.perfil else None)
+
+        if 'formset' not in context:
+            if self.request.POST:
+                context['formset'] = AnuncioComposicaoInlineFormSet(
+                    self.request.POST,
+                    instance=self.object or Anuncio(),
+                    loja=loja,
+                    user=user
+                )
+            else:
+                context['formset'] = AnuncioComposicaoInlineFormSet(
+                    instance=self.object or Anuncio(),
+                    loja=loja,
+                    user=user
+                )
+        context['is_edicao'] = False
+        return context
+
+    def form_valid(self, form):
+        user = self.request.user
+        loja = None if usuario_is_dev(user) else (getattr(user, 'perfil', None).loja if hasattr(user, 'perfil') and user.perfil else None)
+
+        self.object = form.save(commit=False)
+        formset = AnuncioComposicaoInlineFormSet(
+            self.request.POST,
+            instance=self.object,
+            loja=loja,
+            user=user
+        )
+
+        if formset.is_valid():
+            with transaction.atomic():
+                self.object.save()
+                formset.instance = self.object
+                formset.save()
+
+                cota = self.object.calcular_cota_disponivel()
+                tem_composicao = self.object.itens_composicao.exists()
+                if tem_composicao:
+                    self.object.estoque_publicado = cota
+                    self.object.save(update_fields=['estoque_publicado', 'atualizado_em'])
+
+                HistoricoSincronizacaoAnuncio.objects.create(
+                    anuncio=self.object,
+                    status_resultante=self.object.status_sincronizacao,
+                    preco_anterior=0,
+                    preco_proposto=self.object.preco_venda,
+                    estoque_anterior=0,
+                    estoque_proposto=self.object.estoque_publicado,
+                    usuario=self.request.user,
+                    motivo=f"Criação manual do anúncio [{self.object.item_id_externo}] com composição ({self.object.tipo_composicao})"
+                )
+
+            messages.success(self.request, f"Anúncio [{self.object.item_id_externo}] criado com sucesso!")
+            return redirect(reverse('anuncio_detail', kwargs={'pk': self.object.pk}))
+        else:
+            return self.render_to_response(self.get_context_data(form=form, formset=formset))
+
+
+class AnuncioUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, UpdateView):
+    """
+    O QUE FAZ: Edição de dados do anúncio e gerenciamento completo de sua composição de produtos físicos (Kits e Combos).
+    POR QUE FAZ: Permite ao operador ajustar preço, SKU, título e reestruturar os produtos do kit via formset unificado.
+    PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR (USUARIO bloqueado com 403).
+    MULTI-TENANCY: Isolamento estrito por Loja do usuário logado (anúncio de outra loja bloqueado).
+    """
+    modulo_requerido = 'marketplaces'
+    model = Anuncio
+    form_class = AnuncioForm
+    template_name = 'anuncios/anuncio_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
+            raise PermissionDenied("Acesso negado: seu perfil não tem permissão para editar anúncios.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_object(self, queryset=None):
+        anuncio = super().get_object(queryset=queryset)
+        user = self.request.user
+        if not usuario_is_dev(user):
+            perfil = getattr(user, 'perfil', None)
+            if not perfil or not perfil.loja or anuncio.conta.loja_id != perfil.loja_id:
+                raise PermissionDenied("Acesso negado: este anúncio pertence a outra loja.")
+        return anuncio
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        loja = None if usuario_is_dev(user) else (getattr(user, 'perfil', None).loja if hasattr(user, 'perfil') and user.perfil else None)
+
+        if 'formset' not in context:
+            if self.request.POST:
+                context['formset'] = AnuncioComposicaoInlineFormSet(
+                    self.request.POST,
+                    instance=self.object,
+                    loja=loja,
+                    user=user
+                )
+            else:
+                context['formset'] = AnuncioComposicaoInlineFormSet(
+                    instance=self.object,
+                    loja=loja,
+                    user=user
+                )
+        context['is_edicao'] = True
+        return context
+
+    def form_valid(self, form):
+        user = self.request.user
+        loja = None if usuario_is_dev(user) else (getattr(user, 'perfil', None).loja if hasattr(user, 'perfil') and user.perfil else None)
+
+        formset = AnuncioComposicaoInlineFormSet(
+            self.request.POST,
+            instance=self.object,
+            loja=loja,
+            user=user
+        )
+
+        if formset.is_valid():
+            with transaction.atomic():
+                preco_ant = self.object.preco_venda
+                estoque_ant = self.object.estoque_publicado
+
+                self.object = form.save()
+                formset.save()
+
+                cota = self.object.calcular_cota_disponivel()
+                tem_composicao = self.object.itens_composicao.exists()
+                if tem_composicao:
+                    self.object.estoque_publicado = cota
+                    self.object.save(update_fields=['estoque_publicado', 'atualizado_em'])
+
+                HistoricoSincronizacaoAnuncio.objects.create(
+                    anuncio=self.object,
+                    status_resultante=self.object.status_sincronizacao,
+                    preco_anterior=preco_ant,
+                    preco_proposto=self.object.preco_venda,
+                    estoque_anterior=estoque_ant,
+                    estoque_proposto=self.object.estoque_publicado,
+                    usuario=self.request.user,
+                    motivo=f"Edição manual do anúncio [{self.object.item_id_externo}] e composição ({self.object.tipo_composicao})"
+                )
+
+            messages.success(self.request, f"Anúncio [{self.object.item_id_externo}] atualizado com sucesso!")
+            return redirect(reverse('anuncio_detail', kwargs={'pk': self.object.pk}))
+        else:
+            return self.render_to_response(self.get_context_data(form=form, formset=formset))
 
 
 class AnuncioImportarView(LoginRequiredMixin, ModuloRequeridoMixin, View):

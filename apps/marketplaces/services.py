@@ -278,7 +278,7 @@ class MercadoLivreWebhookService:
                     if anuncio:
                         if not titulo_item:
                             titulo_item = anuncio.titulo
-                        composicoes = anuncio.itens_composicao.all()
+                        composicoes = anuncio.itens_composicao.order_by('produto_id')
                         if composicoes.exists():
                             for comp in composicoes:
                                 prod_locked = Produto.objects.select_for_update().get(pk=comp.produto_id)
@@ -314,6 +314,9 @@ class MercadoLivreWebhookService:
                                         f"Saldo anterior: {saldo_ant} -> Novo saldo: {novo_saldo} un."
                                     )
                                 )
+
+                            anuncio.estoque_publicado = anuncio.calcular_cota_disponivel()
+                            anuncio.save(update_fields=['estoque_publicado', 'atualizado_em'])
                         else:
                             # Anúncio sem composição direta: tenta por sku_vendedor
                             sku = anuncio.sku_vendedor or item_info.get('seller_sku')

@@ -1,0 +1,375 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}
+    {% if is_edicao %}Editar Anúncio — {{ object.item_id_externo }}{% else %}Novo Anúncio — Hub de Marketplaces{% endif %}
+{% endblock %}
+
+{% block content %}
+<style>
+    .btn-hub-solid {
+        background-color: #0f2b48 !important;
+        color: #ffffff !important;
+        border: 1px solid #0f2b48 !important;
+    }
+    .btn-hub-solid:hover, .btn-hub-solid:focus {
+        background-color: #18426d !important;
+        color: #ffffff !important;
+        border-color: #18426d !important;
+    }
+    .composicao-row.marked-for-delete {
+        opacity: 0.35;
+        background-color: rgba(220, 53, 69, 0.08);
+        text-decoration: line-through;
+    }
+</style>
+
+<div class="container-fluid py-4">
+    <!-- NAVEGAÇÃO E TÍTULO -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-1">
+                    <li class="breadcrumb-item"><a href="{% url 'home' %}">Início</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'anuncio_list' %}">Anúncios</a></li>
+                    <li class="breadcrumb-item active" aria-current="page">
+                        {% if is_edicao %}Editar: {{ object.item_id_externo }}{% else %}Novo Anúncio{% endif %}
+                    </li>
+                </ol>
+            </nav>
+            <h2 class="fw-bold mb-0">
+                <i class="bi {% if is_edicao %}bi-pencil-square text-primary{% else %}bi-plus-circle text-success{% endif %} me-2"></i>
+                {% if is_edicao %}Editar Anúncio Comercial{% else %}Novo Anúncio Comercial{% endif %}
+            </h2>
+            <p class="text-muted small mb-0">
+                Cadastre ou edite o anúncio de marketplace vinculando produtos do estoque central (itens simples, kits homogêneos ou combos).
+            </p>
+        </div>
+        <div>
+            <a href="{% if is_edicao %}{% url 'anuncio_detail' pk=object.pk %}{% else %}{% url 'anuncio_list' %}{% endif %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i> Voltar
+            </a>
+        </div>
+    </div>
+
+    <form method="post" id="form-anuncio" novalidate>
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger shadow-sm mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                {% for err in form.non_field_errors %}{{ err }}<br>{% endfor %}
+            </div>
+        {% endif %}
+
+        {% if formset.non_form_errors %}
+            <div class="alert alert-danger shadow-sm mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>Erro na Composição:</strong><br>
+                {% for err in formset.non_form_errors %}{{ err }}<br>{% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="row g-4">
+            <!-- PAINEL 1: DADOS GERAIS DO ANÚNCIO -->
+            <div class="col-lg-5">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-white border-bottom py-3">
+                        <h5 class="fw-bold mb-0">
+                            <i class="bi bi-info-circle text-primary me-2"></i>Parâmetros Comerciais do Anúncio
+                        </h5>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="row g-3">
+                            <div class="col-md-12">
+                                <label class="form-label small fw-bold">Conta de Integração (Marketplace) *</label>
+                                {{ form.conta }}
+                                {% if form.conta.errors %}
+                                    <div class="text-danger small mt-1">{{ form.conta.errors.0 }}</div>
+                                {% endif %}
+                                <small class="text-muted d-block mt-1">Conta vinculada à loja e ao canal de venda.</small>
+                            </div>
+
+                            <div class="col-md-12">
+                                <label class="form-label small fw-bold">Título Comercial do Anúncio *</label>
+                                {{ form.titulo }}
+                                {% if form.titulo.errors %}
+                                    <div class="text-danger small mt-1">{{ form.titulo.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">ID Externo no Marketplace *</label>
+                                {{ form.item_id_externo }}
+                                {% if form.item_id_externo.errors %}
+                                    <div class="text-danger small mt-1">{{ form.item_id_externo.errors.0 }}</div>
+                                {% endif %}
+                                <small class="text-muted d-block mt-1">Ex: MLB12345678 ou SKU-CANAL.</small>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">SKU Vendedor (Opcional)</label>
+                                {{ form.sku_vendedor }}
+                                {% if form.sku_vendedor.errors %}
+                                    <div class="text-danger small mt-1">{{ form.sku_vendedor.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Preço de Venda (R$) *</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">R$</span>
+                                    {{ form.preco_venda }}
+                                </div>
+                                {% if form.preco_venda.errors %}
+                                    <div class="text-danger small mt-1">{{ form.preco_venda.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Status do Anúncio *</label>
+                                {{ form.status }}
+                                {% if form.status.errors %}
+                                    <div class="text-danger small mt-1">{{ form.status.errors.0 }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAINEL 2: COMPOSIÇÃO FÍSICA / KITS / COMBOS -->
+            <div class="col-lg-7">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="fw-bold mb-0">
+                                <i class="bi bi-boxes text-info me-2"></i>Ficha Técnica / Composição de Estoque Real
+                            </h5>
+                        </div>
+                        <div id="live-composition-badge">
+                            {% if object.pk %}
+                                {% with badge=object.tipo_composicao_badge %}
+                                    <span class="{{ badge.class }}">
+                                        <i class="bi {{ badge.icon }} me-1"></i> {{ badge.label }}
+                                    </span>
+                                {% endwith %}
+                            {% else %}
+                                <span class="badge bg-warning text-dark">
+                                    <i class="bi bi-exclamation-triangle me-1"></i> Sem Vínculo Físico
+                                </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="alert alert-info py-2 small d-flex align-items-center mb-3">
+                            <i class="bi bi-info-circle-fill fs-5 me-2 flex-shrink-0"></i>
+                            <div>
+                                <strong>Cálculo Dinâmico de Estoque (ADR-009):</strong>
+                                A cota publicada deste anúncio será calculada pelo produto gargalo: <code>min(Estoque_i / Multiplicador_i)</code>.
+                                Em compras deste anúncio, o sistema debita atômica e proporcionalmente cada componente com lock pessimista.
+                            </div>
+                        </div>
+
+                        <!-- MANAGEMENT FORM DO FORMSET -->
+                        {{ formset.management_form }}
+
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle mb-3" id="tabela-composicao">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 65%;">Produto Físico no Estoque Central</th>
+                                        <th style="width: 25%;" class="text-center">Multiplicador (Qtd)</th>
+                                        <th style="width: 10%;" class="text-center">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="composicao-tbody">
+                                    {% for f in formset %}
+                                        <tr class="composicao-row">
+                                            <td>
+                                                {% for hidden in f.hidden_fields %}
+                                                    {{ hidden }}
+                                                {% endfor %}
+                                                {{ f.produto }}
+                                                {% if f.produto.errors %}
+                                                    <div class="text-danger small mt-1">{{ f.produto.errors.0 }}</div>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-center">
+                                                {{ f.quantidade }}
+                                                {% if f.quantidade.errors %}
+                                                    <div class="text-danger small mt-1">{{ f.quantidade.errors.0 }}</div>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-center">
+                                                {% if formset.can_delete %}
+                                                    <div class="d-none">
+                                                        {{ f.DELETE }}
+                                                    </div>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger btn-remover-linha" title="Remover item">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                            <button type="button" id="btn-adicionar-produto" class="btn btn-outline-primary btn-sm fw-bold">
+                                <i class="bi bi-plus-circle me-1"></i> Adicionar Produto à Composição
+                            </button>
+                            <span class="text-muted small" id="composicao-resumo">
+                                Linhas configuradas: <strong id="total-linhas-ativas">0</strong>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BARRA INFERIOR DE GRAVAÇÃO -->
+        <div class="card shadow-sm border-0 mt-4">
+            <div class="card-body d-flex justify-content-between align-items-center py-3">
+                <a href="{% if is_edicao %}{% url 'anuncio_detail' pk=object.pk %}{% else %}{% url 'anuncio_list' %}{% endif %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-x-circle me-1"></i> Cancelar
+                </a>
+                <button type="submit" class="btn btn-hub-solid fw-bold px-4 shadow-sm">
+                    <i class="bi bi-check-circle me-1"></i> {% if is_edicao %}Salvar Alterações do Anúncio{% else %}Salvar Anúncio e Composição{% endif %}
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- TEMPLATE OCULTO PARA NOVAS LINHAS DO FORMSET -->
+<table style="display: none;">
+    <tbody id="empty-form-row">
+        <tr class="composicao-row">
+            <td>
+                <input type="hidden" name="{{ formset.prefix }}-__prefix__-id" id="id_{{ formset.prefix }}-__prefix__-id">
+                <select name="{{ formset.prefix }}-__prefix__-produto" id="id_{{ formset.prefix }}-__prefix__-produto" class="form-select select-item-produto" required>
+                    <option value="" selected>Selecione um produto físico do catálogo...</option>
+                    {% for f in formset %}
+                        {% if forloop.first %}
+                            {% for choice in f.fields.produto.choices %}
+                                {% if choice.0 %}
+                                    <option value="{{ choice.0 }}">{{ choice.1 }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </td>
+            <td class="text-center">
+                <input type="number" name="{{ formset.prefix }}-__prefix__-quantidade" value="1" min="1" class="form-control text-center fw-bold input-item-qtd" id="id_{{ formset.prefix }}-__prefix__-quantidade" required>
+            </td>
+            <td class="text-center">
+                <input type="checkbox" name="{{ formset.prefix }}-__prefix__-DELETE" id="id_{{ formset.prefix }}-__prefix__-DELETE" class="d-none">
+                <button type="button" class="btn btn-sm btn-outline-danger btn-remover-linha" title="Remover item">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- JAVASCRIPT DINÂMICO DE COMPOSIÇÃO E FORMSET -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const prefix = "{{ formset.prefix }}";
+    const totalFormsInput = document.getElementById('id_' + prefix + '-TOTAL_FORMS');
+    const tbody = document.getElementById('composicao-tbody');
+    const emptyRowTbody = document.getElementById('empty-form-row');
+    const btnAdd = document.getElementById('btn-adicionar-produto');
+    const badgeContainer = document.getElementById('live-composition-badge');
+    const resumoTotal = document.getElementById('total-linhas-ativas');
+
+    function updateBadgeAndSummary() {
+        const rows = Array.from(tbody.querySelectorAll('.composicao-row'));
+        const activeRows = rows.filter(r => !r.classList.contains('marked-for-delete'));
+        
+        let validItems = [];
+        activeRows.forEach(row => {
+            const select = row.querySelector('.select-item-produto');
+            const qtdInput = row.querySelector('.input-item-qtd');
+            const prodVal = select ? select.value : null;
+            const qtdVal = qtdInput ? parseInt(qtdInput.value, 10) || 1 : 1;
+            if (prodVal) {
+                validItems.push({ prod: prodVal, qtd: qtdVal });
+            }
+        });
+
+        resumoTotal.textContent = validItems.length;
+
+        if (validItems.length === 0) {
+            badgeContainer.innerHTML = '<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i> Sem Vínculo Físico</span>';
+        } else if (validItems.length === 1) {
+            const first = validItems[0];
+            if (first.qtd > 1) {
+                badgeContainer.innerHTML = '<span class="badge bg-primary text-white"><i class="bi bi-boxes me-1"></i> Kit Homogêneo (' + first.qtd + 'x)</span>';
+            } else {
+                badgeContainer.innerHTML = '<span class="badge bg-info text-dark"><i class="bi bi-box me-1"></i> Item Simples (1x)</span>';
+            }
+        } else {
+            badgeContainer.innerHTML = '<span class="badge bg-success text-white"><i class="bi bi-collection me-1"></i> Combo Multi-Produto (' + validItems.length + ' produtos)</span>';
+        }
+    }
+
+    // Botão Adicionar Linha
+    btnAdd.addEventListener('click', function() {
+        const formIndex = parseInt(totalFormsInput.value, 10);
+        let templateHtml = emptyRowTbody.innerHTML;
+        templateHtml = templateHtml.replace(/__prefix__/g, formIndex);
+
+        const tempContainer = document.createElement('tbody');
+        tempContainer.innerHTML = templateHtml;
+        const newRow = tempContainer.querySelector('.composicao-row');
+
+        tbody.appendChild(newRow);
+        totalFormsInput.value = formIndex + 1;
+
+        attachRowEvents(newRow);
+        updateBadgeAndSummary();
+    });
+
+    // Eventos de Deleção e Alteração
+    function attachRowEvents(row) {
+        const btnDelete = row.querySelector('.btn-remover-linha');
+        const deleteCheckbox = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
+        const selectProd = row.querySelector('.select-item-produto');
+        const qtdInput = row.querySelector('.input-item-qtd');
+
+        if (btnDelete) {
+            btnDelete.addEventListener('click', function() {
+                if (deleteCheckbox) {
+                    deleteCheckbox.checked = true;
+                    row.classList.add('marked-for-delete');
+                    row.style.display = 'none';
+                } else {
+                    row.remove();
+                }
+                updateBadgeAndSummary();
+            });
+        }
+
+        if (selectProd) {
+            selectProd.addEventListener('change', updateBadgeAndSummary);
+        }
+        if (qtdInput) {
+            qtdInput.addEventListener('input', updateBadgeAndSummary);
+        }
+    }
+
+    // Inicializa linhas existentes
+    tbody.querySelectorAll('.composicao-row').forEach(row => {
+        attachRowEvents(row);
+    });
+
+    updateBadgeAndSummary();
+});
+</script>
+{% endblock %}

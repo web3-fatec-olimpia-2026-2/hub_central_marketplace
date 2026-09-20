@@ -127,6 +127,52 @@ class Anuncio(models.Model):
         primeiro = itens.first()
         return bool(primeiro and primeiro.quantidade > 1)
 
+    @property
+    def tipo_composicao(self) -> str:
+        """
+        Retorna a classificação arquitetural da composição comercial do anúncio:
+        - "Sem Vínculo": nenhum produto físico associado;
+        - "Item Simples": 1 produto com multiplicador = 1;
+        - "Kit Homogêneo": 1 produto com multiplicador > 1;
+        - "Combo Multi-Produto": 2 ou mais produtos físicos heterogêneos vinculados.
+        """
+        itens = list(self.itens_composicao.all())
+        if not itens:
+            return "Sem Vínculo"
+        if len(itens) == 1:
+            return "Kit Homogêneo" if itens[0].quantidade > 1 else "Item Simples"
+        return "Combo Multi-Produto"
+
+    @property
+    def tipo_composicao_badge(self) -> dict:
+        """
+        Retorna metadados de estilo, label e ícone para renderização uniforme nos templates (ADR-013).
+        """
+        tipo = self.tipo_composicao
+        if tipo == "Item Simples":
+            return {
+                'label': 'Item Simples',
+                'badge_class': 'badge bg-light text-dark border',
+                'icon': 'bi-box'
+            }
+        elif tipo == "Kit Homogêneo":
+            return {
+                'label': 'Kit Homogêneo',
+                'badge_class': 'badge bg-info text-dark',
+                'icon': 'bi-collection'
+            }
+        elif tipo == "Combo Multi-Produto":
+            return {
+                'label': 'Combo Multi-Produto',
+                'badge_class': 'badge bg-primary text-white',
+                'icon': 'bi-boxes'
+            }
+        return {
+            'label': 'Sem Vínculo',
+            'badge_class': 'badge bg-secondary',
+            'icon': 'bi-exclamation-triangle'
+        }
+
     def calcular_cota_disponivel(self) -> int:
         """
         O QUE FAZ: Calcula a cota máxima vendável elegível com base no estoque real físico dos produtos vinculados.
