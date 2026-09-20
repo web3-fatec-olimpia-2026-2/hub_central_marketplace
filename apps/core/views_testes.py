@@ -61,15 +61,15 @@ class ConcorrenciaTestesView(LoginRequiredMixin, View):
         try:
             if acao == 'teste_estoque':
                 produto_id = int(dados.get('produto_id', 0))
-                qtd1 = int(dados.get('qtd1', 1))
-                qtd2 = int(dados.get('qtd2', 2))
-                delay_ms = int(dados.get('delay_ms', 500))
+                qtd1 = int(dados.get('qtd1', 0))
+                qtd2 = int(dados.get('qtd2', 0))
+                qtd3 = int(dados.get('qtd3', 0))
 
                 resultado = ConcorrenciaEstoqueTestService.executar_teste(
                     produto_id=produto_id,
                     qtd1=qtd1,
                     qtd2=qtd2,
-                    delay_ms=delay_ms,
+                    qtd3=qtd3,
                     user=request.user
                 )
                 status_code = 200 if resultado.get('sucesso') else 400
@@ -77,11 +77,9 @@ class ConcorrenciaTestesView(LoginRequiredMixin, View):
 
             elif acao == 'teste_oauth':
                 conta_id = int(dados.get('conta_id', 0))
-                delay_ms = int(dados.get('delay_ms', 500))
 
                 resultado = ConcorrenciaOAuthTestService.executar_teste(
                     conta_id=conta_id,
-                    delay_ms=delay_ms,
                     user=request.user
                 )
                 status_code = 200 if resultado.get('sucesso') else 400

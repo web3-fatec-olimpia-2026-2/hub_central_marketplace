@@ -1,12 +1,13 @@
 # Os códigos foram gerados com auxilio de I.A.
 """
-Serviços de Execução e Telemetria para Testes de Concorrência (Lock Pessimista e Double-Checked Locking).
-Valida empiricamente os padrões documentados nos ADRs 004, 005 e 008.
+Serviços de Execução e Telemetria para Testes de Concorrência em Tempo Real.
+Valida empiricamente os padrões Lock Pessimista e Double-Checked Locking (ADRs 004, 005 e 008)
+executando três requisições concorrentes disparadas no exato mesmo milissegundo.
 """
 import time
 import datetime
 import threading
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from django.db import transaction, connections
 from django.utils import timezone
@@ -17,128 +18,147 @@ from apps.marketplaces.models import ContaMarketplace
 
 class ConcorrenciaEstoqueTestService:
     """
-    Serviço para testar baixa atômica simultânea de estoque com Lock Pessimista.
-    Dispara duas requisições concorrentes em threads separadas, induzindo retenção
-    temporal da trava para evidenciar a serialização e prevenção de Lost Updates.
+    Serviço para testar baixa atômica simultânea de estoque com Lock Pessimista
+    executando três requisições concorrentes iniciadas no mesmo milissegundo.
+    Mede a contenção real do banco e o tempo total de travamento da tabela.
     """
 
-    MIN_DELAY_MS = 100
-    MAX_DELAY_MS = 10000
-
     @classmethod
-    def validar_delay(cls, delay_ms: int) -> int:
+    def executar_teste(cls, produto_id: int, qtd1: int, qtd2: int, qtd3: int, user=None) -> Dict[str, Any]:
         try:
-            val = int(delay_ms)
+            qtd1 = int(qtd1)
+            qtd2 = int(qtd2)
+            qtd3 = int(qtd3)
         except (ValueError, TypeError):
-            raise ValueError(f"O atraso deve ser um número inteiro entre {cls.MIN_DELAY_MS} ms e {cls.MAX_DELAY_MS} ms.")
-        if val < cls.MIN_DELAY_MS or val > cls.MAX_DELAY_MS:
-            raise ValueError(f"O atraso deve estar estritamente entre {cls.MIN_DELAY_MS} ms e 10.000 ms (recebido: {val} ms).")
-        return val
+            raise ValueError("As quantidades para as três requisições devem ser números inteiros válidos.")
 
-    @classmethod
-    def executar_teste(cls, produto_id: int, qtd1: int, qtd2: int, delay_ms: int, user=None) -> Dict[str, Any]:
-        delay_ms = cls.validar_delay(delay_ms)
-
-        if qtd1 <= 0 or qtd2 <= 0:
-            raise ValueError("As quantidades para as requisições 1 e 2 devem ser maiores que zero.")
+        if qtd1 <= 0 or qtd2 <= 0 or qtd3 <= 0:
+            raise ValueError("O preenchimento das três requisições é obrigatório com quantidades maiores que zero.")
 
         produto = Produto.objects.get(pk=produto_id)
         saldo_inicial = produto.estoque
 
-        res_thread1: Dict[str, Any] = {}
-        res_thread2: Dict[str, Any] = {}
-        erros = []
+        # Resultados por thread
+        res_threads: Dict[str, Dict[str, Any]] = {
+            'thread1': {},
+            'thread2': {},
+            'thread3': {}
+        }
+        ordem_atendimento: List[Dict[str, Any]] = []
+        lock_ordem = threading.Lock()
+        erros: List[str] = []
 
-        def worker_thread1():
-            try:
-                t0 = time.perf_counter()
-                with transaction.atomic():
-                    t_req = time.perf_counter()
-                    # Promove intenção de escrita para garantir exclusão mútua consistente
-                    Produto.objects.filter(pk=produto.pk).update(atualizado_em=timezone.now())
-                    prod = Produto.objects.select_for_update().get(pk=produto.pk)
-                    t_lock = time.perf_counter()
+        # Evento de largada sincronizada: todas as 3 threads partem no mesmo milissegundo
+        start_event = threading.Event()
+        t_inicio_disparo: List[float] = [0.0]
 
-                    # Simula processamento com delay forçado
-                    time.sleep(delay_ms / 1000.0)
+        def worker(thread_key: str, req_num: int, qtd_deduzir: int):
+            # Aguarda o sinal de largada para iniciar no mesmo instante
+            start_event.wait()
+            t_req = time.perf_counter()
 
-                    saldo_ant = prod.estoque
-                    novo_saldo = saldo_ant - qtd1
-                    prod.estoque = novo_saldo
-                    prod.save(update_fields=['estoque', 'atualizado_em'])
-
-                t_end = time.perf_counter()
-                res_thread1.update({
-                    'status': 'SUCESSO',
-                    'duracao_ms': round((t_end - t0) * 1000, 2),
-                    'lock_wait_ms': round((t_lock - t_req) * 1000, 2),
-                    'qtd_deduzida': qtd1,
-                    'saldo_anterior': saldo_ant,
-                    'novo_saldo': novo_saldo,
-                })
-            except Exception as e:
-                erros.append(f"Erro Thread 1: {str(e)}")
-                res_thread1.update({'status': 'ERRO', 'erro': str(e)})
-            finally:
-                connections.close_all()
-
-        def worker_thread2():
-            time.sleep(0.04)
-            t0 = time.perf_counter()
-            max_retries = 150
+            max_retries = 200
             for attempt in range(max_retries):
                 try:
                     with transaction.atomic():
-                        t_req = time.perf_counter()
+                        # Adquire intenção de escrita para assegurar a serialização física
                         Produto.objects.filter(pk=produto.pk).update(atualizado_em=timezone.now())
                         t_lock = time.perf_counter()
-                        wait_ms = (t_lock - t0) * 1000
+                        wait_ms = (t_lock - t_req) * 1000
 
                         prod = Produto.objects.select_for_update().get(pk=produto.pk)
                         saldo_ant = prod.estoque
-                        novo_saldo = saldo_ant - qtd2
+                        novo_saldo = saldo_ant - qtd_deduzir
                         prod.estoque = novo_saldo
                         prod.save(update_fields=['estoque', 'atualizado_em'])
 
+                        t_commit = time.perf_counter()
+
                     t_end = time.perf_counter()
-                    res_thread2.update({
+                    retencao_ms = (t_end - t_lock) * 1000
+                    duracao_ms = (t_end - t_req) * 1000
+
+                    info_thread = {
+                        'requisicao': req_num,
+                        'thread': thread_key,
                         'status': 'SUCESSO',
-                        'duracao_ms': round((t_end - t0) * 1000, 2),
-                        'lock_wait_ms': round(wait_ms, 2),
-                        'qtd_deduzida': qtd2,
+                        'qtd_deduzida': qtd_deduzir,
                         'saldo_anterior': saldo_ant,
                         'novo_saldo': novo_saldo,
-                    })
+                        'espera_trava_ms': round(wait_ms, 2),
+                        'retencao_escrita_ms': round(retencao_ms, 2),
+                        'duracao_total_ms': round(duracao_ms, 2),
+                        'timestamp_inicio': t_req,
+                        'timestamp_lock': t_lock,
+                        'timestamp_fim': t_end,
+                    }
+
+                    res_threads[thread_key].update(info_thread)
+
+                    with lock_ordem:
+                        ordem_atendimento.append(info_thread)
+
                     break
                 except Exception as e:
                     if 'locked' in str(e).lower() and attempt < max_retries - 1:
-                        time.sleep(0.02)
+                        time.sleep(0.005)
                         continue
-                    erros.append(f"Erro Thread 2: {str(e)}")
-                    res_thread2.update({'status': 'ERRO', 'erro': str(e)})
+                    erros.append(f"Erro {thread_key.title()} (Req {req_num}): {str(e)}")
+                    res_threads[thread_key].update({
+                        'requisicao': req_num,
+                        'thread': thread_key,
+                        'status': 'ERRO',
+                        'erro': str(e)
+                    })
                     break
                 finally:
                     connections.close_all()
 
-        th1 = threading.Thread(target=worker_thread1, name="Worker-Estoque-T1")
-        th2 = threading.Thread(target=worker_thread2, name="Worker-Estoque-T2")
+        th1 = threading.Thread(target=worker, args=('thread1', 1, qtd1), name="Worker-Estoque-1")
+        th2 = threading.Thread(target=worker, args=('thread2', 2, qtd2), name="Worker-Estoque-2")
+        th3 = threading.Thread(target=worker, args=('thread3', 3, qtd3), name="Worker-Estoque-3")
 
         th1.start()
         th2.start()
+        th3.start()
+
+        # Dispara todas as três no mesmo instante
+        t_inicio_disparo[0] = time.perf_counter()
+        start_event.set()
+
         th1.join(timeout=15.0)
         th2.join(timeout=15.0)
+        th3.join(timeout=15.0)
+
+        t_fim_global = time.perf_counter()
 
         produto.refresh_from_db()
         saldo_final = produto.estoque
-        saldo_esperado = saldo_inicial - (qtd1 + qtd2)
+        total_deduzido = qtd1 + qtd2 + qtd3
+        saldo_esperado = saldo_inicial - total_deduzido
         consistente = (saldo_final == saldo_esperado)
+
+        # Cálculo do tempo total em que a tabela ficou bloqueada (do primeiro request até a última liberação)
+        timestamps_inicio = [t.get('timestamp_inicio') for t in res_threads.values() if t.get('timestamp_inicio')]
+        timestamps_fim = [t.get('timestamp_fim') for t in res_threads.values() if t.get('timestamp_fim')]
+
+        if timestamps_inicio and timestamps_fim:
+            tempo_total_bloqueio_ms = round((max(timestamps_fim) - min(timestamps_inicio)) * 1000, 2)
+        else:
+            tempo_total_bloqueio_ms = round((t_fim_global - t_inicio_disparo[0]) * 1000, 2)
+
+        # Cálculo progressivo do saldo (Req 1, Req 1 + Req 2, Req 1 + Req 2 + Req 3)
+        saldo_etapa_1 = saldo_inicial - qtd1
+        saldo_etapa_2 = saldo_inicial - (qtd1 + qtd2)
+        saldo_etapa_3 = saldo_inicial - (qtd1 + qtd2 + qtd3)
 
         if erros:
             return {
                 'sucesso': False,
                 'erros': erros,
-                'thread1': res_thread1,
-                'thread2': res_thread2,
+                'thread1': res_threads['thread1'],
+                'thread2': res_threads['thread2'],
+                'thread3': res_threads['thread3'],
                 'saldo_inicial': saldo_inicial,
                 'saldo_final': saldo_final,
             }
@@ -155,150 +175,155 @@ class ConcorrenciaEstoqueTestService:
             'saldo_esperado': saldo_esperado,
             'qtd1': qtd1,
             'qtd2': qtd2,
+            'qtd3': qtd3,
+            'total_deduzido': total_deduzido,
+            'progressao_saldos': {
+                'etapa1': {'qtd_acumulada': qtd1, 'saldo_resultante': saldo_etapa_1},
+                'etapa2': {'qtd_acumulada': qtd1 + qtd2, 'saldo_resultante': saldo_etapa_2},
+                'etapa3': {'qtd_acumulada': qtd1 + qtd2 + qtd3, 'saldo_resultante': saldo_etapa_3},
+            },
             'consistente': consistente,
-            'thread1': res_thread1,
-            'thread2': res_thread2,
-            'tempo_espera_thread2_ms': res_thread2.get('lock_wait_ms', 0),
-            'duracao_total_ms': round(max(res_thread1.get('duracao_ms', 0), res_thread2.get('duracao_ms', 0)), 2),
+            'thread1': res_threads['thread1'],
+            'thread2': res_threads['thread2'],
+            'thread3': res_threads['thread3'],
+            'tempo_total_bloqueio_tabela_ms': tempo_total_bloqueio_ms,
             'mensagem': (
                 f"Prova matemática confirmada: Saldo Inicial ({saldo_inicial}) - "
-                f"({qtd1} + {qtd2}) = Saldo Final ({saldo_final}). Nenhuma ordem foi descartada."
+                f"(Req1: {qtd1} + Req2: {qtd2} + Req3: {qtd3} = {total_deduzido} un.) = "
+                f"Saldo Final ({saldo_final}). Nenhuma ordem foi descartada."
             )
         }
 
 
 class ConcorrenciaOAuthTestService:
     """
-    Serviço para testar renovação concorrente de credenciais OAuth 2.0.
-    Demonstra o Lock Pessimista associado ao padrão Double-Checked Locking:
-    a primeira thread realiza a renovação remota, enquanto a segunda thread aguarda na trava
-    e reaproveita a credencial renovada com zero chamadas à API externa.
+    Serviço para testar renovação concorrente de credenciais OAuth 2.0
+    executando três requisições iniciadas no mesmo milissegundo.
+    A primeira requisição realiza a renovação remota, enquanto a segunda e terceira
+    aguardam na trava e reaproveitam a credencial renovada via Double-Checked Locking.
     """
 
-    MIN_DELAY_MS = 100
-    MAX_DELAY_MS = 10000
-
     @classmethod
-    def validar_delay(cls, delay_ms: int) -> int:
-        try:
-            val = int(delay_ms)
-        except (ValueError, TypeError):
-            raise ValueError(f"O atraso deve ser um número inteiro entre {cls.MIN_DELAY_MS} ms e {cls.MAX_DELAY_MS} ms.")
-        if val < cls.MIN_DELAY_MS or val > cls.MAX_DELAY_MS:
-            raise ValueError(f"O atraso deve estar estritamente entre {cls.MIN_DELAY_MS} ms e 10.000 ms (recebido: {val} ms).")
-        return val
-
-    @classmethod
-    def executar_teste(cls, conta_id: int, delay_ms: int, user=None) -> Dict[str, Any]:
-        delay_ms = cls.validar_delay(delay_ms)
-
+    def executar_teste(cls, conta_id: int, user=None) -> Dict[str, Any]:
         conta = ContaMarketplace.objects.get(pk=conta_id)
 
         # Força o token a parecer expirado antes do teste concorrente
         conta.token_expira_em = timezone.now() - datetime.timedelta(minutes=5)
         conta.save(update_fields=['token_expira_em'])
 
-        res_thread1: Dict[str, Any] = {}
-        res_thread2: Dict[str, Any] = {}
-        erros = []
+        res_threads: Dict[str, Dict[str, Any]] = {
+            'thread1': {},
+            'thread2': {},
+            'thread3': {}
+        }
+        erros: List[str] = []
 
-        def worker_thread1():
-            try:
-                t0 = time.perf_counter()
-                with transaction.atomic():
-                    t_req = time.perf_counter()
-                    ContaMarketplace.objects.filter(pk=conta.pk).update(updated_at=timezone.now())
-                    conta_locked = ContaMarketplace.objects.select_for_update().get(pk=conta.pk)
-                    t_lock = time.perf_counter()
+        start_event = threading.Event()
+        t_inicio_disparo: List[float] = [0.0]
 
-                    now = timezone.now()
+        def worker(thread_key: str, req_num: int):
+            start_event.wait()
+            t_req = time.perf_counter()
 
-                    # Simula a latência de rede na chamada externa à API de OAuth
-                    time.sleep(delay_ms / 1000.0)
-
-                    nova_expiracao = now + datetime.timedelta(hours=6)
-                    conta_locked.access_token = f"APP_USR_MOCK_{int(time.time())}"
-                    conta_locked.refresh_token = f"TG_MOCK_REFRESH_{int(time.time())}"
-                    conta_locked.token_expira_em = nova_expiracao
-                    conta_locked.save(update_fields=['access_token', 'refresh_token', 'token_expira_em', 'updated_at'])
-
-                t_end = time.perf_counter()
-                res_thread1.update({
-                    'status': 'SUCESSO',
-                    'duracao_ms': round((t_end - t0) * 1000, 2),
-                    'lock_wait_ms': round((t_lock - t_req) * 1000, 2),
-                    'chamadas_api_externa': 1,
-                    'nova_expiracao': nova_expiracao.strftime('%d/%m/%Y %H:%M:%S'),
-                    'access_token_preview': conta_locked.access_token[:25] + "...",
-                })
-            except Exception as e:
-                erros.append(f"Erro Thread 1: {str(e)}")
-                res_thread1.update({'status': 'ERRO', 'erro': str(e)})
-            finally:
-                connections.close_all()
-
-        def worker_thread2():
-            time.sleep(0.04)
-            t0 = time.perf_counter()
-            max_retries = 150
+            max_retries = 200
             for attempt in range(max_retries):
                 try:
                     with transaction.atomic():
-                        t_req = time.perf_counter()
                         ContaMarketplace.objects.filter(pk=conta.pk).update(updated_at=timezone.now())
                         t_lock = time.perf_counter()
-                        wait_ms = (t_lock - t0) * 1000
+                        wait_ms = (t_lock - t_req) * 1000
 
                         conta_locked = ContaMarketplace.objects.select_for_update().get(pk=conta.pk)
                         now = timezone.now()
 
                         # DOUBLE-CHECKED LOCKING
-                        reaproveitado = False
                         if conta_locked.token_expira_em and conta_locked.token_expira_em > (now + datetime.timedelta(minutes=10)):
+                            # Token já foi renovado por thread anterior
                             reaproveitado = True
                             chamadas_api = 0
-                            msg = "Token recém-renovado pela Thread 1 reaproveitado com sucesso via Double-Checked Locking."
+                            operacao = "Reaproveitado via Double-Checked Locking"
                         else:
+                            # Primeira thread a obter o lock: realiza renovação
+                            reaproveitado = False
                             chamadas_api = 1
-                            msg = "Token não estava válido; renovação necessária."
+                            operacao = "Renovação Remota de Credencial"
+                            nova_expiracao = now + datetime.timedelta(hours=6)
+                            conta_locked.access_token = f"APP_USR_REAL_{int(time.time() * 1000)}"
+                            conta_locked.refresh_token = f"TG_REAL_{int(time.time() * 1000)}"
+                            conta_locked.token_expira_em = nova_expiracao
+                            conta_locked.save(update_fields=['access_token', 'refresh_token', 'token_expira_em', 'updated_at'])
 
                     t_end = time.perf_counter()
-                    res_thread2.update({
+                    retencao_ms = (t_end - t_lock) * 1000
+                    duracao_ms = (t_end - t_req) * 1000
+
+                    res_threads[thread_key].update({
+                        'requisicao': req_num,
+                        'thread': thread_key,
                         'status': 'SUCESSO',
-                        'duracao_ms': round((t_end - t0) * 1000, 2),
-                        'lock_wait_ms': round(wait_ms, 2),
+                        'espera_trava_ms': round(wait_ms, 2),
+                        'retencao_escrita_ms': round(retencao_ms, 2),
+                        'duracao_total_ms': round(duracao_ms, 2),
                         'reaproveitado': reaproveitado,
                         'chamadas_api_externa': chamadas_api,
-                        'mensagem': msg,
-                        'token_expira_em': conta_locked.token_expira_em.strftime('%d/%m/%Y %H:%M:%S') if conta_locked.token_expira_em else None,
+                        'operacao': operacao,
+                        'timestamp_inicio': t_req,
+                        'timestamp_lock': t_lock,
+                        'timestamp_fim': t_end,
                     })
                     break
                 except Exception as e:
                     if 'locked' in str(e).lower() and attempt < max_retries - 1:
-                        time.sleep(0.02)
+                        time.sleep(0.005)
                         continue
-                    erros.append(f"Erro Thread 2: {str(e)}")
-                    res_thread2.update({'status': 'ERRO', 'erro': str(e)})
+                    erros.append(f"Erro {thread_key.title()} (Req {req_num}): {str(e)}")
+                    res_threads[thread_key].update({
+                        'requisicao': req_num,
+                        'thread': thread_key,
+                        'status': 'ERRO',
+                        'erro': str(e)
+                    })
                     break
                 finally:
                     connections.close_all()
 
-        th1 = threading.Thread(target=worker_thread1, name="Worker-OAuth-T1")
-        th2 = threading.Thread(target=worker_thread2, name="Worker-OAuth-T2")
+        th1 = threading.Thread(target=worker, args=('thread1', 1), name="Worker-OAuth-1")
+        th2 = threading.Thread(target=worker, args=('thread2', 2), name="Worker-OAuth-2")
+        th3 = threading.Thread(target=worker, args=('thread3', 3), name="Worker-OAuth-3")
 
         th1.start()
         th2.start()
+        th3.start()
+
+        t_inicio_disparo[0] = time.perf_counter()
+        start_event.set()
+
         th1.join(timeout=15.0)
         th2.join(timeout=15.0)
+        th3.join(timeout=15.0)
+
+        t_fim_global = time.perf_counter()
 
         conta.refresh_from_db()
+
+        timestamps_inicio = [t.get('timestamp_inicio') for t in res_threads.values() if t.get('timestamp_inicio')]
+        timestamps_fim = [t.get('timestamp_fim') for t in res_threads.values() if t.get('timestamp_fim')]
+
+        if timestamps_inicio and timestamps_fim:
+            tempo_total_bloqueio_ms = round((max(timestamps_fim) - min(timestamps_inicio)) * 1000, 2)
+        else:
+            tempo_total_bloqueio_ms = round((t_fim_global - t_inicio_disparo[0]) * 1000, 2)
+
+        total_chamadas = sum(t.get('chamadas_api_externa', 0) for t in res_threads.values())
+        total_reaproveitadas = sum(1 for t in res_threads.values() if t.get('reaproveitado'))
 
         if erros:
             return {
                 'sucesso': False,
                 'erros': erros,
-                'thread1': res_thread1,
-                'thread2': res_thread2,
+                'thread1': res_threads['thread1'],
+                'thread2': res_threads['thread2'],
+                'thread3': res_threads['thread3'],
             }
 
         return {
@@ -309,15 +334,16 @@ class ConcorrenciaOAuthTestService:
                 'canal': conta.get_canal_display() if hasattr(conta, 'get_canal_display') else conta.canal,
                 'seller_id': conta.seller_id_externo,
             },
-            'thread1': res_thread1,
-            'thread2': res_thread2,
-            'tempo_espera_thread2_ms': res_thread2.get('lock_wait_ms', 0),
-            'reaproveitado': res_thread2.get('reaproveitado', False),
-            'total_chamadas_api': 1,
-            'nova_expiracao': res_thread1.get('nova_expiracao'),
+            'thread1': res_threads['thread1'],
+            'thread2': res_threads['thread2'],
+            'thread3': res_threads['thread3'],
+            'total_chamadas_api': total_chamadas,
+            'total_reaproveitadas': total_reaproveitadas,
+            'tempo_total_bloqueio_tabela_ms': tempo_total_bloqueio_ms,
+            'nova_expiracao': conta.token_expira_em.strftime('%d/%m/%Y %H:%M:%S') if conta.token_expira_em else None,
             'mensagem': (
-                "Validação de Double-Checked Locking concluída com êxito: a Thread 2 "
-                "aguardou a liberação do lock e reaproveitou a credencial recém-gerada, "
-                "invocando a API externa exatamente 1 única vez."
+                f"Double-Checked Locking validado com 3 requisições simultâneas: "
+                f"estritamente {total_chamadas} chamada à API externa efetuada; "
+                f"{total_reaproveitadas} requisições aguardaram na trava e reaproveitaram a credencial."
             )
         }

@@ -31,7 +31,7 @@
                         </div>
                     </div>
                     <p class="mb-0 text-muted small">
-                        Este laboratório simula cenários reais de alta concorrência disparando threads paralelas em tempo real através do servidor. Ao injetar uma retenção temporal (delay forçado) na primeira transação, a interface permite observar o exato momento em que a segunda requisição fica em espera na fila do lock e como o sistema previne <strong>Lost Updates</strong> e chamadas redundantes a APIs externas.
+                        Este laboratório simula cenários reais de alta concorrência disparando <strong>três requisições no mesmo milissegundo</strong> através de sincronização por barreira de threads. O teste afere o <strong>tempo real de travamento da tabela</strong> — do momento da solicitação até a liberação pós-escrita —, comprovando a eliminação de <em>Lost Updates</em> e a blindagem contra chamadas redundantes a APIs externas.
                     </p>
                 </div>
             </div>
@@ -42,7 +42,7 @@
     <ul class="nav nav-pills nav-fill gap-2 p-1 small bg-body-tertiary rounded-3 shadow-sm mb-4 border" id="testesTab" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link active fw-bold py-2 d-flex align-items-center justify-content-center gap-2" id="tab-estoque-btn" data-bs-toggle="pill" data-bs-target="#tab-estoque" type="button" role="tab" aria-controls="tab-estoque" aria-selected="true">
-                <i class="bi bi-boxes"></i> Painel A: Baixa Concorrente de Stock (Produto)
+                <i class="bi bi-boxes"></i> Painel A: Baixa Concorrente de Estoque (Produto)
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -64,13 +64,13 @@
             <div class="alert alert-info shadow-sm d-flex align-items-center gap-3 p-3 mb-4">
                 <i class="bi bi-info-circle-fill fs-3 text-info flex-shrink-0"></i>
                 <div class="small mb-0">
-                    Valida o Lock Pessimista na baixa atômica de stock sob concorrência. Duas requisições simultâneas debitam o inventário sem perda de dados (Lost Updates) nem colisão concorrente.
+                    Valida o Lock Pessimista na baixa atômica de estoque sob concorrência. Três requisições simultâneas debitam o inventário sem perda de dados (Lost Updates) nem colisão concorrente.
                 </div>
             </div>
 
             <div class="row g-4">
-                <!-- FORMULÁRIO DE CONTROLES -->
-                <div class="col-lg-5">
+                <!-- FORMULÁRIO DE CONTROLES (3 REQUISIÇÕES OBRIGATÓRIAS) -->
+                <div class="col-lg-4">
                     <div class="card shadow-sm border h-100">
                         <div class="card-header bg-body-tertiary fw-bold d-flex align-items-center gap-2 py-3">
                             <i class="bi bi-sliders text-primary"></i> Parâmetros do Teste de Concorrência
@@ -95,47 +95,47 @@
                                             <option value="" disabled>Nenhum produto cadastrado no catálogo.</option>
                                         {% endfor %}
                                     </select>
-                                    <div class="form-text small">Exibe nome, SKU e saldo físico atual em stock.</div>
+                                    <div class="form-text small">Exibe nome, SKU e saldo físico atual em estoque.</div>
                                 </div>
 
-                                <div class="row g-3 mb-3">
-                                    <!-- QUANTIDADE REQUISIÇÃO 1 -->
-                                    <div class="col-6">
+                                <!-- TRÊS QUANTIDADES OBRIGATÓRIAS -->
+                                <div class="row g-2 mb-4">
+                                    <div class="col-4">
                                         <label for="inputQtd1" class="form-label fw-semibold small">
-                                            Qtd Requisição 1 <span class="text-danger">*</span>
+                                            Req. 1 <span class="text-danger">*</span>
                                         </label>
-                                        <input type="number" class="form-control" id="inputQtd1" name="qtd1" value="1" min="1" max="999" required>
-                                        <div class="form-text small">Qtd do Pedido 1.</div>
+                                        <input type="number" class="form-control text-center fw-bold" id="inputQtd1" name="qtd1" value="1" min="1" max="999" required>
+                                        <div class="form-text small text-center">Qtd 1</div>
                                     </div>
-                                    <!-- QUANTIDADE REQUISIÇÃO 2 -->
-                                    <div class="col-6">
+                                    <div class="col-4">
                                         <label for="inputQtd2" class="form-label fw-semibold small">
-                                            Qtd Requisição 2 <span class="text-danger">*</span>
+                                            Req. 2 <span class="text-danger">*</span>
                                         </label>
-                                        <input type="number" class="form-control" id="inputQtd2" name="qtd2" value="2" min="1" max="999" required>
-                                        <div class="form-text small">Qtd do Pedido 2.</div>
+                                        <input type="number" class="form-control text-center fw-bold" id="inputQtd2" name="qtd2" value="2" min="1" max="999" required>
+                                        <div class="form-text small text-center">Qtd 2</div>
+                                    </div>
+                                    <div class="col-4">
+                                        <label for="inputQtd3" class="form-label fw-semibold small">
+                                            Req. 3 <span class="text-danger">*</span>
+                                        </label>
+                                        <input type="number" class="form-control text-center fw-bold" id="inputQtd3" name="qtd3" value="3" min="1" max="999" required>
+                                        <div class="form-text small text-center">Qtd 3</div>
                                     </div>
                                 </div>
 
-                                <!-- ATRASO / DELAY DA REQUISIÇÃO 1 (100 ms a 10.000 ms) -->
-                                <div class="mb-4">
-                                    <label for="inputDelayEstoque" class="form-label fw-semibold small d-flex justify-content-between">
-                                        <span>Atraso / Delay da Req. 1 (ms) <span class="text-danger">*</span></span>
-                                        <span class="badge bg-secondary" id="badgeDelayEstoque">600 ms</span>
-                                    </label>
-                                    <div class="input-group">
-                                        <input type="number" class="form-control" id="inputDelayEstoque" name="delay_ms" value="600" min="100" max="10000" step="50" required>
-                                        <span class="input-group-text">ms</span>
-                                    </div>
-                                    <div class="form-text small text-muted">
-                                        Tempo forçado de retenção da trava atômica (<strong>Mínimo: 100 ms | Máximo: 10.000 ms</strong>).
+                                <div class="p-3 bg-body-tertiary rounded-3 border mb-4">
+                                    <div class="small text-muted d-flex align-items-center gap-2">
+                                        <i class="bi bi-clock-history text-primary fs-5"></i>
+                                        <div>
+                                            <strong>Disparo no mesmo milissegundo:</strong> As 3 requisições partem juntas e disputam a trava física de escrita no banco de dados.
+                                        </div>
                                     </div>
                                 </div>
 
                                 <!-- BOTÃO DE DISPARO -->
                                 <div class="d-grid">
                                     <button type="submit" class="btn btn-primary btn-lg fw-bold d-flex align-items-center justify-content-center gap-2" id="btnExecutarEstoque" {% if not produtos %}disabled{% endif %}>
-                                        <i class="bi bi-play-fill fs-5"></i> Executar Teste de Concorrência de Stock
+                                        <i class="bi bi-play-fill fs-5"></i> Executar Teste de Concorrência de Estoque
                                     </button>
                                 </div>
                             </form>
@@ -143,12 +143,12 @@
                     </div>
                 </div>
 
-                <!-- QUADRO DE RETORNO DO RESULTADO -->
-                <div class="col-lg-7">
+                <!-- QUADRO DE RETORNO DO RESULTADO (3 THREADS) -->
+                <div class="col-lg-8">
                     <div class="card shadow-sm border h-100" id="cardResultadoEstoque">
                         <div class="card-header bg-body-tertiary fw-bold d-flex justify-content-between align-items-center py-3">
                             <span class="d-flex align-items-center gap-2">
-                                <i class="bi bi-speedometer2 text-primary"></i> Quadro de Telemetria e Prova Matemática
+                                <i class="bi bi-speedometer2 text-primary"></i> Medição Real do Lock Pessimista & Prova Matemática
                             </span>
                             <span class="badge bg-secondary" id="badgeStatusEstoque">Aguardando Execução</span>
                         </div>
@@ -158,7 +158,7 @@
                             <div id="placeholderEstoque" class="text-center py-5 text-muted">
                                 <i class="bi bi-arrow-left-circle fs-1 d-block mb-3 opacity-50"></i>
                                 <h6 class="fw-semibold">Nenhum teste executado ainda</h6>
-                                <p class="small mb-0">Configure os parâmetros ao lado e clique no botão para disparar as duas threads concorrentes.</p>
+                                <p class="small mb-0">Informe as três quantidades obrigatórias e dispare as 3 requisições simultâneas para medir a contenção real.</p>
                             </div>
 
                             <!-- SPINNER DE CARREGAMENTO -->
@@ -166,29 +166,33 @@
                                 <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
                                     <span class="visually-hidden">Processando...</span>
                                 </div>
-                                <h6 class="fw-bold text-primary">Executando Threads Concorrentes...</h6>
-                                <p class="small text-muted mb-0">A Thread 1 está retendo o lock enquanto a Thread 2 aguarda na fila de liberação.</p>
+                                <h6 class="fw-bold text-primary">Executando 3 Requisições Simultâneas...</h6>
+                                <p class="small text-muted mb-0">Medindo o tempo real de travamento da tabela e a serialização transacional.</p>
                             </div>
 
                             <!-- PAINEL DE DADOS DO RESULTADO -->
                             <div id="dadosResultadoEstoque" class="d-none">
                                 
-                                <!-- DADOS DO PRODUTO E SKUs -->
+                                <!-- BARRA SUPERIOR: PRODUTO, SALDOS E TEMPO TOTAL DE BLOQUEIO -->
                                 <div class="p-3 bg-body-tertiary rounded-3 border mb-3">
                                     <div class="row g-2 align-items-center">
-                                        <div class="col-md-7">
+                                        <div class="col-md-5">
                                             <span class="text-muted small d-block">Produto Testado:</span>
                                             <span class="fw-bold fs-6" id="resEstoqueProdutoNome">-</span>
                                             <span class="badge bg-secondary ms-1" id="resEstoqueProdutoSku">-</span>
                                         </div>
-                                        <div class="col-md-5 text-md-end">
+                                        <div class="col-md-3 text-center border-start border-end">
+                                            <span class="text-muted small d-block" style="font-size: 0.72rem;">BLOQUEIO TOTAL DA TABELA</span>
+                                            <span class="fw-bold text-danger fs-5" id="resEstoqueTempoTotalBloqueio">0.00 ms</span>
+                                        </div>
+                                        <div class="col-md-4 text-md-end">
                                             <div class="d-inline-flex gap-2">
                                                 <div class="text-center px-2 py-1 bg-body rounded border">
-                                                    <span class="text-muted small d-block" style="font-size: 0.72rem;">SALDO INICIAL</span>
+                                                    <span class="text-muted small d-block" style="font-size: 0.70rem;">SALDO INICIAL</span>
                                                     <span class="fw-bold text-secondary fs-5" id="resEstoqueSaldoInicial">0</span>
                                                 </div>
                                                 <div class="text-center px-2 py-1 bg-primary bg-opacity-10 text-primary rounded border border-primary border-opacity-25">
-                                                    <span class="small d-block" style="font-size: 0.72rem;">SALDO FINAL</span>
+                                                    <span class="small d-block" style="font-size: 0.70rem;">SALDO FINAL</span>
                                                     <span class="fw-bold fs-5" id="resEstoqueSaldoFinal">0</span>
                                                 </div>
                                             </div>
@@ -196,26 +200,30 @@
                                     </div>
                                 </div>
 
-                                <!-- CARDS DAS THREADS -->
-                                <div class="row g-3 mb-3">
+                                <!-- CARDS DAS 3 THREADS CONCORRENTES -->
+                                <div class="row g-2 mb-3">
                                     <!-- THREAD 1 -->
-                                    <div class="col-sm-6">
+                                    <div class="col-md-4">
                                         <div class="card h-100 border bg-body">
                                             <div class="card-body p-3">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                                     <span class="fw-bold small text-primary d-flex align-items-center gap-1">
-                                                        <i class="bi bi-1-circle-fill"></i> Thread 1 (Req. Inicial)
+                                                        <i class="bi bi-1-circle-fill"></i> Req. 1 (Thread 1)
                                                     </span>
-                                                    <span class="badge bg-success" id="resEstoqueT1Status">SUCESSO</span>
+                                                    <span class="badge bg-success" id="resEstoqueT1Status">OK</span>
                                                 </div>
                                                 <div class="small">
                                                     <div class="d-flex justify-content-between py-1 border-bottom">
-                                                        <span class="text-muted">Qtd Deduzida:</span>
+                                                        <span class="text-muted">Qtd Baixada:</span>
                                                         <strong id="resEstoqueT1Qtd">-</strong>
                                                     </div>
                                                     <div class="d-flex justify-content-between py-1 border-bottom">
-                                                        <span class="text-muted">Atraso Injetado:</span>
-                                                        <strong id="resEstoqueT1Delay">-</strong>
+                                                        <span class="text-muted">Espera na Trava:</span>
+                                                        <strong class="text-warning fw-bold" id="resEstoqueT1Espera">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Tempo Escrita:</span>
+                                                        <strong id="resEstoqueT1Retencao">-</strong>
                                                     </div>
                                                     <div class="d-flex justify-content-between py-1">
                                                         <span class="text-muted">Duração Total:</span>
@@ -226,23 +234,27 @@
                                         </div>
                                     </div>
                                     <!-- THREAD 2 -->
-                                    <div class="col-sm-6">
+                                    <div class="col-md-4">
                                         <div class="card h-100 border bg-body">
                                             <div class="card-body p-3">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                                     <span class="fw-bold small text-info d-flex align-items-center gap-1">
-                                                        <i class="bi bi-2-circle-fill"></i> Thread 2 (Req. Concorrente)
+                                                        <i class="bi bi-2-circle-fill"></i> Req. 2 (Thread 2)
                                                     </span>
-                                                    <span class="badge bg-success" id="resEstoqueT2Status">SUCESSO</span>
+                                                    <span class="badge bg-success" id="resEstoqueT2Status">OK</span>
                                                 </div>
                                                 <div class="small">
                                                     <div class="d-flex justify-content-between py-1 border-bottom">
-                                                        <span class="text-muted">Qtd Deduzida:</span>
+                                                        <span class="text-muted">Qtd Baixada:</span>
                                                         <strong id="resEstoqueT2Qtd">-</strong>
                                                     </div>
                                                     <div class="d-flex justify-content-between py-1 border-bottom">
                                                         <span class="text-muted">Espera na Trava:</span>
                                                         <strong class="text-warning fw-bold" id="resEstoqueT2Espera">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Tempo Escrita:</span>
+                                                        <strong id="resEstoqueT2Retencao">-</strong>
                                                     </div>
                                                     <div class="d-flex justify-content-between py-1">
                                                         <span class="text-muted">Duração Total:</span>
@@ -252,19 +264,73 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <!-- THREAD 3 -->
+                                    <div class="col-md-4">
+                                        <div class="card h-100 border bg-body">
+                                            <div class="card-body p-3">
+                                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                                    <span class="fw-bold small text-purple d-flex align-items-center gap-1" style="color: #6f42c1;">
+                                                        <i class="bi bi-3-circle-fill"></i> Req. 3 (Thread 3)
+                                                    </span>
+                                                    <span class="badge bg-success" id="resEstoqueT3Status">OK</span>
+                                                </div>
+                                                <div class="small">
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Qtd Baixada:</span>
+                                                        <strong id="resEstoqueT3Qtd">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Espera na Trava:</span>
+                                                        <strong class="text-warning fw-bold" id="resEstoqueT3Espera">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Tempo Escrita:</span>
+                                                        <strong id="resEstoqueT3Retencao">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1">
+                                                        <span class="text-muted">Duração Total:</span>
+                                                        <strong id="resEstoqueT3Duracao">-</strong>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- EVOLUÇÃO PROGRESSIVA DOS SALDOS -->
+                                <div class="p-3 bg-body-tertiary rounded-3 border mb-3">
+                                    <span class="fw-semibold small d-block mb-2 text-primary">
+                                        <i class="bi bi-calculator-fill me-1"></i> Evolução Sequencial do Saldo por Requisição Atendida:
+                                    </span>
+                                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 small">
+                                        <div class="text-center p-2 bg-body rounded border flex-fill">
+                                            <span class="text-muted d-block" style="font-size: 0.72rem;">1ª REQUISIÇÃO</span>
+                                            <strong id="progEtapa1">-</strong>
+                                        </div>
+                                        <i class="bi bi-arrow-right text-muted"></i>
+                                        <div class="text-center p-2 bg-body rounded border flex-fill">
+                                            <span class="text-muted d-block" style="font-size: 0.72rem;">2ª REQUISIÇÃO (REQ 1 + 2)</span>
+                                            <strong id="progEtapa2">-</strong>
+                                        </div>
+                                        <i class="bi bi-arrow-right text-muted"></i>
+                                        <div class="text-center p-2 bg-body rounded border flex-fill">
+                                            <span class="text-muted d-block" style="font-size: 0.72rem;">3ª REQUISIÇÃO (REQ 1 + 2 + 3)</span>
+                                            <strong id="progEtapa3">-</strong>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- PROVA MATEMÁTICA / VERIFICAÇÃO DE INTEGRIDADE -->
                                 <div class="alert alert-success border-success shadow-sm mb-0 p-3" id="boxProvaEstoque">
                                     <div class="d-flex align-items-center gap-2 mb-1">
                                         <i class="bi bi-check-circle-fill fs-5 text-success"></i>
-                                        <h6 class="fw-bold mb-0 text-success">Prova Matemática de Consistência ACID</h6>
+                                        <h6 class="fw-bold mb-0 text-success">Prova Matemática de Consistência ACID (Lock Pessimista)</h6>
                                     </div>
                                     <p class="small mb-1 text-dark" id="txtProvaEstoqueFormula">
-                                        Saldo Inicial (16) - (Req1: 1 un. + Req2: 2 un.) = Saldo Final (13 un.)
+                                        Saldo Inicial - (Qtd1 + Qtd2 + Qtd3) = Saldo Final
                                     </p>
                                     <div class="small text-muted" id="txtProvaEstoqueDescricao">
-                                        ✓ Nenhuma colisão concorrente. A Thread 2 aguardou a liberação da transação da Thread 1 e leu o saldo pós-baixa, eliminando qualquer risco de <em>Lost Update</em>.
+                                        ✓ Três requisições concorrentes serializadas com sucesso no banco de dados. Cada transação aguardou o encerramento da anterior e leu o saldo pós-baixa, eliminando qualquer risco de <em>Lost Update</em>.
                                     </div>
                                 </div>
 
@@ -286,13 +352,13 @@
             <div class="alert alert-warning shadow-sm d-flex align-items-center gap-3 p-3 mb-4">
                 <i class="bi bi-shield-check fs-3 text-warning flex-shrink-0"></i>
                 <div class="small mb-0">
-                    Valida o Lock Pessimista e Double-Checked Locking na renovação OAuth. A segunda requisição aguarda a primeira e reaproveita a credencial sem invocar a API externa do marketplace.
+                    Valida o Lock Pessimista e Double-Checked Locking na renovação OAuth com 3 requisições. A 2ª e a 3ª requisições aguardam na trava e reaproveitam a credencial sem invocar a API externa.
                 </div>
             </div>
 
             <div class="row g-4">
                 <!-- FORMULÁRIO DE CONTROLES OAUTH -->
-                <div class="col-lg-5">
+                <div class="col-lg-4">
                     <div class="card shadow-sm border h-100">
                         <div class="card-header bg-body-tertiary fw-bold d-flex align-items-center gap-2 py-3">
                             <i class="bi bi-sliders text-warning"></i> Parâmetros do Teste OAuth
@@ -303,7 +369,7 @@
                                 <input type="hidden" name="acao" value="teste_oauth">
 
                                 <!-- SELEÇÃO DA CONTA -->
-                                <div class="mb-3">
+                                <div class="mb-4">
                                     <label for="selectConta" class="form-label fw-semibold small">
                                         Conta Marketplace <span class="text-danger">*</span>
                                     </label>
@@ -320,18 +386,12 @@
                                     <div class="form-text small">Exibe o canal e apelido da conta conectada.</div>
                                 </div>
 
-                                <!-- ATRASO / DELAY DA REQUISIÇÃO 1 (100 ms a 10.000 ms) -->
-                                <div class="mb-4">
-                                    <label for="inputDelayOAuth" class="form-label fw-semibold small d-flex justify-content-between">
-                                        <span>Atraso Simulado de Rede da Req. 1 (ms) <span class="text-danger">*</span></span>
-                                        <span class="badge bg-secondary" id="badgeDelayOAuth">600 ms</span>
-                                    </label>
-                                    <div class="input-group">
-                                        <input type="number" class="form-control" id="inputDelayOAuth" name="delay_ms" value="600" min="100" max="10000" step="50" required>
-                                        <span class="input-group-text">ms</span>
-                                    </div>
-                                    <div class="form-text small text-muted">
-                                        Tempo de simulação do round-trip HTTP à API externa (<strong>Mínimo: 100 ms | Máximo: 10.000 ms</strong>).
+                                <div class="p-3 bg-body-tertiary rounded-3 border mb-4">
+                                    <div class="small text-muted d-flex align-items-center gap-2">
+                                        <i class="bi bi-lightning-charge-fill text-warning fs-5"></i>
+                                        <div>
+                                            <strong>3 Requisições Concorrentes no mesmo ms:</strong> A primeira requisição renova a credencial; a segunda e a terceira aguardam na trava e ativam o <em>Double-Checked Locking</em>.
+                                        </div>
                                     </div>
                                 </div>
 
@@ -346,12 +406,12 @@
                     </div>
                 </div>
 
-                <!-- QUADRO DE RETORNO DO RESULTADO OAUTH -->
-                <div class="col-lg-7">
+                <!-- QUADRO DE RETORNO DO RESULTADO OAUTH (3 THREADS) -->
+                <div class="col-lg-8">
                     <div class="card shadow-sm border h-100" id="cardResultadoOAuth">
                         <div class="card-header bg-body-tertiary fw-bold d-flex justify-content-between align-items-center py-3">
                             <span class="d-flex align-items-center gap-2">
-                                <i class="bi bi-speedometer2 text-warning"></i> Telemetria e Prova de Double-Checked Locking
+                                <i class="bi bi-speedometer2 text-warning"></i> Telemetria Real e Prova de Double-Checked Locking
                             </span>
                             <span class="badge bg-secondary" id="badgeStatusOAuth">Aguardando Execução</span>
                         </div>
@@ -361,7 +421,7 @@
                             <div id="placeholderOAuth" class="text-center py-5 text-muted">
                                 <i class="bi bi-key fs-1 d-block mb-3 opacity-50"></i>
                                 <h6 class="fw-semibold">Nenhum teste de token executado</h6>
-                                <p class="small mb-0">Selecione a conta de integração e execute o teste para validar o comportamento sob concorrência.</p>
+                                <p class="small mb-0">Selecione a conta de integração e execute o teste para validar as 3 requisições sob concorrência.</p>
                             </div>
 
                             <!-- SPINNER DE CARREGAMENTO -->
@@ -369,79 +429,122 @@
                                 <div class="spinner-border text-warning mb-3" style="width: 3rem; height: 3rem;" role="status">
                                     <span class="visually-hidden">Processando...</span>
                                 </div>
-                                <h6 class="fw-bold text-warning text-dark">Simulando Chamadas Concorrentes OAuth...</h6>
-                                <p class="small text-muted mb-0">A Thread 1 está renovando o token no endpoint remoto enquanto a Thread 2 aguarda na trava.</p>
+                                <h6 class="fw-bold text-warning text-dark">Executando 3 Requisições Concorrentes OAuth...</h6>
+                                <p class="small text-muted mb-0">Medindo o tempo real de travamento e a ativação do Double-Checked Locking.</p>
                             </div>
 
                             <!-- PAINEL DE DADOS DO RESULTADO OAUTH -->
                             <div id="dadosResultadoOAuth" class="d-none">
                                 
-                                <!-- DADOS DA CONTA -->
+                                <!-- DADOS DA CONTA E TEMPO TOTAL DE BLOQUEIO -->
                                 <div class="p-3 bg-body-tertiary rounded-3 border mb-3">
                                     <div class="row g-2 align-items-center">
-                                        <div class="col-md-7">
+                                        <div class="col-md-5">
                                             <span class="text-muted small d-block">Conexão Testada:</span>
                                             <span class="fw-bold fs-6" id="resOAuthContaApelido">-</span>
                                             <span class="badge bg-primary ms-1" id="resOAuthContaCanal">-</span>
                                         </div>
-                                        <div class="col-md-5 text-md-end">
-                                            <span class="text-muted small d-block">Nova Expiração do Token:</span>
+                                        <div class="col-md-3 text-center border-start border-end">
+                                            <span class="text-muted small d-block" style="font-size: 0.72rem;">BLOQUEIO TOTAL DA TABELA</span>
+                                            <span class="fw-bold text-danger fs-5" id="resOAuthTempoTotalBloqueio">0.00 ms</span>
+                                        </div>
+                                        <div class="col-md-4 text-md-end">
+                                            <span class="text-muted small d-block" style="font-size: 0.70rem;">NOVA EXPIRAÇÃO DO TOKEN</span>
                                             <span class="fw-bold text-success" id="resOAuthNovaExpiracao">-</span>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- CARDS DAS THREADS OAUTH -->
-                                <div class="row g-3 mb-3">
+                                <!-- CARDS DAS 3 THREADS OAUTH -->
+                                <div class="row g-2 mb-3">
                                     <!-- THREAD 1 -->
-                                    <div class="col-sm-6">
+                                    <div class="col-md-4">
                                         <div class="card h-100 border bg-body">
                                             <div class="card-body p-3">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                                     <span class="fw-bold small text-primary d-flex align-items-center gap-1">
-                                                        <i class="bi bi-1-circle-fill"></i> Thread 1 (Renovadora)
+                                                        <i class="bi bi-1-circle-fill"></i> Req. 1 (Renovadora)
                                                     </span>
-                                                    <span class="badge bg-success" id="resOAuthT1Status">SUCESSO</span>
+                                                    <span class="badge bg-success" id="resOAuthT1Status">OK</span>
                                                 </div>
                                                 <div class="small">
                                                     <div class="d-flex justify-content-between py-1 border-bottom">
-                                                        <span class="text-muted">Chamadas à API:</span>
+                                                        <span class="text-muted">Chamadas API:</span>
                                                         <strong class="text-primary fw-bold" id="resOAuthT1Chamadas">1 chamada</strong>
                                                     </div>
                                                     <div class="d-flex justify-content-between py-1 border-bottom">
-                                                        <span class="text-muted">Tempo de Execução:</span>
-                                                        <strong id="resOAuthT1Duracao">-</strong>
+                                                        <span class="text-muted">Espera na Trava:</span>
+                                                        <strong class="text-warning fw-bold" id="resOAuthT1Espera">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Tempo Escrita:</span>
+                                                        <strong id="resOAuthT1Retencao">-</strong>
                                                     </div>
                                                     <div class="d-flex justify-content-between py-1">
-                                                        <span class="text-muted">Operação:</span>
-                                                        <strong class="text-success">Renovação Remota</strong>
+                                                        <span class="text-muted">Duração Total:</span>
+                                                        <strong id="resOAuthT1Duracao">-</strong>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                     <!-- THREAD 2 -->
-                                    <div class="col-sm-6">
+                                    <div class="col-md-4">
                                         <div class="card h-100 border bg-body">
                                             <div class="card-body p-3">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                                     <span class="fw-bold small text-warning text-dark d-flex align-items-center gap-1">
-                                                        <i class="bi bi-2-circle-fill"></i> Thread 2 (Concorrente)
+                                                        <i class="bi bi-2-circle-fill"></i> Req. 2 (Double-Check)
                                                     </span>
-                                                    <span class="badge bg-success" id="resOAuthT2Status">SUCESSO</span>
+                                                    <span class="badge bg-success" id="resOAuthT2Status">OK</span>
                                                 </div>
                                                 <div class="small">
                                                     <div class="d-flex justify-content-between py-1 border-bottom">
-                                                        <span class="text-muted">Chamadas à API:</span>
-                                                        <strong class="text-success fw-bold" id="resOAuthT2Chamadas">0 chamadas</strong>
+                                                        <span class="text-muted">Chamadas API:</span>
+                                                        <strong class="text-success fw-bold" id="resOAuthT2Chamadas">0 (Zero)</strong>
                                                     </div>
                                                     <div class="d-flex justify-content-between py-1 border-bottom">
-                                                        <span class="text-muted">Espera na Fila:</span>
+                                                        <span class="text-muted">Espera na Trava:</span>
                                                         <strong class="text-warning fw-bold" id="resOAuthT2Espera">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Tempo Escrita:</span>
+                                                        <strong id="resOAuthT2Retencao">-</strong>
                                                     </div>
                                                     <div class="d-flex justify-content-between py-1">
                                                         <span class="text-muted">Reaproveitado:</span>
-                                                        <strong class="text-success fw-bold" id="resOAuthT2Reaproveitado">True</strong>
+                                                        <strong class="text-success fw-bold" id="resOAuthT2Reaproveitado">Sim (True)</strong>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- THREAD 3 -->
+                                    <div class="col-md-4">
+                                        <div class="card h-100 border bg-body">
+                                            <div class="card-body p-3">
+                                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                                    <span class="fw-bold small text-purple d-flex align-items-center gap-1" style="color: #6f42c1;">
+                                                        <i class="bi bi-3-circle-fill"></i> Req. 3 (Double-Check)
+                                                    </span>
+                                                    <span class="badge bg-success" id="resOAuthT3Status">OK</span>
+                                                </div>
+                                                <div class="small">
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Chamadas API:</span>
+                                                        <strong class="text-success fw-bold" id="resOAuthT3Chamadas">0 (Zero)</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Espera na Trava:</span>
+                                                        <strong class="text-warning fw-bold" id="resOAuthT3Espera">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1 border-bottom">
+                                                        <span class="text-muted">Tempo Escrita:</span>
+                                                        <strong id="resOAuthT3Retencao">-</strong>
+                                                    </div>
+                                                    <div class="d-flex justify-content-between py-1">
+                                                        <span class="text-muted">Reaproveitado:</span>
+                                                        <strong class="text-success fw-bold" id="resOAuthT3Reaproveitado">Sim (True)</strong>
                                                     </div>
                                                 </div>
                                             </div>
@@ -453,13 +556,13 @@
                                 <div class="alert alert-success border-success shadow-sm mb-0 p-3" id="boxProvaOAuth">
                                     <div class="d-flex align-items-center gap-2 mb-1">
                                         <i class="bi bi-check-circle-fill fs-5 text-success"></i>
-                                        <h6 class="fw-bold mb-0 text-success">Prova do Double-Checked Locking</h6>
+                                        <h6 class="fw-bold mb-0 text-success">Prova de Double-Checked Locking (3 Requisições Simultâneas)</h6>
                                     </div>
                                     <p class="small mb-1 text-dark" id="txtProvaOAuthChamadas">
                                         Total de Chamadas à API Externa do Marketplace: <strong>1 única chamada</strong>
                                     </p>
                                     <div class="small text-muted" id="txtProvaOAuthDescricao">
-                                        ✓ A Thread 2 aguardou a liberação do lock da Thread 1 e detectou que a credencial já havia sido renovada com nova validade, retornando <code>reaproveitado = True</code> imediatamente. Isso blinda a conta contra a invalidação irreversível de <em>refresh tokens</em> de uso único!
+                                        ✓ A 2ª e a 3ª requisições aguardaram na fila do lock pessimista e, ao obterem acesso exclusivo, detectaram que a credencial já havia sido renovada pela 1ª requisição. Ambas reaproveitaram o token imediatamente com zero chamadas externas adicionais!
                                     </div>
                                 </div>
 
@@ -480,23 +583,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     
-    // Sincronização dos Badges de Delay
-    const inputDelayEstoque = document.getElementById('inputDelayEstoque');
-    const badgeDelayEstoque = document.getElementById('badgeDelayEstoque');
-    if (inputDelayEstoque && badgeDelayEstoque) {
-        inputDelayEstoque.addEventListener('input', function() {
-            badgeDelayEstoque.textContent = this.value + ' ms';
-        });
-    }
-
-    const inputDelayOAuth = document.getElementById('inputDelayOAuth');
-    const badgeDelayOAuth = document.getElementById('badgeDelayOAuth');
-    if (inputDelayOAuth && badgeDelayOAuth) {
-        inputDelayOAuth.addEventListener('input', function() {
-            badgeDelayOAuth.textContent = this.value + ' ms';
-        });
-    }
-
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -515,7 +601,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const csrftoken = getCookie('csrftoken') || document.querySelector('[name=csrfmiddlewaretoken]')?.value;
 
     // =========================================================================
-    // EXECUÇÃO DO TESTE A: ESTOQUE
+    // EXECUÇÃO DO TESTE A: ESTOQUE (3 REQUISIÇÕES)
     // =========================================================================
     const formEstoque = document.getElementById('formTesteEstoque');
     const btnExecutarEstoque = document.getElementById('btnExecutarEstoque');
@@ -531,10 +617,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const produtoId = document.getElementById('selectProduto').value;
             const qtd1 = parseInt(document.getElementById('inputQtd1').value, 10);
             const qtd2 = parseInt(document.getElementById('inputQtd2').value, 10);
-            const delayMs = parseInt(document.getElementById('inputDelayEstoque').value, 10);
+            const qtd3 = parseInt(document.getElementById('inputQtd3').value, 10);
 
-            if (delayMs < 100 || delayMs > 10000) {
-                alert('O atraso deve estar estritamente entre 100 ms e 10.000 ms.');
+            if (isNaN(qtd1) || isNaN(qtd2) || isNaN(qtd3) || qtd1 <= 0 || qtd2 <= 0 || qtd3 <= 0) {
+                alert('É obrigatório preencher as três requisições com quantidades maiores que zero.');
                 return;
             }
 
@@ -544,7 +630,7 @@ document.addEventListener('DOMContentLoaded', function() {
             dadosResultadoEstoque.classList.add('d-none');
             loadingEstoque.classList.remove('d-none');
             badgeStatusEstoque.className = 'badge bg-warning text-dark';
-            badgeStatusEstoque.textContent = 'Processando Threads...';
+            badgeStatusEstoque.textContent = 'Processando 3 Requisições...';
 
             try {
                 const response = await fetch('{% url "testes_concorrencia" %}', {
@@ -558,7 +644,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         produto_id: produtoId,
                         qtd1: qtd1,
                         qtd2: qtd2,
-                        delay_ms: delayMs
+                        qtd3: qtd3
                     })
                 });
 
@@ -568,24 +654,47 @@ document.addEventListener('DOMContentLoaded', function() {
                     throw new Error(data.erro || 'Falha na execução do teste.');
                 }
 
-                // Preenchimento dos resultados
+                // Preenchimento dos resultados gerais
                 document.getElementById('resEstoqueProdutoNome').textContent = data.produto.nome;
                 document.getElementById('resEstoqueProdutoSku').textContent = 'SKU: ' + data.produto.sku;
                 document.getElementById('resEstoqueSaldoInicial').textContent = data.saldo_inicial + ' un.';
                 document.getElementById('resEstoqueSaldoFinal').textContent = data.saldo_final + ' un.';
+                document.getElementById('resEstoqueTempoTotalBloqueio').textContent = data.tempo_total_bloqueio_tabela_ms + ' ms';
 
+                // Thread 1
                 document.getElementById('resEstoqueT1Status').textContent = data.thread1.status;
-                document.getElementById('resEstoqueT1Qtd').textContent = '-' + data.qtd1 + ' un.';
-                document.getElementById('resEstoqueT1Delay').textContent = delayMs + ' ms';
-                document.getElementById('resEstoqueT1Duracao').textContent = data.thread1.duracao_ms + ' ms';
+                document.getElementById('resEstoqueT1Qtd').textContent = '-' + data.thread1.qtd_deduzida + ' un.';
+                document.getElementById('resEstoqueT1Espera').textContent = data.thread1.espera_trava_ms + ' ms';
+                document.getElementById('resEstoqueT1Retencao').textContent = data.thread1.retencao_escrita_ms + ' ms';
+                document.getElementById('resEstoqueT1Duracao').textContent = data.thread1.duracao_total_ms + ' ms';
 
+                // Thread 2
                 document.getElementById('resEstoqueT2Status').textContent = data.thread2.status;
-                document.getElementById('resEstoqueT2Qtd').textContent = '-' + data.qtd2 + ' un.';
-                document.getElementById('resEstoqueT2Espera').textContent = data.tempo_espera_thread2_ms + ' ms';
-                document.getElementById('resEstoqueT2Duracao').textContent = data.thread2.duracao_ms + ' ms';
+                document.getElementById('resEstoqueT2Qtd').textContent = '-' + data.thread2.qtd_deduzida + ' un.';
+                document.getElementById('resEstoqueT2Espera').textContent = data.thread2.espera_trava_ms + ' ms';
+                document.getElementById('resEstoqueT2Retencao').textContent = data.thread2.retencao_escrita_ms + ' ms';
+                document.getElementById('resEstoqueT2Duracao').textContent = data.thread2.duracao_total_ms + ' ms';
 
+                // Thread 3
+                document.getElementById('resEstoqueT3Status').textContent = data.thread3.status;
+                document.getElementById('resEstoqueT3Qtd').textContent = '-' + data.thread3.qtd_deduzida + ' un.';
+                document.getElementById('resEstoqueT3Espera').textContent = data.thread3.espera_trava_ms + ' ms';
+                document.getElementById('resEstoqueT3Retencao').textContent = data.thread3.retencao_escrita_ms + ' ms';
+                document.getElementById('resEstoqueT3Duracao').textContent = data.thread3.duracao_total_ms + ' ms';
+
+                // Progressão de saldos
+                if (data.progressao_saldos) {
+                    document.getElementById('progEtapa1').textContent = 
+                        `Saldo: ${data.saldo_inicial} - ${data.progressao_saldos.etapa1.qtd_acumulada} = ${data.progressao_saldos.etapa1.saldo_resultante} un.`;
+                    document.getElementById('progEtapa2').textContent = 
+                        `Saldo: ${data.saldo_inicial} - ${data.progressao_saldos.etapa2.qtd_acumulada} = ${data.progressao_saldos.etapa2.saldo_resultante} un.`;
+                    document.getElementById('progEtapa3').textContent = 
+                        `Saldo: ${data.saldo_inicial} - ${data.progressao_saldos.etapa3.qtd_acumulada} = ${data.progressao_saldos.etapa3.saldo_resultante} un.`;
+                }
+
+                // Fórmula da Prova
                 document.getElementById('txtProvaEstoqueFormula').innerHTML = 
-                    `Saldo Inicial (${data.saldo_inicial}) - (Req1: ${data.qtd1} + Req2: ${data.qtd2}) = <strong>Saldo Final (${data.saldo_final})</strong>`;
+                    `Saldo Inicial (${data.saldo_inicial}) - (Req1: ${data.qtd1} + Req2: ${data.qtd2} + Req3: ${data.qtd3} = ${data.total_deduzido} un.) = <strong>Saldo Final (${data.saldo_final} un.)</strong>`;
 
                 // Atualiza o select com o novo saldo para execuções subsequentes
                 const optionSelected = document.getElementById('selectProduto').querySelector(`option[value="${produtoId}"]`);
@@ -610,7 +719,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // =========================================================================
-    // EXECUÇÃO DO TESTE B: OAUTH & DOUBLE-CHECKED LOCKING
+    // EXECUÇÃO DO TESTE B: OAUTH & DOUBLE-CHECKED LOCKING (3 REQUISIÇÕES)
     // =========================================================================
     const formOAuth = document.getElementById('formTesteOAuth');
     const btnExecutarOAuth = document.getElementById('btnExecutarOAuth');
@@ -624,12 +733,6 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
 
             const contaId = document.getElementById('selectConta').value;
-            const delayMs = parseInt(document.getElementById('inputDelayOAuth').value, 10);
-
-            if (delayMs < 100 || delayMs > 10000) {
-                alert('O atraso deve estar estritamente entre 100 ms e 10.000 ms.');
-                return;
-            }
 
             // Estado de carregamento
             btnExecutarOAuth.disabled = true;
@@ -637,7 +740,7 @@ document.addEventListener('DOMContentLoaded', function() {
             dadosResultadoOAuth.classList.add('d-none');
             loadingOAuth.classList.remove('d-none');
             badgeStatusOAuth.className = 'badge bg-warning text-dark';
-            badgeStatusOAuth.textContent = 'Simulando Threads OAuth...';
+            badgeStatusOAuth.textContent = 'Executando 3 Requisições OAuth...';
 
             try {
                 const response = await fetch('{% url "testes_concorrencia" %}', {
@@ -648,8 +751,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     },
                     body: JSON.stringify({
                         acao: 'teste_oauth',
-                        conta_id: contaId,
-                        delay_ms: delayMs
+                        conta_id: contaId
                     })
                 });
 
@@ -663,18 +765,35 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('resOAuthContaApelido').textContent = data.conta.apelido;
                 document.getElementById('resOAuthContaCanal').textContent = data.conta.canal;
                 document.getElementById('resOAuthNovaExpiracao').textContent = data.nova_expiracao || 'Atualizado';
+                document.getElementById('resOAuthTempoTotalBloqueio').textContent = data.tempo_total_bloqueio_tabela_ms + ' ms';
 
+                // Thread 1
                 document.getElementById('resOAuthT1Status').textContent = data.thread1.status;
                 document.getElementById('resOAuthT1Chamadas').textContent = data.thread1.chamadas_api_externa + ' chamada (Endpoint Remoto)';
-                document.getElementById('resOAuthT1Duracao').textContent = data.thread1.duracao_ms + ' ms';
+                document.getElementById('resOAuthT1Espera').textContent = data.thread1.espera_trava_ms + ' ms';
+                document.getElementById('resOAuthT1Retencao').textContent = data.thread1.retencao_escrita_ms + ' ms';
+                document.getElementById('resOAuthT1Duracao').textContent = data.thread1.duracao_total_ms + ' ms';
 
+                // Thread 2
                 document.getElementById('resOAuthT2Status').textContent = data.thread2.status;
                 document.getElementById('resOAuthT2Chamadas').textContent = data.thread2.chamadas_api_externa + ' chamadas (Zero)';
-                document.getElementById('resOAuthT2Espera').textContent = data.tempo_espera_thread2_ms + ' ms';
-                document.getElementById('resOAuthT2Reaproveitado').textContent = data.reaproveitado ? 'Sim (True)' : 'Não';
+                document.getElementById('resOAuthT2Espera').textContent = data.thread2.espera_trava_ms + ' ms';
+                document.getElementById('resOAuthT2Retencao').textContent = data.thread2.retencao_escrita_ms + ' ms';
+                document.getElementById('resOAuthT2Reaproveitado').textContent = data.thread2.reaproveitado ? 'Sim (True)' : 'Não';
+
+                // Thread 3
+                document.getElementById('resOAuthT3Status').textContent = data.thread3.status;
+                document.getElementById('resOAuthT3Chamadas').textContent = data.thread3.chamadas_api_externa + ' chamadas (Zero)';
+                document.getElementById('resOAuthT3Espera').textContent = data.thread3.espera_trava_ms + ' ms';
+                document.getElementById('resOAuthT3Retencao').textContent = data.thread3.retencao_escrita_ms + ' ms';
+                document.getElementById('resOAuthT3Reaproveitado').textContent = data.thread3.reaproveitado ? 'Sim (True)' : 'Não';
+
+                // Prova
+                document.getElementById('txtProvaOAuthChamadas').innerHTML = 
+                    `Total de Chamadas à API Externa do Marketplace: <strong>${data.total_chamadas_api} única chamada</strong> (Thread 1: 1 chamada | Thread 2: 0 chamadas | Thread 3: 0 chamadas)`;
 
                 badgeStatusOAuth.className = 'badge bg-success';
-                badgeStatusOAuth.textContent = 'Double-Checked Locking Validado';
+                badgeStatusOAuth.textContent = 'Double-Checked Locking Validado (3 Reqs)';
                 dadosResultadoOAuth.classList.remove('d-none');
 
             } catch (err) {
