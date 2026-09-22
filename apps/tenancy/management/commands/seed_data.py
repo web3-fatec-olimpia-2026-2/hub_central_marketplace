@@ -1,42 +1,68 @@
 # Os códigos foram gerados com auxilio de I.A.
+
+# Importa o tipo Decimal para instanciação e cálculos de valores monetários e alíquotas fiscais com precisão
 from decimal import Decimal
+
+# Importa a classe base BaseCommand do Django para criação de comandos customizados executáveis via terminal (manage.py)
 from django.core.management.base import BaseCommand
+
+# Importa o modelo User nativo do Django para autenticação e gestão cadastral de contas
 from django.contrib.auth.models import User
+
+# Importa o gerenciador de transações do banco de dados para permitir execuções atômicas (ACID)
 from django.db import transaction
 
+# Bloco try/except para suportar importações modulares ou centralizadas no core legado
 try:
+    # Importa os modelos e enums de governança multi-tenant da aplicação tenancy
     from apps.tenancy.models import Loja, PerfilUsuario, ModuloLoja, ModuloSistemaEnum
+    # Importa os modelos de catálogo de produtos e anúncios
     from apps.catalogo.models import Categoria, Produto, AnuncioMarketplace
+    # Importa os modelos de conexões com marketplaces e canais suportados
     from apps.marketplaces.models import ContaMarketplace, CanalMarketplaceEnum
+    # Importa os modelos de parâmetros tributários, custos e regras de comissão da aplicação financeira
     from apps.financeiro.models import ConfiguracaoTaxasLoja, ParametroCanalMarketplace
 except ImportError:
+    # Fallback para importação direta do pacote legado core caso os apps modulares não estejam no path
     from core.models import (
         Loja, PerfilUsuario, Categoria, Produto,
         ConfiguracaoTaxasLoja, ParametroCanalMarketplace
     )
+    # Define como None as entidades ausentes na estrutura legada
     ModuloLoja = None
     ContaMarketplace = None
     AnuncioMarketplace = None
 
 
+# Declaração da classe do comando de seed herdando de BaseCommand
 class Command(BaseCommand):
+    # Início do bloco de docstring estrutural documentando as operações, justificativas e papéis provisionados
     """
     O QUE FAZ: Popula uma base de dados completa multi-tenant com usuários DEV dedicados, 
                lojas com endereços reais, configurações fiscais/comissões, produtos e anúncios.
     POR QUE FAZ: Permite testes funcionais locais e em novos ambientes com idempotência e dados consistentes.
     PERMISSÕES RBAC: Cria DEV (global), ADMIN (gestão da loja), SUPERVISOR e OPERADOR.
     """
+    # Fim do bloco descritivo
+
+    # Texto de ajuda exibido ao executar 'python manage.py seed_data --help'
     help = "Popula o banco com time de DEVs, 3 tenants, produtos e anúncios em marketplaces."
 
+    # Decorador que envolve toda a execução em uma transação atômica (reverte em caso de exceção)
     @transaction.atomic
     def handle(self, *args, **kwargs):
+        # Emite mensagem inicial de aviso no terminal estilizada em amarelo/notice
         self.stdout.write(self.style.NOTICE("Iniciando seed de dados de teste..."))
 
         # 1. Usuários DEV Globais
+        # Lista dos logins dos desenvolvedores que receberão permissões globais de DEV
         dev_usernames = ["oscar", "allan", "davidson", "vando", "rafael", "guilherme"]
+        # Define a senha padrão para os usuários de desenvolvimento em ambiente local
         senha_padrao_dev = "admin12345"
 
+        # Itera provisionando cada conta de desenvolvedor
         for dev_login in dev_usernames:
+            # Cria ou recupera a conta de autenticação atribuindo privilégios de staff e superusuário
             u, _ = User.objects.get_or_create(
                 username=dev_login,
                 defaults={
@@ -45,17 +71,22 @@ class Command(BaseCommand):
                     "is_superuser": True
                 }
             )
+            # Define o hash da senha padrão
             u.set_password(senha_padrao_dev)
             u.save()
 
+            # Cria ou atualiza o perfil do operador como DEV sem vínculo com tenant (loja=None)
             PerfilUsuario.objects.update_or_create(
                 usuario=u,
                 defaults={"papel": "DEV", "loja": None}
             )
+            # Imprime confirmação de criação bem-sucedida do desenvolvedor no console
             self.stdout.write(self.style.SUCCESS(f"✓ DEV criado: {dev_login} (senha: {senha_padrao_dev})"))
 
         # 2. Tenants (Lojas)
+        # Especificação cadastral, fiscal e de operadores para os 3 tenants simulados
         tenants_data = [
+            # Especificação da Loja 1: Eletrônicos (São Paulo/SP)
             {
                 "slug": "loja-eletronicos",
                 "nome": "TechZone Eletrônicos",
@@ -83,6 +114,7 @@ class Command(BaseCommand):
                 "supervisor": "super_tech",
                 "operador": "user_tech",
             },
+            # Especificação da Loja 2: Cama, Mesa e Banho (Blumenau/SC)
             {
                 "slug": "loja-cama-mesa-banho",
                 "nome": "Comfort Cama, Mesa & Banho",
@@ -110,6 +142,7 @@ class Command(BaseCommand):
                 "supervisor": "super_comfort",
                 "operador": "user_comfort",
             },
+            # Especificação da Loja 3: Calçados (Franca/SP)
             {
                 "slug": "loja-calcados",
                 "nome": "Passo Firme Calçados",
@@ -140,7 +173,9 @@ class Command(BaseCommand):
         ]
 
         # 3. Catálogo por Loja
+        # Mapeamento do catálogo inicial de produtos por tenant
         catalogo_data = {
+            # Produtos para a Loja TechZone
             "loja-eletronicos": {
                 "categoria": ("Periféricos e Informática", "perifericos-informatica"),
                 "produtos": [
@@ -196,6 +231,7 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Produtos para a Loja Comfort
             "loja-cama-mesa-banho": {
                 "categoria": ("Cama, Mesa e Banho", "cama-mesa-banho"),
                 "produtos": [
@@ -251,6 +287,7 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Produtos para a Loja Passo Firme
             "loja-calcados": {
                 "categoria": ("Calçados e Acessórios", "calcados-acessorios"),
                 "produtos": [
@@ -309,6 +346,7 @@ class Command(BaseCommand):
         }
 
         # 4. Parâmetros Comerciais dos Marketplaces
+        # Relação padrão de comissões, pisos de frete grátis e custos operacionais por canal parceiro
         canais_marketplace = [
             ("mercadolivre_classico", "Mercado Livre Clássico", Decimal("12.00"), Decimal("79.00"), Decimal("18.45"), Decimal("6.00")),
             ("mercadolivre_premium", "Mercado Livre Premium", Decimal("17.00"), Decimal("79.00"), Decimal("18.45"), Decimal("6.00")),
@@ -317,16 +355,20 @@ class Command(BaseCommand):
         ]
 
         # 5. Processamento dos Tenants
+        # Itera por cada loja configurando todos os seus relacionamentos e dados
         for t_info in tenants_data:
+            # Criação ou obtenção idempotente da entidade tenant Loja
             loja, _ = Loja.objects.get_or_create(
                 slug=t_info["slug"],
                 defaults={
                     "nome": t_info["nome"],
                     "ativo": True,
+                    # Filtra apenas os atributos compatíveis com os campos do modelo Loja
                     **{k: v for k, v in t_info["dados"].items() if hasattr(Loja, k)}
                 }
             )
 
+            # Provisiona e ativa os 4 módulos essenciais do sistema para o tenant caso o modelo exista
             if ModuloLoja:
                 for mod_slug in ["catalogo", "pedidos", "marketplaces", "financeiro"]:
                     ModuloLoja.objects.update_or_create(
@@ -335,11 +377,13 @@ class Command(BaseCommand):
                         defaults={"ativo": True}
                     )
 
+            # Define os logins e papéis dos operadores vinculados à loja
             papeis_loja = [
                 (t_info["admin"], "ADMIN"),
                 (t_info["supervisor"], "SUPERVISOR"),
                 (t_info["operador"], "USUARIO"),
             ]
+            # Cria cada um dos usuários operacionais do tenant
             for u_nome, papel in papeis_loja:
                 u, _ = User.objects.get_or_create(
                     username=u_nome,
@@ -349,14 +393,17 @@ class Command(BaseCommand):
                         "is_superuser": False
                     }
                 )
+                # Define a senha operacional
                 u.set_password("senha123")
                 u.save()
 
+                # Vincula o usuário ao perfil correspondente e à sua loja tenant
                 PerfilUsuario.objects.update_or_create(
                     usuario=u,
                     defaults={"papel": papel, "loja": loja}
                 )
 
+            # Registra as configurações e parâmetros tributários da loja
             ConfiguracaoTaxasLoja.objects.update_or_create(
                 loja=loja,
                 defaults={
@@ -367,6 +414,7 @@ class Command(BaseCommand):
                 }
             )
 
+            # Registra as tarifas comerciais e regras de precificação para cada canal parceiro
             for mkt_slug, _, comissao, piso, frete_acima, taxa_abaixo in canais_marketplace:
                 ParametroCanalMarketplace.objects.update_or_create(
                     loja=loja,
@@ -379,7 +427,9 @@ class Command(BaseCommand):
                     }
                 )
 
+            # Dicionário de contas de marketplace ativas para vincular os anúncios
             contas_conectadas = {}
+            # Provisiona as contas de marketplace para cada canal com tokens simulados
             if ContaMarketplace:
                 for canal_key, canal_label in [("mercadolivre", "Mercado Livre"), ("shopee", "Shopee"), ("magalu", "Magalu")]:
                     conta, _ = ContaMarketplace.objects.update_or_create(
@@ -395,6 +445,7 @@ class Command(BaseCommand):
                     )
                     contas_conectadas[canal_key] = conta
 
+            # Cria a categoria departamental de produtos da loja
             cat_nome, cat_slug = catalogo_data[loja.slug]["categoria"]
             categoria, _ = Categoria.objects.update_or_create(
                 loja=loja,
@@ -402,6 +453,7 @@ class Command(BaseCommand):
                 defaults={"nome": cat_nome}
             )
 
+            # Cria os produtos cadastrados para o catálogo da loja
             for p_dict in catalogo_data[loja.slug]["produtos"]:
                 produto, _ = Produto.objects.update_or_create(
                     loja=loja,
@@ -419,6 +471,7 @@ class Command(BaseCommand):
                     }
                 )
 
+                # Cria anúncios de marketplace vinculados ao produto para cada conta integrada
                 if AnuncioMarketplace and contas_conectadas:
                     for canal_key, conta_obj in contas_conectadas.items():
                         prefixo = "MLB" if canal_key == "mercadolivre" else ("SHP" if canal_key == "shopee" else "MGL")
@@ -433,6 +486,8 @@ class Command(BaseCommand):
                             }
                         )
 
+            # Exibe confirmação do tenant concluído com sucesso
             self.stdout.write(self.style.SUCCESS(f"✓ {loja.nome}: 5 produtos e integrações criados."))
 
+        # Exibe mensagem final celebrando a conclusão integral do seed de dados
         self.stdout.write(self.style.SUCCESS("\n🎉 Base multi-tenant populada com sucesso!"))

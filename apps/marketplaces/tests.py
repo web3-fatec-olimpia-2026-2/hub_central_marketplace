@@ -1,46 +1,91 @@
 # Os códigos foram gerados com auxilio de I.A.
+
+# Importa Decimal para validações e cálculos monetários com precisão exata nos testes
 from decimal import Decimal
+
+# Importa utilitários de mock para interceptar chamadas HTTP externas e simular respostas
 from unittest.mock import patch, MagicMock
+
+# Importa a classe TestCase para isolamento transacional de banco e Client para simular requisições HTTP
 from django.test import TestCase, Client
+
+# Importa o modelo User nativo do Django para criação e autenticação de usuários
 from django.contrib.auth.models import User
+
+# Importa a função reverse para resolução dinâmica de rotas nomeadas
 from django.urls import reverse
+
+# Importa a exceção de violação de integridade relacional do banco de dados
 from django.db import IntegrityError
 
+# Importa os modelos Loja e PerfilUsuario do módulo de tenancy
 from apps.tenancy.models import Loja, PerfilUsuario
+
+# Importa o enum de papéis de usuários (RBAC)
 from apps.tenancy.enums import PapelUsuarioEnum
+
+# Importa os modelos do módulo marketplaces (contas, logs técnicos, webhooks e auditoria)
 from apps.marketplaces.models import ContaMarketplace, LogSincronizacao, WebhookEventLog, LogAuditoria
+
+# Importa as enumerações de canais de marketplace, tipos de eventos de auditoria e status de webhooks
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum, WebhookStatusEnum
+
+# Importa a classe de serviço especialista em recepção e tratamento atômico de webhooks do Mercado Livre
 from apps.marketplaces.services import MercadoLivreWebhookService
+
+# Importa a factory de instanciação de conectores baseada na conta informada
 from apps.marketplaces.connectors.factory import get_connector_for_conta
+
+# Importa a implementação concreta do conector do Mercado Livre
 from apps.marketplaces.connectors.mercadolivre import MercadoLivreConnector
+
+# Importa a implementação concreta do conector da Shopee
 from apps.marketplaces.connectors.shopee import ShopeeConnector
+
+# Importa a implementação concreta do conector da Magazine Luiza
 from apps.marketplaces.connectors.magalu import MagaluConnector
+
+# Importa as entidades de catálogo: Produto físico, Categoria e Histórico de Preço/Estoque
 from apps.catalogo.models import Produto, Categoria, HistoricoPreco
+
+# Importa os modelos de Anúncio e Composição de Kits da aplicação de anúncios
 from apps.anuncios.models import Anuncio, AnuncioComposicao
+
+# Importa entidades de pedidos de venda e itens para reconciliação comercial
 from apps.pedidos.models import PedidoVenda, ItemPedidoVenda, Pedido, ItemPedido
+
+# Importa a enumeração com os estados possíveis de um pedido
 from apps.pedidos.enums import StatusPedidoEnum
 
 
+# Declaração da suíte de testes de integração do Hub de Marketplaces, conectores e regras multi-tenant
 class MarketplacesHubTestCase(TestCase):
+    # Início do bloco de docstring documentando a finalidade, RBAC e governança multi-tenant da suíte
     """
     O QUE FAZ: Suíte de testes automatizados para o Hub Multicanal de Marketplaces e Conectores.
     POR QUE FAZ: Valida o isolamento multi-contas por loja, execução de conectores desacoplados e clamping de estoque.
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Isolamento horizontal de credenciais e contas.
     """
+    # Fim do bloco de docstring
 
+    # Configuração inicial do ambiente executada antes de cada método de teste
     def setUp(self):
+        # Cria a organização tenant que será dona dos recursos testados
         self.loja = Loja.objects.create(
             nome="Loja Matriz",
             slug="loja-matriz",
             cnpj="33.333.333/0001-33"
         )
+        # Garante que os módulos padrão do sistema sejam ativados para o tenant
         self.loja.garantir_modulos_padrao()
 
+        # Cria usuário administrador vinculado à loja para testes de interface e ações restritas
         self.user_admin = User.objects.create_user(username='admin_loja', password='password123')
         PerfilUsuario.objects.create(usuario=self.user_admin, papel=PapelUsuarioEnum.ADMIN, loja=self.loja)
 
         # 1. Conta Mercado Livre
+        # Cria uma conexão mockada para o canal Mercado Livre
         self.conta_meli = ContaMarketplace.objects.create(
             loja=self.loja,
             canal=CanalMarketplaceEnum.MERCADOLIVRE,
@@ -51,6 +96,7 @@ class MarketplacesHubTestCase(TestCase):
         )
 
         # 2. Conta Shopee
+        # Cria uma conexão mockada para o canal Shopee
         self.conta_shopee = ContaMarketplace.objects.create(
             loja=self.loja,
             canal=CanalMarketplaceEnum.SHOPEE,
@@ -59,8 +105,10 @@ class MarketplacesHubTestCase(TestCase):
             seller_id_externo="987654"
         )
 
+    # Valida restrição de unicidade para evitar duplicidade de credenciais no mesmo canal
     def test_multi_account_unique_constraint(self):
         """Valida que não é permitido duplicar o mesmo canal e seller_id na mesma loja."""
+        # Espera que o banco lance IntegrityError ao tentar duplicar loja + canal
         with self.assertRaises(IntegrityError):
             ContaMarketplace.objects.create(
                 loja=self.loja,
@@ -69,27 +117,34 @@ class MarketplacesHubTestCase(TestCase):
                 seller_id_externo="123456789"
             )
 
+    # Valida se o padrão Factory retorna a instância correta do conector com base no canal da conta
     def test_connector_factory_resolution(self):
         """Valida que o Factory resolve o conector correto para cada conta."""
+        # Resolve e verifica se a conta do Mercado Livre retorna a classe MercadoLivreConnector
         connector_meli = get_connector_for_conta(self.conta_meli)
         self.assertIsInstance(connector_meli, MercadoLivreConnector)
         self.assertEqual(connector_meli.canal_nome, CanalMarketplaceEnum.MERCADOLIVRE)
 
+        # Resolve e verifica se a conta da Shopee retorna a classe ShopeeConnector
         connector_shopee = get_connector_for_conta(self.conta_shopee)
         self.assertIsInstance(connector_shopee, ShopeeConnector)
         self.assertEqual(connector_shopee.canal_nome, CanalMarketplaceEnum.SHOPEE)
 
+    # Testa a sincronização de preços e a persistência de logs técnicos mockando requisição HTTP PUT
     @patch('requests.put')
     def test_mercadolivre_connector_price_update_and_logging(self, mock_put):
         """Valida o envio de PUT /items/{id} e gravação de telemetria no conector do Mercado Livre."""
+        # Configura o mock da resposta HTTP da API remota
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {'id': 'MLB12345678', 'price': 99.90}
         mock_put.return_value = mock_response
 
+        # Obtém o conector e executa a atualização de preço
         connector = get_connector_for_conta(self.conta_meli)
         sucesso, msg, log = connector.atualizar_preco("MLB12345678", Decimal('99.90'), usuario=self.user_admin)
 
+        # Valida sucesso da chamada e integridade dos dados registrados em LogSincronizacao
         self.assertTrue(sucesso)
         self.assertIsNotNone(log)
         self.assertEqual(log.status_http, 200)
@@ -97,6 +152,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertEqual(log.item_id_externo, "MLB12345678")
         self.assertEqual(log.evento, EventoAuditoriaEnum.SYNC_PRECO)
 
+    # Testa a proteção de clamping de estoque negativo para zero (RN-06)
     @patch('requests.put')
     def test_mercadolivre_connector_stock_clamping(self, mock_put):
         """Valida que o conector aplica clamping max(0, estoque) para saldos negativos (RN-06)."""
@@ -115,6 +171,7 @@ class MarketplacesHubTestCase(TestCase):
         args, kwargs = mock_put.call_args
         self.assertEqual(kwargs['json']['available_quantity'], 0)
 
+    # Valida execução do conector da Shopee com registro de canal correto
     def test_shopee_connector_stub_execution(self):
         """Valida a execução do conector didático da Shopee."""
         connector = get_connector_for_conta(self.conta_shopee)
@@ -122,8 +179,10 @@ class MarketplacesHubTestCase(TestCase):
         self.assertTrue(sucesso)
         self.assertEqual(log.canal, CanalMarketplaceEnum.SHOPEE)
 
+    # Valida instanciação e chamadas nos conectores de Magalu e Amazon
     def test_magalu_and_amazon_connectors(self):
         """Valida a execução dos conectores de Magalu e Amazon."""
+        # Cria conta Magalu e testa conector
         conta_magalu = ContaMarketplace.objects.create(
             loja=self.loja, canal=CanalMarketplaceEnum.MAGALU, apelido_conta="Magalu Loja", access_token="MAG_TOKEN"
         )
@@ -132,6 +191,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertTrue(suc_mag)
         self.assertEqual(log_mag.canal, CanalMarketplaceEnum.MAGALU)
 
+        # Cria conta Amazon e testa conector
         conta_amz = ContaMarketplace.objects.create(
             loja=self.loja, canal=CanalMarketplaceEnum.AMAZON, apelido_conta="Amazon Loja", access_token="AMZ_TOKEN"
         )
@@ -140,6 +200,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertTrue(suc_amz)
         self.assertEqual(log_amz.canal, CanalMarketplaceEnum.AMAZON)
 
+    # Testa views de listagem e disparador de teste de conexão
     def test_conta_marketplace_views_and_test_connection(self):
         """Valida a criação e teste de conexão de contas de marketplace via views."""
         client = Client()
@@ -155,6 +216,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertContains(res_list, "ML Oficial")
         self.assertContains(res_list, "Shopee Oficial")
 
+    # Testa o contrato unificado de publicação de novos anúncios em múltiplos canais (RF-04)
     def test_connectors_publicar_anuncio_contracts(self):
         """Valida que todos os conectores suportam publicar_anuncio() gerando telemetria e IDs externos (RF-04)."""
         produto_dict = {
@@ -194,6 +256,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertTrue(ret_mag['item_id_externo'].startswith('MGL'))
         self.assertEqual(log_mag.canal, CanalMarketplaceEnum.MAGALU)
 
+    # Valida o comportamento de cifra Fernet em repouso consultando via cursor SQL bruto vs ORM
     def test_encrypted_text_field_encryption_at_rest(self):
         """Valida que tokens são cifrados com Fernet no banco e decifrados transparentemente pelo ORM."""
         from django.db import connection
@@ -219,6 +282,7 @@ class MarketplacesHubTestCase(TestCase):
         conta_loaded = ContaMarketplace.objects.get(id=conta.id)
         self.assertEqual(conta_loaded.access_token, raw_secret_token)
 
+    # Valida os parâmetros de query string na URL de consentimento OAuth do Mercado Livre
     def test_mercadolivre_gerar_url_autorizacao_dynamic_settings(self):
         """Valida que a URL de autorização OAuth é construída dinamicamente sem hardcode."""
         url = MercadoLivreConnector.gerar_url_autorizacao(state="conta_42")
@@ -228,6 +292,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertIn("redirect_uri=", url)
         self.assertIn("state=conta_42", url)
 
+    # Valida a recepção do callback de autorização salvando credenciais e criando log de auditoria
     def test_mercadolivre_callback_view_success_and_logging(self):
         """Valida a view de callback do OAuth 2.0 salvando tokens e renderizando template de sucesso."""
         client = Client()
@@ -252,6 +317,7 @@ class MarketplacesHubTestCase(TestCase):
             ).exists()
         )
 
+    # Valida limpeza de tokens e credenciais ao desconectar uma conta
     def test_conta_marketplace_desconectar_view(self):
         """Valida a ação de desconectar e limpar tokens de uma conta com segurança."""
         client = Client()
@@ -266,6 +332,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertIsNone(self.conta_meli.token_expira_em)
         self.assertIsNone(self.conta_meli.seller_id_externo)
 
+    # Testa simulação de rotas mock vs desativadas no conector do Mercado Livre
     def test_mock_toggle_mercadolivre_simulation(self):
         """Valida o comportamento de simulação mock ativa (200) vs desativada (401) no Mercado Livre."""
         loja_mock = Loja.objects.create(
@@ -312,6 +379,7 @@ class MarketplacesHubTestCase(TestCase):
             self.assertFalse(ultimo_log.sucesso)
             self.assertIn("Não autorizado", ultimo_log.mensagem_erro)
 
+    # Testa alternância de flag mock para Magalu e Shopee
     def test_mock_toggle_magalu_and_shopee_simulation(self):
         """Valida o comportamento de alternância mock em Magalu e Shopee."""
         conta_magalu_mock = ContaMarketplace.objects.create(
@@ -347,6 +415,7 @@ class MarketplacesHubTestCase(TestCase):
             self.assertIn("401", msg_mag)
             self.assertIn("401", msg_shp)
 
+    # Valida condições de interface para renderização do botão 'Reconectar Conta'
     def test_reconnect_button_visibility_rules(self):
         """Valida que o botão Reconectar Conta é exibido estritamente quando ultima_sincronizacao não é nula."""
         loja_recon = Loja.objects.create(
@@ -386,6 +455,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertEqual(res_form_apos.status_code, 200)
         self.assertContains(res_form_apos, "Reconectar Conta")
 
+    # Valida travas de validação e constraints de banco contra duas contas do mesmo canal na mesma loja
     def test_bloqueio_duplicidade_loja_canal(self):
         """Valida que uma mesma loja não pode ter mais de uma conta para o mesmo canal de marketplace."""
         from django.core.exceptions import ValidationError
@@ -406,6 +476,7 @@ class MarketplacesHubTestCase(TestCase):
                 apelido_conta="Outra Conta ML DB"
             )
 
+    # Valida que o mesmo identificador de vendedor externo (seller_id) não pode ser vinculado a duas lojas
     def test_bloqueio_duplicidade_canal_seller_id_externo_entre_lojas(self):
         """Valida que um mesmo seller_id_externo no mesmo canal não pode ser reaproveitado por outra loja."""
         from django.core.exceptions import ValidationError
@@ -433,6 +504,7 @@ class MarketplacesHubTestCase(TestCase):
                 seller_id_externo="123456789"
             )
 
+    # Valida restrição de unicidade para apelido de conta dentro do mesmo tenant
     def test_bloqueio_duplicidade_loja_apelido_conta(self):
         """Valida que o apelido da conta deve ser único dentro da mesma loja."""
         from django.core.exceptions import ValidationError
@@ -453,6 +525,7 @@ class MarketplacesHubTestCase(TestCase):
                 apelido_conta="ML Oficial"
             )
 
+    # Valida a regra de integridade que impede a troca de loja ou canal após salvar o modelo
     def test_imutabilidade_loja_e_canal_na_edicao_model(self):
         """Valida que alterar loja ou canal de uma conta existente gera ValidationError no modelo."""
         from django.core.exceptions import ValidationError
@@ -481,6 +554,7 @@ class MarketplacesHubTestCase(TestCase):
         with self.assertRaises(ValidationError):
             self.conta_meli.save()
 
+    # Valida desabilitação e preservação dos campos 'loja' e 'canal' no formulário ContaMarketplaceForm
     def test_imutabilidade_loja_e_canal_no_formulario(self):
         """Valida que o formulário de edição desabilita os campos canal e loja e preserva os valores originais."""
         from apps.marketplaces.forms import ContaMarketplaceForm
@@ -510,6 +584,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertEqual(conta_salva.loja, self.loja)
         self.assertEqual(conta_salva.apelido_conta, 'Novo Apelido Permitido')
 
+    # Valida sanitização de pontuação e unicidade de CNPJ das lojas
     def test_bloqueio_duplicidade_cnpj_loja_mesmos_digitos(self):
         """Valida que cada loja deve ter CNPJ estritamente único, mesmo com variações de pontuação."""
         from django.core.exceptions import ValidationError
@@ -522,6 +597,7 @@ class MarketplacesHubTestCase(TestCase):
             loja_duplicada.clean()
         self.assertIn('cnpj', ctx.exception.message_dict)
 
+    # Valida o método utilitário get_connector da instância ContaMarketplace
     def test_conta_get_connector_strategy_adapter(self):
         """Valida que conta.get_connector() resolve o Adapter concreto adequado a cada canal."""
         conn_meli = self.conta_meli.get_connector()
@@ -533,6 +609,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertIsInstance(conn_shopee, ShopeeConnector)
         self.assertEqual(conn_shopee.canal_nome, CanalMarketplaceEnum.SHOPEE)
 
+    # Valida composição de parâmetros da URL de autorização OAuth
     def test_get_authorization_url_generates_correct_query(self):
         """Valida geração de URL com parâmetros client_id, redirect_uri e state."""
         connector = self.conta_meli.get_connector()
@@ -541,6 +618,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertIn("response_type=code", url)
         self.assertIn("state=csrf_secure_token_123", url)
 
+    # Valida renovação transparente de token quando a expiração for iminente (< 10 minutos)
     def test_get_valid_access_token_valid_and_auto_refresh(self):
         """Valida retorno direto de token válido e auto-refresh transparente quando faltam < 10 min."""
         from django.utils import timezone
@@ -568,6 +646,7 @@ class MarketplacesHubTestCase(TestCase):
         # Após o refresh, a expiração deve ser em ~6 horas
         self.assertGreater(self.conta_meli.token_expira_em, now + datetime.timedelta(hours=5))
 
+    # Testa o padrão Double-Checked Locking para evitar renovações concorrentes duplicadas
     def test_refresh_credentials_pessimistic_lock_and_double_check(self):
         """Valida renovação de credenciais e o mecanismo de double-checked locking contra race conditions."""
         from django.utils import timezone
@@ -592,6 +671,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertTrue(res2['sucesso'])
         self.assertTrue(res2.get('reaproveitado'))
 
+    # Valida desativação da conta (ativo=False) ao receber invalid_grant da API parceira
     @patch('requests.post')
     def test_refresh_credentials_invalid_grant_deactivates_account(self, mock_post):
         """Valida que o erro invalid_grant da API do Meli inativa a conta (ativo=False) e grava log."""
@@ -625,6 +705,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertFalse(log.sucesso)
         self.assertEqual(log.status_http, 400)
 
+    # Valida tratamento de erro de conta colaboradora/operadora ao renovar token
     @patch('requests.post')
     def test_refresh_credentials_operator_error(self, mock_post):
         """Valida que status 403 com invalid_operator_user_id orienta sobre conta titular."""
@@ -647,6 +728,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertEqual(res['status_code'], 403)
         self.assertIn("titular/administradora", res['mensagem'])
 
+    # Testa tolerância a rate limit (HTTP 429) com retry bem-sucedido
     @patch('requests.post')
     def test_refresh_credentials_rate_limited_retry(self, mock_post):
         """Valida retry sob HTTP 429 local_rate_limited com posterior sucesso 200."""
@@ -674,6 +756,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertTrue(res['sucesso'])
         self.assertEqual(res['access_token'], "APP_USR_NEW_TOKEN_AFTER_RETRY")
 
+    # Valida injeção de cabeçalho Bearer e retentativa transparente sob HTTP 401
     @patch('requests.request')
     def test_connector_request_bearer_and_retry_on_401(self, mock_request):
         """Valida que connector.request() injeta Authorization: Bearer e reautentica sob 401."""
@@ -698,6 +781,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertIn('Authorization', first_call_headers)
         self.assertTrue(first_call_headers['Authorization'].startswith('Bearer '))
 
+    # Testa atualização de metadados durante a rotina test_connection
     @patch.object(MercadoLivreConnector, 'request')
     def test_test_connection_active_validation_updates_sincronizacao(self, mock_request):
         """Valida que test_connection() consulta /users/me, atualiza ultima_sincronizacao e seller_id."""
@@ -725,6 +809,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertEqual(self.conta_meli.seller_id_externo, "88776655")
         self.assertIsNotNone(self.conta_meli.ultima_sincronizacao)
 
+    # Valida proteção contra ataques de repetição e falsificação de state OAuth
     def test_oauth_csrf_ephemeral_state_validation(self):
         """Valida a proteção contra CSRF usando state randômico em sessão na autorização e callback."""
         client = Client()
@@ -755,6 +840,7 @@ class MarketplacesHubTestCase(TestCase):
         # Confirma que o state foi consumido da sessão (single use)
         self.assertNotIn('oauth_state', client.session)
 
+    # Valida reconexão da mesma conta sem falso positivo de colisão
     def test_reconexao_mesma_conta_sucesso_sem_conflito(self):
         """Valida a reconexão legítima da mesma conta sem disparar falsa colisão consigo mesma."""
         client = Client()
@@ -779,6 +865,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertEqual(self.conta_meli.seller_id_externo, "123456789")
         self.assertTrue(self.conta_meli.access_token.startswith("APP_USR_MOCK_TOKEN_"))
 
+    # Valida bloqueio com mensagem amigável caso o usuário reconecte um card usando outra conta logada no navegador
     def test_reconexao_sessao_trocada_bloqueio_com_mensagem_amigavel(self):
         """Valida que autorizar com sessão trocada (seller ID de outro card) bloqueia com mensagem amigável."""
         # Cria uma segunda conta (pertencente a outra loja/card) com outro seller_id
@@ -829,6 +916,7 @@ class MarketplacesHubTestCase(TestCase):
         self.assertEqual(self.conta_meli.refresh_token, old_refresh)
         self.assertEqual(self.conta_meli.seller_id_externo, "123456789")
 
+    # Valida limpeza da sessão ao acessar a view de criação de conta
     def test_conta_marketplace_create_view_clears_oauth_conta_id_session(self):
         """Valida que acessar a tela de 'Conectar Nova Conta' limpa oauth_conta_id remanescente na sessão."""
         client = Client()
@@ -843,12 +931,16 @@ class MarketplacesHubTestCase(TestCase):
         self.assertNotIn('oauth_conta_id', client.session)
 
 
+# Suíte de testes focada no processamento de webhooks do Mercado Livre
 class MercadoLivreWebhookTestCase(TestCase):
+    # Início do bloco de docstring da suíte de webhooks
     """
     O QUE FAZ: Suíte de testes para o endpoint de webhooks do Mercado Livre (/marketplaces/webhooks/mercadolivre/).
     POR QUE FAZ: Valida idempotência estrita, baixa atômica de estoque (unitários e kits), tratamento de erros e integridade HTTP.
     """
+    # Fim da documentação da classe
 
+    # Prepara o cenário de testes para webhooks
     def setUp(self):
         self.client = Client()
         self.url = reverse('mercadolivre_webhook')
@@ -925,10 +1017,12 @@ class MercadoLivreWebhookTestCase(TestCase):
             quantidade=3
         )
 
+    # Valida caminho exato da URL
     def test_webhook_url_exact_path(self):
         """Valida que o path da URL resolvida é exatamente /marketplaces/webhooks/mercadolivre/."""
         self.assertEqual(self.url, '/marketplaces/webhooks/mercadolivre/')
 
+    # Valida restrição de métodos HTTP aceitos
     def test_webhook_rejects_disallowed_methods(self):
         """Valida que verbos HTTP diferentes de POST retornam 405 Method Not Allowed."""
         res_get = self.client.get(self.url)
@@ -940,6 +1034,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         res_delete = self.client.delete(self.url)
         self.assertEqual(res_delete.status_code, 405)
 
+    # Valida tratamento defensivo de payloads inválidos
     def test_webhook_rejects_malformed_and_empty_payload(self):
         """Valida que payloads vazios, inválidos ou sem topic/resource retornam 400 Bad Request."""
         res_empty = self.client.post(self.url, data='', content_type='application/json')
@@ -951,6 +1046,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         res_missing = self.client.post(self.url, data={'user_id': '777888999'}, content_type='application/json')
         self.assertEqual(res_missing.status_code, 400)
 
+    # Valida descarte gracioso de tópicos que não movimentam estoque
     def test_webhook_ignores_non_orders_topics(self):
         """Valida que tópicos diferentes de orders_v2 retornam 200 OK e são gravados como IGNORADO."""
         payload = {
@@ -973,6 +1069,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.produto_unit.refresh_from_db()
         self.assertEqual(self.produto_unit.estoque, 10)
 
+    # Valida baixa física e auditoria para produto unitário
     def test_webhook_successful_unit_product_stock_deduction(self):
         """Valida baixa atômica de estoque para anúncio unitário com registro de log e auditoria."""
         payload = {
@@ -1024,6 +1121,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertIn('2000001234567890', historico.motivo)
         self.assertIn('Mercado Livre', historico.motivo)
 
+    # Valida multiplicação de baixa de estoque em anúncios de kits
     def test_webhook_successful_kit_product_stock_deduction(self):
         """Valida que venda de Kit de 3 unidades abate a quantidade correta (2 kits = 6 itens)."""
         payload = {
@@ -1054,6 +1152,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         log = WebhookEventLog.objects.filter(resource='/orders/20000088880001').first()
         self.assertEqual(log.status, WebhookStatusEnum.PROCESSADO)
 
+    # Valida idempotência impedindo duplo desconto em notificações repetidas
     def test_webhook_strict_idempotency_duplicate_notification(self):
         """
         REGRA CRÍTICA DE IDEMPOTÊNCIA:
@@ -1105,6 +1204,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertEqual(logs[1].status, WebhookStatusEnum.IGNORADO)
         self.assertIn("duplicada", logs[1].error_log.lower())
 
+    # Testa registro de erro quando a API externa falha
     @patch.object(MercadoLivreConnector, 'obter_detalhes_pedido')
     def test_webhook_api_failure_registers_error_log(self, mock_obter):
         """Valida que falha na API externa grava log com status ERRO sem alterar estoque."""
@@ -1130,6 +1230,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertEqual(log.status, WebhookStatusEnum.ERRO)
         self.assertIn("Timeout de conexão", log.error_log)
 
+    # Valida criação do PedidoVenda e baixa atômica exata em cenário real
     def test_webhook_sale_quantity_2_exact_deduction_and_pedido_created(self):
         """
         CENÁRIO CRÍTICO DE VENDA REAL (MLB2856546762):
@@ -1231,6 +1332,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertContains(res_pedidos, '20000077770002')
         self.assertContains(res_pedidos, 'Carlos Ferreira')
 
+    # Valida que vendas via webhook não deixam o anúncio pendente para sincronização manual
     def test_webhook_automatic_immediate_sync_no_modal_pending(self):
         """Valida que venda via webhook não inclui o anúncio em anuncios_pendentes_sync no detalhe do produto."""
         produto = Produto.objects.create(
@@ -1284,6 +1386,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertEqual(res_prod.status_code, 200)
         self.assertNotIn(anuncio, res_prod.context['anuncios_pendentes_sync'])
 
+    # Valida consulta à API real em contas produtivas (is_mock=False)
     @patch.object(MercadoLivreConnector, 'request')
     def test_obter_detalhes_pedido_real_api_call_without_mock_overwrite(self, mock_request):
         """
@@ -1331,6 +1434,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertEqual(len(dados.get('order_items', [])), 1)
         self.assertEqual(int(dados['order_items'][0]['quantity']), 2)
 
+    # Valida resolução multi-tenant correta para o seller_id em múltiplas lojas
     def test_webhook_multitenant_resolucao_correta_duas_contas(self):
         """
         1. Multi-tenant — resolução correta: duas ContaMarketplace cadastradas para canal='mercadolivre'
@@ -1413,6 +1517,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         prod_2.refresh_from_db()
         self.assertEqual(prod_2.estoque, 8)
 
+    # Valida rejeição graciosa quando seller_id não coincide com nenhuma conta
     def test_webhook_conta_nao_localizada_erro_explicito(self):
         """
         2. Conta não localizada: seller_id do payload não corresponde a nenhuma conta cadastrada →
@@ -1435,6 +1540,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertIn("ContaMarketplace não localizada para o seller_id seller_inexistente_99999", log.error_log)
         self.assertEqual(PedidoVenda.objects.filter(pedido_id_externo="99999999").count(), 0)
 
+    # Valida mensagem específica para conta inativa
     def test_webhook_conta_inativa_erro_distinto_de_nao_localizada(self):
         """
         Ajuste 1: Conta existe com seller_id_externo mas está ativo=False →
@@ -1475,6 +1581,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertIn("mas está inativa", log.error_log)
         self.assertEqual(PedidoVenda.objects.filter(pedido_id_externo="88888888").count(), 0)
 
+    # Valida que eventos com falha prévia podem ser reprocessados
     def test_webhook_replay_evento_com_falha_previa_executa_com_sucesso(self):
         """
         3. Replay de evento com falha prévia: evento que abortou antes de persistir (ex: erro de rede prévio)
@@ -1516,6 +1623,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.produto_unit.refresh_from_db()
         self.assertEqual(self.produto_unit.estoque, 8)
 
+    # Valida bloqueio de replay caso o pedido já tenha sido concluído com sucesso
     def test_webhook_replay_pedido_ja_concluido_bloqueia_duplicidade(self):
         """
         4. Replay de evento já concluído: um PedidoVenda já persistido com sucesso (inclusive com item em
@@ -1555,6 +1663,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertEqual(self.produto_unit.estoque, estoque_apos_1)
         self.assertEqual(PedidoVenda.objects.filter(pedido_id_externo="200000_JA_PERSISTIDO").count(), 1)
 
+    # Valida criação do pedido com item pendente_vinculo caso o anúncio não esteja mapeado
     def test_webhook_item_sem_vinculo_persiste_venda_com_status_pendente(self):
         """
         5. Item sem vínculo local: item vendido (MLB...) ainda sem produto físico vinculado no catálogo daquela loja →
@@ -1600,6 +1709,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         ).first()
         self.assertIsNotNone(auditoria)
 
+    # Valida captura defensiva de colisão por constraint de banco (IntegrityError) sob concorrência
     def test_webhook_concorrencia_race_condition_bloqueada_por_constraint(self):
         """
         Ajuste 2: Duas requisições simultâneas onde a constraint de banco IntegrityError
@@ -1634,6 +1744,7 @@ class MercadoLivreWebhookTestCase(TestCase):
             self.assertEqual(log.status, WebhookStatusEnum.IGNORADO)
             self.assertIn("bloqueada por constraint de banco", log.error_log)
 
+    # Valida reprocessamento manual disparado por usuário Staff/ADMIN via view
     def test_webhook_replay_view_reprocessa_com_sucesso(self):
         """
         Ajuste 3 & 4: Staff/ADMIN autenticado reprocessa evento através da WebhookEventReplayView.
@@ -1676,6 +1787,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         pedido = PedidoVenda.objects.filter(pedido_id_externo="200000_REPLAY_VIEW").first()
         self.assertIsNotNone(pedido)
 
+    # Valida restrição RBAC na WebhookEventReplayView (403 para operadores comuns)
     def test_webhook_replay_view_nega_acesso_sem_permissao(self):
         """
         Ajuste 3 & 4: Usuário sem papel ADMIN/DEV recebe 403 Forbidden ao tentar disparar Replay.
@@ -1704,6 +1816,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         res_anon = self.client.post(url_replay)
         self.assertEqual(res_anon.status_code, 302)
 
+    # Valida robustez das funções utilitárias safe_decimal e safe_int contra entradas inválidas
     def test_safe_decimal_e_safe_int_conversoes_defensivas(self):
         """
         Valida que safe_decimal e safe_int toleram todos os tipos de entrada sem lançar exceções.
@@ -1737,6 +1850,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertEqual(safe_int('5'), 5)
         self.assertEqual(safe_int('5.0'), 5)
 
+    # Valida processamento de pedidos onde o frete retorna explicitamente nulo no payload
     def test_webhook_pedido_com_shipping_cost_null_processa_com_sucesso(self):
         """
         Valida que notificação com 'shipping_cost': null e 'shipping': {'cost': null}
@@ -1781,6 +1895,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertEqual(item.quantidade, 2)
         self.assertEqual(item.preco_unitario, Decimal('125.00'))
 
+    # Valida resiliência quando múltiplos campos de preço e valores vêm nulos
     def test_webhook_pedido_com_total_amount_null_e_unit_price_null(self):
         """
         Valida resiliência total a múltiplos campos nulos: total_amount: null,
@@ -1824,31 +1939,34 @@ class MercadoLivreWebhookTestCase(TestCase):
         self.assertEqual(item.preco_unitario, Decimal('99.00'))
 
 
-
-
-
-
-
-
 # ==============================================================================
 # TESTES: CRIPTOGRAFIA FERNET, MODO HÍBRIDO E WEBHOOK COM SEGMENTAÇÃO UUID
 # ==============================================================================
+# Importa módulos para serialização, codificação base64, hash, HMAC, tempo e identificadores UUID
 import json
 import base64
 import hashlib
 import hmac
 import time
 import uuid
+
+# Importa override_settings para alteração de configurações do Django durante os testes
 from django.test import override_settings
+
+# Importa os utilitários de segurança criptográfica Fernet
 from apps.core.security import get_fernet_instance, EncryptedTextField
 
 
+# Suíte de testes para validação da camada de criptografia Fernet, modo híbrido e rotas segmentadas por UUID
 class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
+    # Início do bloco de docstring descritivo da suíte de segurança
     """
     O QUE FAZ: Suíte de testes para a camada criptográfica Fernet, modo híbrido e segmentação de webhooks por UUID.
     POR QUE FAZ: Valida proteção de segredos em repouso, short-circuit fail-fast, anti-replay (< 300s) e rotas unificadas.
     """
+    # Fim da documentação da classe
 
+    # Prepara o cenário de testes com conta individual e chaves secretas
     def setUp(self):
         self.client = Client()
         self.loja = Loja.objects.create(
@@ -1901,6 +2019,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
     # --------------------------------------------------------------------------
     # 1. TESTES DA CAMADA CRIPTOGRÁFICA FERNET (apps/core/security.py)
     # --------------------------------------------------------------------------
+    # Valida determinismo da derivação de chaves Fernet baseada no SECRET_KEY
     def test_fernet_key_derivation_deterministic(self):
         """Valida que get_fernet_instance deriva chave válida determinística a partir de SECRET_KEY."""
         f1 = get_fernet_instance()
@@ -1910,6 +2029,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
         decifrado = f2.decrypt(cifrado).decode('utf-8')
         self.assertEqual(texto, decifrado)
 
+    # Valida que os campos são armazenados criptografados e decifrados no acesso do ORM
     def test_encrypted_text_field_encryption_in_database(self):
         """Valida que o valor no banco de dados está criptografado e é descriptografado na leitura do ORM."""
         conta = ContaMarketplace.objects.get(pk=self.conta_individual.pk)
@@ -1927,6 +2047,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
         self.assertNotEqual(raw_webhook_secret, self.secret_chave)
         self.assertTrue(raw_webhook_secret.startswith("gAAAAA"))
 
+    # Valida compatibilidade retroativa com campos legados em texto claro
     def test_encrypted_text_field_fallback_for_plaintext(self):
         """Valida fallback gracioso para valores em texto puro já presentes na base (legado)."""
         field = EncryptedTextField()
@@ -1934,6 +2055,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
         res = field.from_db_value(valor_legado, None, None)
         self.assertEqual(res, valor_legado)
 
+    # Valida idempotência nas preparações do campo criptografado
     def test_encrypted_text_field_idempotence(self):
         """Valida que get_prep_value preserva integridade decifrável sem corrupção de dados."""
         field = EncryptedTextField()
@@ -1947,12 +2069,14 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
     # --------------------------------------------------------------------------
     # 2. TESTES DE WEBHOOK INDIVIDUAL COM UUID E FAIL-FAST SIMÉTRICO
     # --------------------------------------------------------------------------
+    # Valida retorno 404 imediato para UUIDs desconhecidos
     def test_webhook_individual_route_404_for_unknown_uuid(self):
         """Valida que UUID inexistente na rota retorna HTTP 404 imediato sem processar body."""
         url_inexistente = f"/api/v1/webhooks/mercadolivre/{uuid.uuid4()}/"
         res = self.client.post(url_inexistente, data={'topic': 'orders_v2'}, content_type='application/json')
         self.assertEqual(res.status_code, 404)
 
+    # Valida rejeição 401 por ausência de assinatura HMAC
     def test_webhook_individual_route_401_on_missing_signature(self):
         """Valida que rota individual com webhook_secret configurado exige assinatura HMAC (HTTP 401)."""
         url = f"/api/v1/webhooks/mercadolivre/{self.conta_individual.webhook_uuid}/"
@@ -1961,6 +2085,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
         self.assertEqual(res.status_code, 401)
         self.assertIn("ausente", res.json().get('error', '').lower())
 
+    # Valida rejeição 401 por assinatura HMAC inválida
     def test_webhook_individual_route_401_on_invalid_hmac(self):
         """Valida que assinatura HMAC incorreta é rejeitada com HTTP 401 sem parse do body."""
         url = f"/api/v1/webhooks/mercadolivre/{self.conta_individual.webhook_uuid}/"
@@ -1974,6 +2099,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
         self.assertEqual(res.status_code, 401)
         self.assertIn("inválida", res.json().get('error', '').lower())
 
+    # Valida aceitação de timestamp mais antigo quando o HMAC correspondente for matematicamente válido
     def test_webhook_individual_route_accepts_valid_hmac_with_old_timestamp(self):
         """Valida que timestamp antigo (> 300s) é aceito sem bloqueio temporal quando o HMAC é válido."""
         url = f"/api/v1/webhooks/mercadolivre/{self.conta_individual.webhook_uuid}/"
@@ -1991,6 +2117,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json().get('status'), 'ignored')
 
+    # Valida fluxo de ponta a ponta na rota individual com assinatura válida e baixa de estoque
     def test_webhook_individual_route_success_with_valid_hmac_and_timestamp(self):
         """Valida sucesso na autenticação HMAC + timestamp recente na rota individual e baixa de estoque."""
         url = f"/api/v1/webhooks/mercadolivre/{self.conta_individual.webhook_uuid}/"
@@ -2035,6 +2162,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
     # --------------------------------------------------------------------------
     # 3. TESTES DE WEBHOOK GLOBAL COM CHAVE DO .ENV / SETTINGS
     # --------------------------------------------------------------------------
+    # Valida fail-fast da rota global antes de acessar o banco de dados
     @override_settings(MELI_GLOBAL_WEBHOOK_SECRET="global-secret-key-999")
     def test_webhook_global_route_fail_fast_hmac_before_db(self):
         """Valida que a rota global rejeita HMAC inválido com 401 antes de efetuar consulta ao banco."""
@@ -2049,6 +2177,7 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
         self.assertEqual(res.status_code, 401)
         self.assertIn("inválida", res.json().get('error', '').lower())
 
+    # Valida processamento da rota global com chave global válida e baixa de estoque
     @override_settings(MELI_GLOBAL_WEBHOOK_SECRET="global-secret-key-999")
     def test_webhook_global_route_success_with_global_secret(self):
         """Valida que a rota global com HMAC correto resolve o seller_id no banco e processa o pedido."""
@@ -2091,12 +2220,16 @@ class MarketplaceSecurityFernetAndWebhookUUIDTestCase(TestCase):
         self.assertEqual(self.produto.estoque, estoque_antes - 1)
 
 
+# Suíte de testes para resolução de esquema HTTPS sob proxies reversos e túneis como ngrok
 class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
+    # Início do bloco de docstring descritivo da classe
     """
     Valida a resolução arquitetural de scheme HTTPS sob proxies reversos e túneis (ngrok),
     assegurando que Redirect URIs e URLs de Webhook usem https:// mesmo quando a conexão WSGI local é HTTP.
     """
+    # Fim da docstring explicativa
 
+    # Prepara dados para os testes de resolução de URLs e proxies
     def setUp(self):
         from apps.marketplaces.models import ContaMarketplace
         from apps.marketplaces.enums import CanalMarketplaceEnum
@@ -2116,6 +2249,7 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
             webhook_secret="testwebhooksecret",
         )
 
+    # Valida configurações do settings do Django para encaminhamento de cabeçalhos de proxy
     def test_settings_proxy_ssl_header_and_forwarded_configs(self):
         """Valida que as configurações de proxy reverso estão ativas no settings."""
         from django.conf import settings
@@ -2123,6 +2257,7 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
         self.assertTrue(settings.USE_X_FORWARDED_HOST)
         self.assertTrue(settings.USE_X_FORWARDED_PORT)
 
+    # Valida a lógica das funções get_effective_scheme e get_base_url
     def test_get_effective_scheme_and_base_url_strictly_dynamic(self):
         """Valida que a resolução de scheme é 100% agnóstica a domínios e estritamente baseada em request.is_secure()."""
         from django.test.client import RequestFactory
@@ -2156,6 +2291,7 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
         self.assertEqual(get_effective_scheme(req_ngrok_proto), 'https')
         self.assertEqual(get_base_url(req_ngrok_proto), 'https://material-playing-outshoot.ngrok-free.dev')
 
+    # Valida que o formulário de contas emite URLs com https:// sob túnel ngrok
     def test_conta_form_view_renders_https_under_ngrok(self):
         """Valida que a view do formulário de conta emite https:// para redirect_uri e webhook_url quando acessada via ngrok com HTTPS."""
         self.client.force_login(self.user)
@@ -2186,6 +2322,7 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
         self.assertIn(f"https://material-playing-outshoot.ngrok-free.dev/api/v1/webhooks/mercadolivre/{self.conta.webhook_uuid}/", content)
         self.assertNotIn("http://material-playing-outshoot.ngrok-free.dev", content)
 
+    # Valida emissão de http:// quando o tráfego não contiver indicação de SSL
     def test_conta_form_view_renders_http_without_https(self):
         """Valida que quando a requisição não tem HTTPS, emite http:// independentemente do host."""
         self.client.force_login(self.user)
@@ -2200,6 +2337,7 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
             f"http://127.0.0.1:8000/api/v1/webhooks/mercadolivre/{self.conta.webhook_uuid}/"
         )
 
+    # Valida geração de redirect_uri HTTPS ao passar o objeto request sob túnel
     def test_mercadolivre_connector_get_authorization_url_with_request(self):
         """Valida que o conector do Mercado Livre usa https:// na redirect_uri ao receber request sob ngrok."""
         from django.test.client import RequestFactory

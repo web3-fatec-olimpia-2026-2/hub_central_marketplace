@@ -1,20 +1,45 @@
 # Os códigos foram gerados com auxilio de I.A.
+
+# Importa o módulo nativo datetime para cálculos e manipulação de deltas de tempo (expiração de tokens)
 import datetime
+
+# Importa o módulo nativo time para medições de latência e pausas em backoff exponencial
 import time
+
+# Importa urllib.parse para codificação segura de parâmetros em query strings de URLs
 import urllib.parse
+
+# Importa a biblioteca requests para emissão de requisições HTTP aos endpoints da API do Mercado Livre
 import requests
+
+# Importa a classe Decimal para manipulação precisa de moedas e preços sem perda por arredondamento binário
 from decimal import Decimal
+
+# Importa anotações de tipagem estática da biblioteca typing
 from typing import Tuple, Dict, Any, List, Optional
+
+# Importa as configurações centrais do Django (settings) para leitura desacoplada de chaves e credenciais
 from django.conf import settings
+
+# Importa o gerenciador de transações atômicas para atomicidade no banco de dados
 from django.db import transaction
+
+# Importa utilitários de timezone do Django para manipulação de datas cientes de fuso horário
 from django.utils import timezone
 
+# Importa os modelos de contas integradas, logs de telemetria e trilhas de auditoria
 from apps.marketplaces.models import ContaMarketplace, LogSincronizacao, LogAuditoria
+
+# Importa enumerações tipadas com os canais suportados e eventos auditáveis do ecossistema
 from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum
+
+# Importa a classe abstrata base que rege os métodos contratuais de qualquer conector
 from .base import BaseMarketplaceConnector
 
 
+# Declaração da classe conector concreta para a plataforma Mercado Livre herdando de BaseMarketplaceConnector
 class MercadoLivreConnector(BaseMarketplaceConnector):
+    # Início do bloco de docstring documentando escopo, arquitetura, segurança e multi-tenancy do conector
     """
     O QUE FAZ: Conector de integração ativa com a API REST oficial do Mercado Livre (developers.mercadolivre.com.br).
     POR QUE FAZ: Executa operações de OAuth 2.0 dinâmico, renovação automática de tokens, sincronização de preços e estoque e publicação de anúncios.
@@ -22,22 +47,33 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
     PERMISSÕES RBAC: Disparado por DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Utiliza as credenciais isoladas da ContaMarketplace associada à Loja do tenant.
     """
+    # Fim do bloco descritivo da classe
+
+    # URL base padrão da API pública de produção do Mercado Livre
     BASE_URL = "https://api.mercadolibre.com"
+
+    # URL oficial de consentimento do fluxo OAuth 2.0 para vendedores do Brasil
     AUTH_URL = "https://auth.mercadolivre.com.br/authorization"
+
+    # Timeout padrão de 10 segundos para chamadas de rede prevenindo threads presas
     TIMEOUT_SEGUNDOS = 10
 
+    # Retorna a constante representativa do canal Mercado Livre
     @property
     def canal_nome(self) -> str:
         return CanalMarketplaceEnum.MERCADOLIVRE
 
+    # Método de classe utilitário para recuperação dinâmica do Client ID global das configurações centrais
     @classmethod
     def _get_client_id(cls) -> str:
         return getattr(settings, 'MERCADOLIVRE_CLIENT_ID', None) or getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_ID', '') or ''
 
+    # Método de classe utilitário para recuperação dinâmica do Client Secret global das configurações centrais
     @classmethod
     def _get_client_secret(cls) -> str:
         return getattr(settings, 'MERCADOLIVRE_CLIENT_SECRET', None) or getattr(settings, 'MERCADOLIVRE_CORE_CLIENT_SECRET', '') or ''
 
+    # Constrói dinamicamente a URI de redirecionamento baseada no request atual ou nas configurações
     @classmethod
     def _get_redirect_uri(cls, request=None) -> str:
         if request:
@@ -48,6 +84,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             return f"{scheme}://{host}{callback_path}"
         return getattr(settings, 'MERCADOLIVRE_REDIRECT_URI', 'https://oauth.pstmn.io/v1/callback')
 
+    # Método de instância que repassa a chamada de geração da URL de consentimento com o state informado
     def get_authorization_url(self, state: str = "", request=None) -> str:
         """
         O QUE FAZ: Constrói dinamicamente a URL de consentimento OAuth 2.0 do Mercado Livre.
@@ -55,6 +92,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         """
         return self.gerar_url_autorizacao(state=state, request=request)
 
+    # Constrói a URL completa parametrizada com client_id, redirect_uri e state codificados
     @classmethod
     def gerar_url_autorizacao(cls, state: str = "", request=None) -> str:
         """
@@ -72,6 +110,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             params["state"] = state
         return f"{cls.AUTH_URL}?{urllib.parse.urlencode(params)}"
 
+    # Implementa a interface do contrato trocando o authorization code por tokens para a conta da instância
     def exchange_code(self, code: str) -> Dict[str, Any]:
         """
         O QUE FAZ: Troca o authorization code por Access e Refresh Tokens para a conta vinculada.
@@ -85,6 +124,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             "log": log,
         }
 
+    # Método principal para realizar o POST /oauth/token e persistir credenciais criptografadas
     @classmethod
     def trocar_code_por_token(
         cls, code: str, conta: Optional[ContaMarketplace] = None, usuario=None, request=None
@@ -93,6 +133,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         O QUE FAZ: Troca o authorization code obtido no callback por Access e Refresh Tokens (POST /oauth/token).
         POR QUE FAZ: Conclui o fluxo de autorização OAuth 2.0 e vincula as credenciais criptografadas à conta do lojista.
         """
+        # Checa status de simulação mock global
         from apps.mockar_dados.services import is_simular_rotas_mock_ativo
         simular = is_simular_rotas_mock_ativo(request)
         is_conta_mock = getattr(conta, 'is_mock', False) if conta else False
@@ -103,12 +144,14 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         # CENÁRIO A: CONTAS MOCKADAS (is_mock = True)
         if is_conta_mock:
             if simular:
+                # Extrai ou gera identificador sintético para testes
                 if code.startswith('TEST_SELLER_'):
                     user_id = code.replace('TEST_SELLER_', '').strip()
                 elif code.startswith('MOCK_SELLER_'):
                     user_id = code.replace('MOCK_SELLER_', '').strip()
                 else:
                     user_id = str(conta.seller_id_externo or '86176658') if conta else '86176658'
+                # Gera carga de resposta simulando retorno oficial da API
                 res_json = {
                     "access_token": f"APP_USR_MOCK_TOKEN_{int(time.time())}",
                     "token_type": "bearer",
@@ -119,6 +162,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 }
 
                 if conta:
+                    # Trava contra colisão: impede autorizar a mesma conta remota em outro card do sistema
                     conflito = ContaMarketplace.objects.filter(
                         canal=CanalMarketplaceEnum.MERCADOLIVRE,
                         seller_id_externo=user_id
@@ -126,6 +170,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     if conflito:
                         return False, f"Falha na reconexão: Você autorizou com a conta do Mercado Livre (ID: {user_id}), que já pertence a outro card no sistema. Faça logout no Mercado Livre e repita o processo com a conta correta.", res_json, None
 
+                    # Atualiza os dados da conta em bloco atômico
                     with transaction.atomic():
                         conta.access_token = res_json['access_token']
                         conta.refresh_token = res_json['refresh_token']
@@ -137,6 +182,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                             'seller_id_externo', 'ultima_sincronizacao', 'updated_at'
                         ])
 
+                        # Cria log de telemetria registrando sucesso do mock
                         log = LogSincronizacao.objects.create(
                             loja=conta.loja,
                             conta_marketplace=conta,
@@ -168,6 +214,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 return False, "Erro HTTP 401: Não autorizado: credenciais ausentes ou inválidas no marketplace.", {}, log
 
         # CENÁRIO B: CONTAS MANUAIS / REAIS (is_mock = False)
+        # Seleciona credenciais próprias do lojista (modo INDIVIDUAL) ou credenciais SaaS globais
         if conta and getattr(conta, 'tipo_aplicacao', None) == 'INDIVIDUAL' and getattr(conta, 'app_key_or_id', None) and getattr(conta, 'app_secret', None):
             client_id = conta.app_key_or_id
             client_secret = conta.app_secret
@@ -176,6 +223,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             client_secret = cls._get_client_secret()
         redirect_uri = cls._get_redirect_uri(request=request)
 
+        # Monta dados do formulário exigidos pela especificação OAuth 2.0 do Mercado Livre
         url = f"{cls.BASE_URL}/oauth/token"
         headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
         data = {
@@ -248,9 +296,11 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             except Exception:
                 res_json = {"raw_text": response.text}
 
+            # Avalia sucesso HTTP da troca de código por tokens
             if status_code in (200, 201) and 'access_token' in res_json:
                 user_id_ext = str(res_json['user_id']) if 'user_id' in res_json else None
                 if conta and user_id_ext:
+                    # Trava de colisão em ambiente produtivo
                     conflito = ContaMarketplace.objects.filter(
                         canal=CanalMarketplaceEnum.MERCADOLIVRE,
                         seller_id_externo=user_id_ext
@@ -284,6 +334,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                             tempo_resposta_ms=tempo_ms,
                         )
                 return True, f"Conexão estabelecida com sucesso em {data_formatada}!", res_json, log
+            # Trata respostas de erro retornadas pelo servidor do Mercado Livre
             else:
                 msg_erro = res_json.get('message') or f"Erro HTTP {status_code}"
                 log = None
@@ -305,6 +356,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         except Exception as exc:
             return False, f"Erro de comunicação ao trocar authorization code: {str(exc)}", {}, None
 
+    # Método interno para montagem de cabeçalhos HTTP com Bearer token ativo
     def _obter_headers(self) -> Dict[str, str]:
         """Gera o cabeçalho HTTP padrão com o Bearer Token descriptografado da conta."""
         token = self.get_valid_access_token() if self.conta else ""
@@ -314,6 +366,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             "Accept": "application/json",
         }
 
+    # Renova credenciais expiradas com bloqueio pessimista e controle rigoroso de single-use do refresh token
     def refresh_credentials(self) -> Dict[str, Any]:
         """
         O QUE FAZ: Renova o Access Token e o Refresh Token via POST /oauth/token utilizando bloqueio pessimista.
@@ -327,6 +380,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         if not self.conta or not self.conta.pk:
             return {"sucesso": False, "mensagem": "Conta não associada ou sem identificador para renovação."}
 
+        # Extrai chaves da aplicação
         if self.conta and getattr(self.conta, 'tipo_aplicacao', None) == 'INDIVIDUAL' and getattr(self.conta, 'app_key_or_id', None) and getattr(self.conta, 'app_secret', None):
             client_id = self.conta.app_key_or_id
             client_secret = self.conta.app_secret
@@ -334,6 +388,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             client_id = self._get_client_id()
             client_secret = self._get_client_secret()
 
+        # Abre transação com bloqueio exclusivo
         with transaction.atomic():
             # Bloqueio pessimista no banco de dados para concorrência
             conta_locked = ContaMarketplace.objects.select_for_update().get(pk=self.conta.pk)
@@ -360,6 +415,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 refresh_token_atual.startswith(('TG_MOCK_', 'MOCK_', 'REFRESH_TEST_'))
             )
 
+            # Ramo simulado
             if is_mock:
                 novo_access = f"APP_USR_MOCK_REFRESHED_{int(time.time())}"
                 novo_refresh = f"TG_MOCK_REFRESHED_{int(time.time())}"
@@ -393,6 +449,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     "expires_in": 21600,
                 }
 
+            # Ramo real enviando requisição externa
             url = f"{self.BASE_URL}/oauth/token"
             headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
             data = {
@@ -421,6 +478,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 except Exception:
                     res_json = {"raw_text": response.text}
 
+                # Sucesso na renovação: atualiza access_token e o novo refresh_token
                 if status_code in (200, 201) and 'access_token' in res_json:
                     novo_access = res_json['access_token']
                     novo_refresh = res_json.get('refresh_token')  # Novo refresh_token de uso único retornado pela API
@@ -455,6 +513,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                         "refresh_token": novo_refresh,
                         "expires_in": expires_in,
                     }
+                # Tratamento de rejeições da API na renovação
                 else:
                     error_code = res_json.get('error', '')
                     error_desc = res_json.get('error_description') or res_json.get('message') or f"Status HTTP {status_code}"
@@ -495,6 +554,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             except Exception as exc:
                 return {"sucesso": False, "mensagem": f"Erro de comunicação ao renovar token: {str(exc)}"}
 
+    # Recupera o token válido executando auto-refresh preventivo caso falte menos de 10 min para expiração
     def get_valid_access_token(self) -> str:
         """
         O QUE FAZ: Retorna o Access Token descriptografado e pronto para uso em memória.
@@ -505,6 +565,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             raise ValueError("Nenhuma conta associada ao conector.")
 
         now = timezone.now()
+        # Se não houver token mas houver refresh_token, tenta renovação inicial
         if not self.conta.access_token:
             if self.conta.refresh_token:
                 res = self.refresh_credentials()
@@ -525,6 +586,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
 
         return self.conta.access_token.strip()
 
+    # Método de compatibilidade retroativa com serviços antigos
     def garantir_token_valido(self, conta: Optional[ContaMarketplace] = None) -> Tuple[bool, str]:
         """Método de compatibilidade: valida ou renova o token."""
         try:
@@ -533,11 +595,13 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         except Exception as exc:
             return False, str(exc)
 
+    # Método legado para disparo manual de renovação
     def renovar_token(self, usuario=None) -> Tuple[bool, str]:
         """Método de compatibilidade: renova o token."""
         res = self.refresh_credentials()
         return res.get('sucesso', False), res.get('mensagem', '')
 
+    # Despachador HTTP genérico com injeção de Bearer token e tratamento de retry sob 401 e 429
     def request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """
         O QUE FAZ: Despachante HTTP centralizado para a API do Mercado Livre.
@@ -573,6 +637,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
 
         return response
 
+    # Testa a integridade da conexão chamando /users/me e atualiza os carimbos de sincronização
     def test_connection(self, request=None) -> Dict[str, Any]:
         """
         O QUE FAZ: Validação ativa de conectividade e permissões via GET /users/me no Mercado Livre.
@@ -649,6 +714,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             except Exception:
                 res_json = {"raw_text": response.text}
 
+            # Resposta 200 OK: conta ativa e credenciais válidas
             if status_code == 200:
                 nickname = res_json.get('nickname', 'Vendedor')
                 user_id = str(res_json.get('id', ''))
@@ -676,6 +742,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     "mensagem": f"Conexão ativa em {data_formatada}! Vendedor: {nickname} (ID: {user_id})",
                     "dados": res_json,
                 }
+            # Falha no retorno da API
             else:
                 error_code = res_json.get('error', '')
                 error_desc = res_json.get('error_description') or res_json.get('message') or f"Status HTTP {status_code}"
@@ -711,12 +778,13 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 "mensagem": f"Erro ao testar conexão: {str(exc)}",
             }
 
+    # Método de compatibilidade delegando para test_connection
     def autenticar(self, request=None) -> Tuple[bool, str, Dict[str, Any]]:
         """Método de compatibilidade: delega para test_connection()."""
         res = self.test_connection(request=request)
         return res.get('sucesso', False), res.get('mensagem', ''), res
 
-
+    # Sincroniza o preço unitário enviando PUT /items/{id} para a API do Mercado Livre
     def atualizar_preco(
         self, item_id_externo: str, novo_preco: Decimal, usuario=None, tentar_refresh: bool = True
     ) -> Tuple[bool, str, Optional[LogSincronizacao]]:
@@ -737,6 +805,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         is_mock = getattr(self.conta, 'is_mock', False)
         is_mock_token = bool(self.conta.access_token and self.conta.access_token.startswith(('APP_USR_MOCK_', 'MOCK_TOKEN')))
 
+        # Trata cenário simulado/mock
         if (is_mock or is_mock_token) and not getattr(self, '_forcar_http_real', False):
             if simular:
                 log = LogSincronizacao.objects.create(
@@ -768,6 +837,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 )
                 return False, "Mercado Livre rejeitou: Falha simulada (HTTP 401).", log
 
+        # Envio HTTP real à API
         url = f"{self.BASE_URL}/items/{item_id_externo.strip()}"
         inicio = time.time()
         try:
@@ -789,12 +859,14 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             except Exception:
                 res_json = {"raw_text": response.text}
 
+            # Se receber 401 Unauthorized, tenta auto-renovação de token transparente
             if status_code == 401 and tentar_refresh and self.conta.refresh_token:
                 ok_ref, _ = self.renovar_token(usuario=usuario)
                 if ok_ref:
                     self.conta.refresh_from_db()
                     return self.atualizar_preco(item_id_externo, novo_preco, usuario=usuario, tentar_refresh=False)
 
+            # Sucesso
             if status_code in (200, 201):
                 log = LogSincronizacao.objects.create(
                     loja=self.conta.loja,
@@ -809,6 +881,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                     tempo_resposta_ms=tempo_ms,
                 )
                 return True, f"Preço de R$ {novo_preco:.2f} sincronizado no Mercado Livre!", log
+            # Rejeição
             else:
                 msg_erro = res_json.get('message') or f"Status HTTP {status_code}"
                 log = LogSincronizacao.objects.create(
@@ -843,6 +916,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         except Exception as exc:
             return False, f"Erro de comunicação: {str(exc)}", None
 
+    # Sincroniza o estoque físico no anúncio aplicando clamping mandatório para evitar números negativos
     def atualizar_estoque(
         self, item_id_externo: str, novo_estoque: int, usuario=None, tentar_refresh: bool = True
     ) -> Tuple[bool, str, Optional[LogSincronizacao]]:
@@ -866,6 +940,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         is_mock = getattr(self.conta, 'is_mock', False)
         is_mock_token = bool(self.conta.access_token and self.conta.access_token.startswith(('APP_USR_MOCK_', 'MOCK_TOKEN')))
 
+        # Trata simulação mock
         if (is_mock or is_mock_token) and not getattr(self, '_forcar_http_real', False):
             if simular:
                 log = LogSincronizacao.objects.create(
@@ -918,6 +993,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             except Exception:
                 res_json = {"raw_text": response.text}
 
+            # Retry sob 401
             if status_code == 401 and tentar_refresh and self.conta.refresh_token:
                 ok_ref, _ = self.renovar_token(usuario=usuario)
                 if ok_ref:
@@ -972,6 +1048,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         except Exception as exc:
             return False, f"Erro de comunicação ao sincronizar estoque: {str(exc)}", None
 
+    # Publica um novo anúncio no Mercado Livre via POST /items atendendo ao requisito RF-04
     def publicar_anuncio(
         self, produto, conta: Optional[ContaMarketplace] = None, dados_extras: Optional[Dict[str, Any]] = None, usuario=None
     ) -> Tuple[bool, str, Dict[str, Any], Optional[LogSincronizacao]]:
@@ -1115,6 +1192,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         except Exception as exc:
             return False, f"Erro de comunicação ao publicar anúncio: {str(exc)}", {}, None
 
+    # Consulta pedidos recentes via busca filtrada
     def buscar_pedidos(
         self, data_inicio=None
     ) -> Tuple[bool, str, List[Dict[str, Any]]]:
@@ -1133,6 +1211,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         except Exception as exc:
             return False, f"Falha ao buscar pedidos: {str(exc)}", []
 
+    # Obtém detalhes completos de uma ordem de venda específica
     def obter_detalhes_pedido(
         self, resource_ou_id: str
     ) -> Tuple[bool, str, Dict[str, Any]]:
@@ -1190,6 +1269,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         except Exception as exc:
             return False, f"Falha de comunicação ao obter pedido {order_id}: {str(exc)}", {}
 
+    # Importa anúncios do seller com paginação tradicional limit/offset ou search_type=scan para volumes > 1000
     def importar_anuncios(self, search_type: Optional[str] = None) -> Dict[str, Any]:
         """
         O QUE FAZ: Consulta e extrai todos os anúncios ativos/pausados do vendedor no Mercado Livre.
@@ -1217,7 +1297,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
         from apps.mockar_dados.services import is_simular_rotas_mock_ativo
         simular = is_simular_rotas_mock_ativo() if callable(is_simular_rotas_mock_ativo) else False
         is_mock = getattr(self.conta, 'is_mock', False)
-        is_test_account = bool(self.conta.access_token and self.conta.access_token.startswith(('APP_USR_MOCK_', 'TEST_')))
+        is_test_account = bool(self.conta and self.conta.access_token and self.conta.access_token.startswith(('APP_USR_MOCK_', 'TEST_')))
 
         if is_mock or (is_test_account and not getattr(self, '_forcar_http_real', False)):
             itens_simulados = [
@@ -1285,6 +1365,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
 
             usar_scan = (search_type == 'scan')
 
+            # Paginação padrão por limit/offset
             if not usar_scan:
                 url = f"{search_base_url}?limit={limit}&offset={offset}"
                 resp = requests.get(url, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
@@ -1301,6 +1382,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 results = dados_busca.get('results', [])
                 item_ids.extend(results)
 
+                # Se exceder 1000 itens, migra automaticamente para o modo scan
                 if total_itens > 1000:
                     usar_scan = True
                     item_ids = []
@@ -1316,6 +1398,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                         results = resp_page.json().get('results', [])
                         item_ids.extend(results)
 
+            # Paginação avançada via cursor scroll (search_type=scan)
             if usar_scan:
                 scan_url = f"{search_base_url}?search_type=scan"
                 resp_scan = requests.get(scan_url, headers=headers, timeout=self.TIMEOUT_SEGUNDOS)
@@ -1341,6 +1424,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
             CHUNK_SIZE = 20
             itens_normalizados = []
 
+            # Itera fatiando a lista em blocos de até 20 IDs (limite do Mercado Livre)
             for i in range(0, len(item_ids), CHUNK_SIZE):
                 chunk = item_ids[i:i + CHUNK_SIZE]
                 ids_param = ",".join(chunk)
@@ -1357,6 +1441,7 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                             if not item_id:
                                 continue
 
+                            # Extrai SKU do vendedor de atributos ou custom fields
                             sku_vendedor = body.get('seller_custom_field')
                             if not sku_vendedor:
                                 for attr in body.get('attributes', []):
@@ -1396,4 +1481,3 @@ class MercadoLivreConnector(BaseMarketplaceConnector):
                 "itens": [],
                 "total": 0,
             }
-

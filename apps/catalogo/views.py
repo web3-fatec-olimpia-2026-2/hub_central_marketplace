@@ -1,28 +1,60 @@
 # Os códigos foram gerados com auxilio de I.A.
+
+# Importa a classe Decimal para cálculo monetário preciso sem erros de arredondamento
 from decimal import Decimal
+
+# Importa funções utilitárias do Django para renderizar templates, redirecionar e buscar instâncias com 404
 from django.shortcuts import render, redirect, get_object_or_404
+
+# Importa resolvedores de rota reversa dinâmica e preguiçosa (lazy)
 from django.urls import reverse_lazy, reverse
+
+# Importa as classes genéricas de visualização baseadas em classe (CBVs) do Django
 from django.views.generic import (
     ListView, CreateView, UpdateView, DetailView, DeleteView, FormView, View
 )
+
+# Importa mixin nativo do Django que exige que o operador esteja devidamente autenticado
 from django.contrib.auth.mixins import LoginRequiredMixin
+
+# Importa o módulo de mensagens do Django para envio de notificações flash ao operador
 from django.contrib import messages
+
+# Importa o gerenciador de transações atômicas para assegurar consistência relacional (commit/rollback)
 from django.db import transaction
+
+# Importa o operador Q para consultas OR e a função de agregação Count para totalização de relacionamentos
 from django.db.models import Q, Count
+
+# Importa a exceção de segurança que encerra a requisição retornando status HTTP 403 Forbidden
 from django.core.exceptions import PermissionDenied
 
+# Importa o modelo Loja que representa a entidade do tenant
 from apps.tenancy.models import Loja
+
+# Importa mixins e funções utilitárias de checagem de permissões RBAC e validação de tenant
 from apps.tenancy.permissions import (
     ModuloRequeridoMixin, CatalogOwnershipCheckMixin, CatalogDeletePermissionMixin,
     SyncPermissionMixin, usuario_is_dev, pode_alterar_preco, pode_ajustar_estoque_geral,
     pode_excluir_catalogo, pode_dar_baixa_avaria, pode_disparar_sincronizacao
 )
+
+# Importa os modelos de auditoria de eventos e contas de marketplace integradas
 from apps.marketplaces.models import LogAuditoria, ContaMarketplace
+
+# Importa enums que tipificam eventos de auditoria e status da fila de sincronização
 from apps.marketplaces.enums import EventoAuditoriaEnum, StatusSincronizacaoEnum
+
+# Importa a fábrica responsável por instanciar o conector correto com base na conta
 from apps.marketplaces.connectors.factory import get_connector_for_conta
 
+# Importa os modelos de dados centrais do domínio de catálogo
 from .models import Categoria, Produto, AnuncioMarketplace, HistoricoPreco
+
+# Importa as enumerações de status de comercialização e motivos de movimentação física de estoque
 from .enums import StatusProdutoEnum, TipoAjusteEstoqueEnum
+
+# Importa todos os formulários responsáveis pela entrada e validação de dados do catálogo
 from .forms import (
     CategoriaForm, ProdutoForm, AnuncioMarketplaceForm, ProdutoBaixaAvariaForm,
     ProdutoAjusteEstoqueForm, ProdutoSincronizacaoLoteForm, PublicarAnuncioForm
@@ -33,45 +65,64 @@ from .forms import (
 # GESTÃO DE CATEGORIAS (RF-03 / RN-01)
 # ==============================================================================
 
+# Visualização em classe para listar as categorias do tenant com suporte a filtros e busca
 class CategoriaListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
+    # Docstring documentando a finalidade da listagem, RBAC e particionamento horizontal
     """
     O QUE FAZ: Listagem de Categorias de Produtos com isolamento multi-tenant.
     POR QUE FAZ: Organização das categorias do catálogo filtradas pela loja do usuário.
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO (com módulo 'catalogo' ativo).
     MULTI-TENANCY: Isolamento horizontal por tenant.
     """
+
+    # Valida se a loja contratou o módulo de catálogo
     modulo_requerido = 'catalogo'
+
+    # Modelo base
     model = Categoria
+
+    # Template de renderização
     template_name = 'catalogo/categoria_list.html'
+
+    # Nome da coleção injetada no contexto do template
     context_object_name = 'categorias'
+
+    # Paginação em blocos de 20 registros
     paginate_by = 20
 
+    # Monta a consulta de categorias aplicando anotações de totalização e isolamento multi-tenant
     def get_queryset(self):
         user = self.request.user
+        # Seleciona antecipadamente a loja e faz o count de produtos vinculados em uma única query
         queryset = Categoria.objects.select_related('loja').annotate(total_produtos=Count('produtos')).order_by('nome')
 
+        # Se for desenvolvedor, permite filtrar por qualquer loja informada via query string
         if usuario_is_dev(user):
             loja_id = self.request.GET.get('loja', '').strip()
             if loja_id:
                 queryset = queryset.filter(loja_id=loja_id)
+        # Para operadores comuns, restringe exclusivamente às categorias da própria loja
         else:
             perfil = getattr(user, 'perfil', None)
             if not perfil or not perfil.loja:
                 return Categoria.objects.none()
             queryset = queryset.filter(loja=perfil.loja)
 
+        # Filtro de estado ativo/inativo
         status_filtro = self.request.GET.get('status', '').strip()
         if status_filtro == 'ativo':
             queryset = queryset.filter(ativo=True)
         elif status_filtro == 'inativo':
             queryset = queryset.filter(ativo=False)
 
+        # Filtro de busca por nome ou slug da categoria
         busca = self.request.GET.get('q', '').strip()
         if busca:
             queryset = queryset.filter(Q(nome__icontains=busca) | Q(slug__icontains=busca))
 
         return queryset
 
+    # Injeta flags de permissão e parâmetros de filtro no template
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
@@ -81,6 +132,7 @@ class CategoriaListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
         context['status_filtro'] = self.request.GET.get('status', '').strip()
         context['loja_filtro'] = self.request.GET.get('loja', '').strip()
 
+        # Injeta opções de lojas para o dropdown do desenvolvedor ou a loja fixa do operador
         if context['is_dev']:
             context['lojas_disponiveis'] = Loja.objects.filter(ativo=True).order_by('nome')
         else:
@@ -89,24 +141,29 @@ class CategoriaListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
         return context
 
 
+# Visualização para criação de novas categorias com gravação de auditoria
 class CategoriaCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
+    # Docstring documentando criação de categoria e vínculo com o tenant
     """
     O QUE FAZ: Cadastro de nova Categoria no catálogo da Loja.
     POR QUE FAZ: Estruturação taxonômica de produtos.
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO.
     MULTI-TENANCY: Vínculo à loja do usuário.
     """
+
     modulo_requerido = 'catalogo'
     model = Categoria
     form_class = CategoriaForm
     template_name = 'catalogo/categoria_form.html'
     success_url = reverse_lazy('categoria_list')
 
+    # Injeta o usuário autenticado como autor no formulário
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['autor'] = self.request.user
         return kwargs
 
+    # Processa o formulário válido, salva a categoria e registra o evento na trilha de auditoria
     def form_valid(self, form):
         with transaction.atomic():
             response = super().form_valid(form)
@@ -120,30 +177,36 @@ class CategoriaCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
         messages.success(self.request, f"Categoria '{self.object.nome}' cadastrada com sucesso!")
         return response
 
+    # Indica para o template que a tela está em modo de inclusão
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['modo_edicao'] = False
         return context
 
 
+# Visualização para edição de categorias com checagem de tenant (Ownership Check)
 class CategoriaUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnershipCheckMixin, UpdateView):
+    # Docstring documentando a atualização de categoria
     """
     O QUE FAZ: Edição de Categoria existente com Ownership Check.
     POR QUE FAZ: Manutenção de categorias com validação de tenant.
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO.
     MULTI-TENANCY: Isolado por loja.
     """
+
     modulo_requerido = 'catalogo'
     model = Categoria
     form_class = CategoriaForm
     template_name = 'catalogo/categoria_form.html'
     success_url = reverse_lazy('categoria_list')
 
+    # Passa o usuário logado para o formulário
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['autor'] = self.request.user
         return kwargs
 
+    # Salva as modificações e registra o log de alteração
     def form_valid(self, form):
         with transaction.atomic():
             response = super().form_valid(form)
@@ -157,25 +220,31 @@ class CategoriaUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwner
         messages.success(self.request, f"Categoria '{self.object.nome}' atualizada com sucesso!")
         return response
 
+    # Sinaliza para o template que está em modo de edição
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['modo_edicao'] = True
         return context
 
 
+# Visualização para exclusão de categorias com barreira RBAC e validação de integridade referencial
 class CategoriaDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnershipCheckMixin, CatalogDeletePermissionMixin, DeleteView):
+    # Docstring documentando a proteção contra remoção indevida e bloqueio do perfil USUARIO
     """
     O QUE FAZ: Exclusão de Categoria protegida por RN-09.
     POR QUE FAZ: Bloqueia USUARIO (403 Forbidden) e impede remoção caso existam produtos vinculados.
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Isolado por loja.
     """
+
     modulo_requerido = 'catalogo'
     model = Categoria
     template_name = 'catalogo/categoria_confirm_delete.html'
     success_url = reverse_lazy('categoria_list')
 
+    # Impede a exclusão se houver produtos atrelados à categoria e audita a remoção
     def form_valid(self, form):
+        # Validação defensiva de integridade: bloqueia remoção com produtos ativos
         if self.object.produtos.exists():
             messages.error(
                 self.request,
@@ -183,6 +252,7 @@ class CategoriaDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwner
             )
             return redirect('categoria_list')
 
+        # Se não houver produtos, remove e registra a auditoria
         with transaction.atomic():
             cat_nome = self.object.nome
             loja = self.object.loja
@@ -201,23 +271,28 @@ class CategoriaDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwner
 # GESTÃO DE PRODUTOS E ANÚNCIOS MULTICANAL (RF-03 / RN-01 / RN-02 / RN-06 / RN-09)
 # ==============================================================================
 
+# Visualização em classe para exibição paginada e filtrada do inventário de produtos físicos
 class ProdutoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
+    # Docstring documentando o catálogo de produtos, centralização de inventário e RBAC
     """
     O QUE FAZ: Catálogo de Produtos com suporte multicanal, filtros e controle de acesso RBAC.
     POR QUE FAZ: Central de visualização de SKUs, estoque, preços e anúncios vinculados.
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO.
     MULTI-TENANCY: Filtro estrito por loja.
     """
+
     modulo_requerido = 'catalogo'
     model = Produto
     template_name = 'catalogo/produto_list.html'
     context_object_name = 'produtos'
     paginate_by = 20
 
+    # Constrói o QuerySet dos produtos com otimização de joins e aplicação de múltiplos filtros
     def get_queryset(self):
         user = self.request.user
         queryset = Produto.objects.select_related('loja', 'categoria').prefetch_related('anuncios__conta_marketplace').order_by('-criado_em')
 
+        # Isolamento de tenant: DEV pode filtrar qualquer loja; operador vê apenas a sua
         if usuario_is_dev(user):
             loja_id = self.request.GET.get('loja', '').strip()
             if loja_id:
@@ -228,18 +303,22 @@ class ProdutoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
                 return Produto.objects.none()
             queryset = queryset.filter(loja=perfil.loja)
 
+        # Filtro por categoria
         categoria_id = self.request.GET.get('categoria', '').strip()
         if categoria_id:
             queryset = queryset.filter(categoria_id=categoria_id)
 
+        # Filtro por status de comercialização (ATIVO, INATIVO, RASCUNHO)
         status_filtro = self.request.GET.get('status', '').strip()
         if status_filtro:
             queryset = queryset.filter(status=status_filtro)
 
+        # Filtro pelo status geral de sincronização
         sync_filtro = self.request.GET.get('sync', '').strip()
         if sync_filtro:
             queryset = queryset.filter(status_sincronizacao=sync_filtro)
 
+        # Filtro por faixa de saldo físico (zerado, disponível ou negativo)
         estoque_filtro = self.request.GET.get('estoque', '').strip()
         if estoque_filtro == 'zerado':
             queryset = queryset.filter(estoque=0)
@@ -248,6 +327,7 @@ class ProdutoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
         elif estoque_filtro == 'negativo':
             queryset = queryset.filter(estoque__lt=0)
 
+        # Busca textual por SKU, nome do produto ou ID externo do anúncio no canal
         busca = self.request.GET.get('q', '').strip()
         if busca:
             queryset = queryset.filter(
@@ -258,6 +338,7 @@ class ProdutoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
 
         return queryset
 
+    # Injeta dados de suporte, permissões de interface e coleções para filtros na view
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
@@ -268,6 +349,7 @@ class ProdutoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
         context['pode_dar_baixa_avaria'] = pode_dar_baixa_avaria(user)
         context['pode_sincronizar'] = pode_disparar_sincronizacao(user)
 
+        # Preserva os valores dos filtros na tela
         context['termo_busca'] = self.request.GET.get('q', '').strip()
         context['categoria_filtro'] = self.request.GET.get('categoria', '').strip()
         context['status_filtro'] = self.request.GET.get('status', '').strip()
@@ -275,9 +357,11 @@ class ProdutoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
         context['estoque_filtro'] = self.request.GET.get('estoque', '').strip()
         context['loja_filtro'] = self.request.GET.get('loja', '').strip()
 
+        # Envia choices para montagem dos selects de filtro
         context['status_choices'] = StatusProdutoEnum.choices
         context['sync_choices'] = StatusSincronizacaoEnum.choices
 
+        # Disponibiliza categorias para seleção nos filtros
         if context['is_dev']:
             context['lojas_disponiveis'] = Loja.objects.filter(ativo=True).order_by('nome')
             context['categorias_disponiveis'] = Categoria.objects.filter(ativo=True).order_by('nome')
@@ -289,28 +373,34 @@ class ProdutoListView(LoginRequiredMixin, ModuloRequeridoMixin, ListView):
         return context
 
 
+# Visualização para cadastro de novo produto físico com registro de histórico inicial
 class ProdutoCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
+    # Docstring documentando cadastro de produto, histórico e auditoria
     """
     O QUE FAZ: Cadastro de novo Produto com gravação inicial em HistoricoPreco e LogAuditoria.
     POR QUE FAZ: Fonte Única da Verdade para produtos e preços do lojista.
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO (este último sem preço/estoque inicial).
     MULTI-TENANCY: Vínculo à loja do usuário.
     """
+
     modulo_requerido = 'catalogo'
     model = Produto
     form_class = ProdutoForm
     template_name = 'catalogo/produto_form.html'
     success_url = reverse_lazy('produto_list')
 
+    # Passa o usuário logado para o formulário aplicar regras de RBAC de campos
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['autor'] = self.request.user
         return kwargs
 
+    # Processa o formulário de inclusão, salva o produto, cria histórico de preço/estoque e log de auditoria
     def form_valid(self, form):
         with transaction.atomic():
             self.object = form.save()
 
+            # Se o produto nasceu com preço ou estoque definido, cria registro de marco zero no histórico
             if self.object.preco > Decimal('0.00') or self.object.estoque > 0:
                 HistoricoPreco.objects.create(
                     produto=self.object,
@@ -323,6 +413,7 @@ class ProdutoCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
                     motivo="Cadastro inicial do produto"
                 )
 
+            # Grava o evento na trilha de auditoria
             LogAuditoria.objects.create(
                 loja=self.object.loja,
                 autor=self.request.user,
@@ -337,32 +428,40 @@ class ProdutoCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
         messages.success(self.request, f"Produto '{self.object.nome}' (SKU: {self.object.sku}) cadastrado com sucesso!")
         return redirect(self.success_url)
 
+    # Identifica o modo de inclusão para o layout do formulário
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['modo_edicao'] = False
         return context
 
 
+# Visualização para exibição detalhada de um produto físico, anúncios dependentes e fila de pendências
 class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnershipCheckMixin, DetailView):
+    # Docstring documentando a tela de detalhe e gestão multicanal por SKU
     """
     O QUE FAZ: Detalhes do Produto, histórico de mutações de preços e anúncios vinculados nos marketplaces.
     POR QUE FAZ: Gestão multicanal detalhada por SKU.
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO.
     MULTI-TENANCY: Ownership check estrito de tenant.
     """
+
     modulo_requerido = 'catalogo'
     model = Produto
     template_name = 'catalogo/produto_detail.html'
     context_object_name = 'produto'
 
+    # Carrega anúncios vinculados, separa ativos/pendentes e prepara formulários modais
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         from apps.anuncios.models import Anuncio
+        # Recupera anúncios de kits ou unitários que possuem este produto físico em sua composição
         anuncios = Anuncio.objects.filter(
             composicoes__produto=self.object
         ).select_related('conta', 'conta__loja').distinct()
         context['anuncios'] = anuncios
+        # Filtra os anúncios cuja sincronização não está descartada/cancelada
         context['anuncios_ativos_sync'] = [a for a in anuncios if a.status_sincronizacao != 'CANCELADO']
+        # Identifica os anúncios que demandam confirmação ou possuem desvios de saldo físico/preço
         context['anuncios_pendentes_sync'] = [
             a for a in anuncios
             if a.status_sincronizacao == 'PENDENTE' or (
@@ -371,8 +470,11 @@ class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
                 )
             )
         ]
+        # Carrega as últimas 25 alterações da trilha de auditoria
         context['historicos'] = self.object.historico_precos.select_related('usuario').order_by('-criado_em')[:25]
+        # Instancia formulário para vincular anúncio direto
         context['form_anuncio'] = AnuncioMarketplaceForm(produto=self.object)
+        # Injeta flags de permissões RBAC
         context['pode_alterar_preco'] = pode_alterar_preco(self.request.user)
         context['pode_ajustar_estoque_geral'] = pode_ajustar_estoque_geral(self.request.user)
         context['pode_dar_baixa_avaria'] = pode_dar_baixa_avaria(self.request.user)
@@ -380,35 +482,43 @@ class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
         return context
 
 
+# Visualização para edição cadastral do produto, detectando mutações de saldo/preço e acionando sinais
 class ProdutoUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnershipCheckMixin, UpdateView):
+    # Docstring documentando a edição com controle de histórico e restrição a operadores comuns
     """
     O QUE FAZ: Edição de Produto com detecção de mutação de preço/estoque e gravação de histórico (RN-04 / RN-09).
     POR QUE FAZ: Garante que alterações manuais fiquem registradas e que USUARIO não altere preço/estoque.
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR (Total); USUARIO (Apenas descritivos).
     MULTI-TENANCY: Ownership check por loja.
     """
+
     modulo_requerido = 'catalogo'
     model = Produto
     form_class = ProdutoForm
     template_name = 'catalogo/produto_form.html'
     success_url = reverse_lazy('produto_list')
 
+    # Passa o usuário logado para o formulário
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['autor'] = self.request.user
         return kwargs
 
+    # Salva o produto, identifica alterações de valor e grava os logs de auditoria correspondentes
     def form_valid(self, form):
+        # Carrega o estado anterior antes de persistir as modificações
         produto_antigo = Produto.objects.get(pk=self.object.pk)
         preco_anterior = produto_antigo.preco
         estoque_anterior = produto_antigo.estoque
 
         with transaction.atomic():
             self.object = form.save(commit=False)
+            # Anexa o usuário executor para que os signals possam registrar autoria
             self.object._usuario_operacao = self.request.user
             self.object.save()
             form.save_m2m()
 
+            # Se houve divergência de preço ou estoque físico, grava na tabela de histórico unificado
             if preco_anterior != self.object.preco or estoque_anterior != self.object.estoque:
                 HistoricoPreco.objects.create(
                     produto=self.object,
@@ -421,6 +531,7 @@ class ProdutoUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
                     motivo="Edição de cadastro de produto"
                 )
 
+            # Audita especificamente a alteração de preço
             if preco_anterior != self.object.preco:
                 LogAuditoria.objects.create(
                     loja=self.object.loja,
@@ -430,6 +541,7 @@ class ProdutoUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
                     ip_origem=self.request.META.get('REMOTE_ADDR')
                 )
 
+            # Audita especificamente a alteração de saldo de estoque
             if estoque_anterior != self.object.estoque:
                 LogAuditoria.objects.create(
                     loja=self.object.loja,
@@ -439,6 +551,7 @@ class ProdutoUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
                     ip_origem=self.request.META.get('REMOTE_ADDR')
                 )
 
+            # Audita a edição cadastral geral do produto
             LogAuditoria.objects.create(
                 loja=self.object.loja,
                 autor=self.request.user,
@@ -450,24 +563,29 @@ class ProdutoUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
         messages.success(self.request, f"Produto '{self.object.nome}' atualizado com sucesso!")
         return redirect(self.success_url)
 
+    # Informa ao template que a tela opera em modo de edição
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['modo_edicao'] = True
         return context
 
 
+# Visualização para exclusão definitiva de produtos com barreiras RBAC de gestores
 class ProdutoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnershipCheckMixin, CatalogDeletePermissionMixin, DeleteView):
+    # Docstring documentando a proteção contra exclusão de produtos
     """
     O QUE FAZ: Exclusão de Produto protegida por RN-09.
     POR QUE FAZ: Impede que o papel USUARIO exclua produtos.
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Isolado por loja.
     """
+
     modulo_requerido = 'catalogo'
     model = Produto
     template_name = 'catalogo/produto_confirm_delete.html'
     success_url = reverse_lazy('produto_list')
 
+    # Remove o produto e registra o log de auditoria da exclusão
     def form_valid(self, form):
         with transaction.atomic():
             sku = self.object.sku
@@ -483,42 +601,52 @@ class ProdutoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
             return super().form_valid(form)
 
 
+# Visualização para registro de baixa física por motivos operacionais de perda ou avaria
 class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnershipCheckMixin, FormView):
+    # Docstring detalhando o registro de perdas com justificativa obrigatória
     """
     O QUE FAZ: Registro de baixa pontual de estoque por motivo de avaria ou perda física (RN-09).
     POR QUE FAZ: Permite que todos os usuários autenticados da loja (inclusive USUARIO) registrem perdas operacionais com motivo obrigatório.
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR e USUARIO.
     MULTI-TENANCY: Isolado por loja.
     """
+
     modulo_requerido = 'catalogo'
     template_name = 'catalogo/produto_baixa_estoque.html'
     form_class = ProdutoBaixaAvariaForm
 
+    # Recupera a instância do produto informado na rota
     def dispatch(self, request, *args, **kwargs):
         self.produto = get_object_or_404(Produto, pk=self.kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
+    # Retorna o produto para validações internas de mixin
     def get_object(self, queryset=None):
         return self.produto
 
+    # Repassa o produto para o formulário validar o teto de saldo físico
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['produto'] = self.produto
         return kwargs
 
+    # Executa a baixa de saldo com bloqueio de concorrência (select_for_update) e emite avisos contextuais
     def form_valid(self, form):
         qtd = form.cleaned_data['quantidade']
         tipo_baixa = form.cleaned_data['tipo_baixa']
         justificativa = form.cleaned_data['justificativa']
 
         with transaction.atomic():
+            # Bloqueia a linha no banco para evitar race conditions em baixas concorrentes
             prod_locked = Produto.objects.select_for_update().get(pk=self.produto.pk)
             saldo_anterior = prod_locked.estoque
             novo_saldo = saldo_anterior - qtd
             prod_locked.estoque = novo_saldo
+            # Identifica o usuário para o sinal
             prod_locked._usuario_operacao = self.request.user
             prod_locked.save(update_fields=['estoque', 'atualizado_em'])
 
+            # Registra no histórico de preço/estoque
             HistoricoPreco.objects.create(
                 produto=prod_locked,
                 loja=prod_locked.loja,
@@ -530,6 +658,7 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogO
                 motivo=f"Baixa por Avaria ({tipo_baixa}): {justificativa}"
             )
 
+            # Registra na auditoria
             LogAuditoria.objects.create(
                 loja=prod_locked.loja,
                 autor=self.request.user,
@@ -542,6 +671,7 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogO
                 ip_origem=self.request.META.get('REMOTE_ADDR')
             )
 
+        # Emite alerta de nível WARNING caso o item não possua anúncios vinculados a sincronizar
         if prod_locked.anuncios_publicados.count() == 0:
             messages.warning(
                 self.request,
@@ -554,32 +684,39 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogO
             )
         return redirect('produto_detail', pk=self.produto.pk)
 
+    # Injeta a referência do produto no template
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['produto'] = self.produto
         return context
 
 
+# Visualização para ajuste geral do estoque (balanço de inventário) restrita a gestores
 class ProdutoAjusteEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnershipCheckMixin, FormView):
+    # Docstring documentando o ajuste geral de inventário
     """
     O QUE FAZ: Ajuste geral de saldo físico de estoque por gestores.
     POR QUE FAZ: Gestão e correção manual de balanço por DEV, ADMIN ou SUPERVISOR (RN-09).
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR (USUARIO é bloqueado).
     MULTI-TENANCY: Isolado por loja.
     """
+
     modulo_requerido = 'catalogo'
     template_name = 'catalogo/produto_ajuste_estoque.html'
     form_class = ProdutoAjusteEstoqueForm
 
+    # Intercepta a requisição verificando se o usuário tem permissão para ajuste geral
     def dispatch(self, request, *args, **kwargs):
         if not pode_ajustar_estoque_geral(request.user):
             raise PermissionDenied("Acesso negado: seu perfil não pode realizar ajuste geral de estoque (RN-09).")
         self.produto = get_object_or_404(Produto, pk=self.kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
+    # Retorna o produto para os mixins
     def get_object(self, queryset=None):
         return self.produto
 
+    # Grava o novo saldo apurado no balanço com bloqueio de linha e registra na auditoria
     def form_valid(self, form):
         novo_saldo = form.cleaned_data['novo_estoque']
         tipo_ajuste = form.cleaned_data['tipo_ajuste']
@@ -615,6 +752,7 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, Catalog
                 ip_origem=self.request.META.get('REMOTE_ADDR')
             )
 
+        # Emite aviso caso não haja canais dependentes deste estoque
         if prod_locked.anuncios_publicados.count() == 0:
             messages.warning(
                 self.request,
@@ -627,23 +765,29 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, Catalog
             )
         return redirect('produto_detail', pk=self.produto.pk)
 
+    # Injeta a referência do produto no template
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['produto'] = self.produto
         return context
 
 
+# Visualização para vinculação direta de um anúncio remoto (MLB...) ao produto local
 class AnuncioMarketplaceCreateView(LoginRequiredMixin, ModuloRequeridoMixin, View):
+    # Docstring documentando a vinculação de identificadores externos
     """
     O QUE FAZ: Cria e vincula um novo AnuncioMarketplace a um produto local.
     POR QUE FAZ: Mapeia IDs externos de múltiplos canais (MLB..., Shopee ID).
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Valida loja do produto.
     """
+
     modulo_requerido = 'catalogo'
 
+    # Processa o formulário de inclusão de anúncio direto
     def post(self, request, pk, *args, **kwargs):
         produto = get_object_or_404(Produto, pk=pk)
+        # Validação de tenant
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
             if not perfil or not perfil.loja or produto.loja_id != perfil.loja_id:
@@ -661,15 +805,20 @@ class AnuncioMarketplaceCreateView(LoginRequiredMixin, ModuloRequeridoMixin, Vie
         return redirect('produto_detail', pk=produto.pk)
 
 
+# Visualização para desvinculação/exclusão de um anúncio direto
 class AnuncioMarketplaceDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, View):
+    # Docstring explicativa
     """
     O QUE FAZ: Remove o vínculo de um anúncio de marketplace de um produto.
     """
+
     modulo_requerido = 'catalogo'
 
+    # Executa a remoção do vínculo
     def post(self, request, pk, *args, **kwargs):
         anuncio = get_object_or_404(AnuncioMarketplace, pk=pk)
         produto = anuncio.produto
+        # Checagem de tenant
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
             if not perfil or not perfil.loja or produto.loja_id != perfil.loja_id:
@@ -681,39 +830,49 @@ class AnuncioMarketplaceDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, Vie
         return redirect('produto_detail', pk=produto.pk)
 
 
+# Visualização que processa ações na fila de pendências (enviar ou cancelar sincronização para anúncios selecionados)
 class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, SyncPermissionMixin, View):
+    # Docstring documentando o envio ou descarte de alterações na sincronização
     """
     O QUE FAZ: Dispara a sincronização de preço para todos os anúncios externos vinculados a este produto.
     POR QUE FAZ: Envia PUT para as APIs dos canais (Mercado Livre, Shopee, Magalu).
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Isolado por loja.
     """
+
     modulo_requerido = 'catalogo'
 
+    # Processa o formulário do modal com base nos checkboxes marcados e na ação ('enviar' ou 'cancelar')
     def post(self, request, pk, *args, **kwargs):
         produto = get_object_or_404(Produto, pk=pk)
+        # Validação de tenant
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
             if not perfil or not perfil.loja or produto.loja_id != perfil.loja_id:
                 raise PermissionDenied("Acesso negado.")
 
+        # Obtém a lista de IDs de anúncios marcados pelo operador
         selecionados_raw = request.POST.getlist('anuncios_selecionados')
         if not selecionados_raw:
             messages.info(request, "Nenhum anúncio foi selecionado para envio.")
             return redirect('produto_detail', pk=produto.pk)
 
+        # Converte em lista de inteiros seguros
         selecionados_ids = [int(x) for x in selecionados_raw if str(x).isdigit()]
         if not selecionados_ids:
             messages.info(request, "Nenhum anúncio foi selecionado para envio.")
             return redirect('produto_detail', pk=produto.pk)
 
+        # Importa serviços e modelos de anúncios
         from apps.anuncios.models import Anuncio, HistoricoSincronizacaoAnuncio
         from apps.anuncios.services import AnuncioSincronizacaoService
+        # Consulta anúncios vinculados via composição presentes na seleção
         anuncios_alvo = Anuncio.objects.filter(
             composicoes__produto=produto,
             pk__in=selecionados_ids
         ).select_related('conta').distinct()
 
+        # Consulta eventuais anúncios vinculados pelo modelo legado AnuncioMarketplace
         anuncios_legado = produto.anuncios.filter(pk__in=selecionados_ids).select_related('conta_marketplace').all()
 
         total_alvo = anuncios_alvo.count() + anuncios_legado.count()
@@ -721,20 +880,24 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
             messages.info(request, "Nenhum anúncio válido foi selecionado para envio.")
             return redirect('produto_detail', pk=produto.pk)
 
+        # Identifica a intenção do operador: 'enviar' ou 'cancelar'
         acao = request.POST.get('acao', 'enviar').strip().lower()
         from django.utils import timezone
         from apps.anuncios.models import Anuncio, HistoricoSincronizacaoAnuncio
         from apps.anuncios.services import AnuncioSincronizacaoService
 
+        # Fluxo de cancelamento/descarte da pendência de sincronização
         if acao == 'cancelar':
             for a in anuncios_alvo:
                 canal = a.conta.get_canal_display() if a.conta else "Marketplace"
                 sku = a.sku_vendedor or produto.sku
                 motivo_desc = f"Sincronização cancelada/descartada pelo operador para {canal} (SKU: {sku}, ID: {a.item_id_externo})"
 
+                # Marca o anúncio como CANCELADO
                 a.status_sincronizacao = 'CANCELADO'
                 a.save(update_fields=['status_sincronizacao', 'atualizado_em'])
 
+                # Atualiza histórico pendente existente ou cria novo registrando o cancelamento
                 hist_pendente = HistoricoSincronizacaoAnuncio.objects.filter(
                     anuncio=a, status_resultante='PENDENTE'
                 ).order_by('-criado_em').first()
@@ -762,6 +925,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
                         data_pendencia=timezone.now()
                     )
 
+                # Grava histórico duplo também na entidade Produto
                 HistoricoPreco.objects.create(
                     produto=produto,
                     loja=produto.loja,
@@ -780,9 +944,11 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
             return redirect('produto_detail', pk=produto.pk)
 
         # acao == 'enviar'
+        # Fluxo de envio de preço e estoque para os canais de marketplace
         sucessos = 0
         falhas = 0
 
+        # Dispara para anúncios modelados via app anuncios
         for a in anuncios_alvo:
             preco_ant = a.preco_venda
             cota_ant = a.estoque_publicado
@@ -790,6 +956,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
             sku = a.sku_vendedor or produto.sku
             motivo_desc = f"Sincronização enviada ao canal {canal} (SKU: {sku}, ID: {a.item_id_externo})"
 
+            # Força o envio de estoque e preço através do serviço de sincronização
             res_est = AnuncioSincronizacaoService.sincronizar_estoque_anuncio(a, usuario=request.user, forcar=True)
             res_prc = AnuncioSincronizacaoService.sincronizar_preco_anuncio(a, produto.preco, usuario=request.user, forcar=True)
             if res_est.get('sucesso') and res_prc.get('sucesso'):
@@ -800,6 +967,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
 
                 novo_estoque_sync = res_est.get('estoque_sincronizado', a.calcular_cota_disponivel())
 
+                # Atualiza ou cria o registro de histórico no anúncio
                 hist_pendente = HistoricoSincronizacaoAnuncio.objects.filter(
                     anuncio=a, status_resultante='PENDENTE'
                 ).order_by('-criado_em').first()
@@ -827,6 +995,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
                         data_pendencia=a.atualizado_em
                     )
 
+                # Grava histórico duplo também na entidade Produto
                 HistoricoPreco.objects.create(
                     produto=produto,
                     loja=produto.loja,
@@ -840,6 +1009,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
             else:
                 falhas += 1
 
+        # Dispara para anúncios modelados via app catalogo (legado)
         for anuncio in anuncios_legado:
             conta = anuncio.conta_marketplace
             canal = conta.get_canal_display() if conta else "Marketplace"
@@ -866,6 +1036,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
             else:
                 falhas += 1
 
+        # Atualiza o status geral do produto com base no resultado consolidado
         if falhas == 0:
             produto.status_sincronizacao = StatusSincronizacaoEnum.SINCRONIZADO
             produto.save(update_fields=['status_sincronizacao', 'atualizado_em'])
@@ -878,17 +1049,22 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
         return redirect('produto_detail', pk=produto.pk)
 
 
+# Visualização para sincronização em massa de múltiplos produtos selecionados na listagem
 class ProdutoSincronizarPrecoLoteView(LoginRequiredMixin, ModuloRequeridoMixin, SyncPermissionMixin, FormView):
+    # Docstring documentando sincronização em lote
     """
     O QUE FAZ: Sincroniza preços em lote para os produtos selecionados.
     """
+
     modulo_requerido = 'catalogo'
     form_class = ProdutoSincronizacaoLoteForm
 
+    # Percorre cada produto e seus anúncios atualizando o preço no marketplace
     def form_valid(self, form):
         produtos_ids = form.cleaned_data['produtos_ids']
         user = self.request.user
         qs = Produto.objects.filter(id__in=produtos_ids)
+        # Aplica isolamento de loja para operadores regulares
         if not usuario_is_dev(user):
             qs = qs.filter(loja=user.perfil.loja)
 
@@ -905,6 +1081,7 @@ class ProdutoSincronizarPrecoLoteView(LoginRequiredMixin, ModuloRequeridoMixin, 
         messages.success(self.request, f"Sincronização em lote: {sucessos} de {total_anuncios} anúncio(s) atualizados com sucesso.")
         return redirect('produto_list')
 
+    # Trata submissão inválida de lote
     def form_invalid(self, form):
         messages.error(self.request, "Nenhum produto válido selecionado para sincronização.")
         return redirect('produto_list')
@@ -914,21 +1091,26 @@ class ProdutoSincronizarPrecoLoteView(LoginRequiredMixin, ModuloRequeridoMixin, 
 # PUBLICAÇÃO DE ANÚNCIOS EM MARKETPLACES (RF-04)
 # ==============================================================================
 
+# Visualização para criar uma oferta diretamente na API do parceiro a partir do produto físico
 class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
+    # Docstring documentando a publicação no marketplace (RF-04), restrições de permissão e multi-tenancy
     """
     O QUE FAZ: Publica um produto do catálogo como anúncio ativo em uma conta de marketplace (RF-04).
     POR QUE FAZ: Conecta o produto do Hub à API do marketplace de destino, registrando o ID externo e telemetria.
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR (USUARIO bloqueado com 403 Forbidden).
     MULTI-TENANCY: Restrito à loja do produto e conta do usuário (DEV com bypass global).
     """
+
     modulo_requerido = 'marketplaces'
     template_name = 'catalogo/anuncio_publicar_form.html'
 
+    # Bloqueia operadores sem privilégios de sincronização/publicação
     def dispatch(self, request, *args, **kwargs):
         if not pode_disparar_sincronizacao(request.user):
             raise PermissionDenied("Acesso negado: o perfil USUARIO não possui permissão para publicar anúncios em marketplaces.")
         return super().dispatch(request, *args, **kwargs)
 
+    # Recupera o produto garantindo validação de tenant
     def get_object(self):
         user = self.request.user
         produto_id = self.kwargs.get('pk')
@@ -939,6 +1121,7 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
             raise PermissionDenied("Usuário sem loja vinculada.")
         return get_object_or_404(Produto, pk=produto_id, loja=perfil.loja)
 
+    # Renderiza o formulário de publicação
     def get(self, request, *args, **kwargs):
         produto = self.get_object()
         form = PublicarAnuncioForm(produto=produto, autor=request.user)
@@ -949,10 +1132,12 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
         }
         return render(request, self.template_name, context)
 
+    # Processa o formulário, aciona o conector e grava o registro em AnuncioMarketplace e LogAuditoria
     def post(self, request, *args, **kwargs):
         produto = self.get_object()
         form = PublicarAnuncioForm(request.POST, produto=produto, autor=request.user)
 
+        # Validações estruturais do formulário
         if not form.is_valid():
             context = {
                 'produto': produto,
@@ -967,6 +1152,7 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
         category_id = form.cleaned_data['category_id']
 
         # Validação multi-tenant rigorosa (produto e conta devem ser da mesma loja, a menos que DEV)
+        # Validação rigorosa: impede publicação em contas de outras lojas
         if not usuario_is_dev(request.user) and produto.loja_id != conta.loja_id:
             raise PermissionDenied("A conta de marketplace selecionada pertence a outra loja.")
 
@@ -976,6 +1162,7 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
             'category_id': category_id,
         }
 
+        # Invoca o conector correspondente para enviar a requisição HTTP à API externa
         connector = get_connector_for_conta(conta)
         sucesso, mensagem, dados_retorno, log = connector.publicar_anuncio(
             produto=produto,
@@ -984,6 +1171,7 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
             usuario=request.user
         )
 
+        # Se a publicação for aprovada pelo marketplace
         if sucesso:
             item_id_externo = dados_retorno.get('item_id_externo', f"MLB-{produto.sku}")
             link_anuncio = dados_retorno.get('link_anuncio', '')
@@ -991,6 +1179,7 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
             status_anuncio = dados_retorno.get('status_anuncio', 'ativo')
 
             # Cria ou atualiza o registro AnuncioMarketplace
+            # Grava o vínculo no modelo de anúncio do catálogo
             anuncio, created = AnuncioMarketplace.objects.update_or_create(
                 produto=produto,
                 conta_marketplace=conta,
@@ -1003,6 +1192,7 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
             )
 
             # Grava Log de Auditoria
+            # Registra o evento na auditoria formal do sistema
             LogAuditoria.objects.create(
                 loja=produto.loja,
                 autor=request.user,
@@ -1019,6 +1209,7 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
                 f"Identificador: {item_id_externo} — Preço: R$ {preco_sincronizado:.2f}"
             )
             return redirect('produto_detail', pk=produto.pk)
+        # Se a API externa rejeitar a criação do anúncio
         else:
             messages.error(request, f"Falha na publicação do anúncio: {mensagem}")
             context = {

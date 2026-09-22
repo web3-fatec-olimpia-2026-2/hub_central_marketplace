@@ -1,31 +1,45 @@
 # Os códigos foram gerados com auxilio de I.A.
+
+# Importa o módulo abc (Abstract Base Classes) para definição de classes abstratas e interfaces de métodos obrigatórios
 import abc
+
+# Importa a classe Decimal para tipagem precisa de valores monetários
 from decimal import Decimal
+
+# Importa tipos estruturados para anotações de tipagem estática (Tuplas, Dicionários, Tipos Genéricos, Listas e Opcionais)
 from typing import Tuple, Dict, Any, List, Optional
 
+# Importa os modelos ContaMarketplace e LogSincronizacao para uso nas assinaturas contratuais dos métodos
 from apps.marketplaces.models import ContaMarketplace, LogSincronizacao
 
 
+# Declaração da classe base abstrata que define o contrato universal dos conectores (padrão Strategy / Adapter)
 class BaseMarketplaceConnector(abc.ABC):
+    # Início do bloco de docstring estrutural documentando as responsabilidades contratuais, RBAC e multi-tenancy
     """
     O QUE FAZ: Contrato abstrato (Strategy Pattern) que define os métodos padronizados de integração para qualquer marketplace.
     POR QUE FAZ: Garante o desacoplamento arquitetural, permitindo adicionar novos canais (Shopee, Magalu, Amazon) sem alterar a lógica de negócio central ou as views da aplicação.
     PERMISSÕES RBAC: Utilizado internamente por serviços e disparado por DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Cada instância do conector é parametrizada com uma ContaMarketplace associada a um tenant (Loja) específico.
     """
+    # Fim do bloco descritivo da classe
 
+    # Construtor base que recebe e vincula a instância da ContaMarketplace associada ao canal e à loja
     def __init__(self, conta: Optional[ContaMarketplace] = None):
         """
         Inicializa o conector vinculado a uma ContaMarketplace específica da Loja.
         """
+        # Armazena a referência da conta na propriedade de instância self.conta
         self.conta = conta
 
+    # Propriedade abstrata obrigatória para identificação da chave do canal de marketplace
     @property
     @abc.abstractmethod
     def canal_nome(self) -> str:
         """Retorna o identificador textual do canal (ex: 'mercadolivre', 'shopee')."""
         pass
 
+    # Método abstrato para geração da URL externa do fluxo de login e consentimento OAuth 2.0
     @abc.abstractmethod
     def get_authorization_url(self, state: str = "") -> str:
         """
@@ -34,6 +48,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para troca do authorization_code temporário por credenciais definitivas (tokens)
     @abc.abstractmethod
     def exchange_code(self, code: str) -> Dict[str, Any]:
         """
@@ -42,6 +57,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para renovação de tokens de acesso expirados utilizando o refresh_token
     @abc.abstractmethod
     def refresh_credentials(self) -> Dict[str, Any]:
         """
@@ -50,6 +66,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para obtenção do access token válido e decifrado em memória com auto-refresh se necessário
     @abc.abstractmethod
     def get_valid_access_token(self) -> str:
         """
@@ -58,6 +75,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para validação ativa de ping, credenciais e permissões operacionais junto ao marketplace
     @abc.abstractmethod
     def test_connection(self, request=None) -> Dict[str, Any]:
         """
@@ -67,6 +85,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para despacho centralizado de requisições HTTP à API do canal com injeção de tokens
     @abc.abstractmethod
     def request(self, method: str, endpoint: str, **kwargs) -> Any:
         """
@@ -75,6 +94,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para validação ou teste de conectividade com a API externa retornando tupla padrão
     @abc.abstractmethod
     def autenticar(self, request=None) -> Tuple[bool, str, Dict[str, Any]]:
         """
@@ -84,6 +104,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para atualização e sincronização remota do preço unitário de um SKU/anúncio
     @abc.abstractmethod
     def atualizar_preco(
         self, item_id_externo: str, novo_preco: Decimal, usuario=None
@@ -95,6 +116,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para atualização de saldo físico no marketplace aplicando clamping obrigatório de valores negativos
     @abc.abstractmethod
     def atualizar_estoque(
         self, item_id_externo: str, novo_estoque: int, usuario=None
@@ -106,6 +128,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para criação e publicação completa de anúncios de novos produtos na API remota
     @abc.abstractmethod
     def publicar_anuncio(
         self, produto, conta: Optional[ContaMarketplace] = None, dados_extras: Optional[Dict[str, Any]] = None, usuario=None
@@ -115,8 +138,10 @@ class BaseMarketplaceConnector(abc.ABC):
         POR QUE FAZ: Automatiza o onboarding e publicação de produtos em múltiplos canais de marketplaces.
         RETORNO: (sucesso: bool, mensagem: str, dados_resposta: dict, log: LogSincronizacao)
         """
+        # Levanta exceção de implementação obrigatória caso a subclasse não a implemente
         raise NotImplementedError
 
+    # Método abstrato para busca de pedidos via polling periódico ou conciliação em lote
     @abc.abstractmethod
     def buscar_pedidos(
         self, data_inicio=None
@@ -128,6 +153,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método abstrato para download e importação de catálogo ativo de anúncios da conta remota
     @abc.abstractmethod
     def importar_anuncios(self) -> Dict[str, Any]:
         """
@@ -137,6 +163,7 @@ class BaseMarketplaceConnector(abc.ABC):
         """
         pass
 
+    # Método concreto com implementação padrão/fallback para obtenção de dados de um pedido pontual
     def obter_detalhes_pedido(
         self, resource_ou_id: str
     ) -> Tuple[bool, str, Dict[str, Any]]:
@@ -145,6 +172,7 @@ class BaseMarketplaceConnector(abc.ABC):
         POR QUE FAZ: Permite inspecionar os itens vendidos e quantidades no fluxo de webhooks.
         RETORNO: (sucesso: bool, mensagem: str, pedido: dict)
         """
+        # Fallback padrão sinalizando que o canal específico não implementou a busca detalhada do recurso
         return False, "Método não implementado para este canal.", {}
 
 
