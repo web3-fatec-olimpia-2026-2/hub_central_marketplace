@@ -1,0 +1,144 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Vendas & Pedidos — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Vendas & Pedidos Multicanal{% endblock %}
+{% block page_subtitle %}
+    {% if is_dev %}
+        Histórico consolidado de pedidos de todas as lojas
+    {% else %}
+        Pedidos recebidos para a loja {{ minha_loja.nome }}
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+<!-- CARDS DE RESUMO OPERACIONAL -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card shadow-sm border-start border-4 border-primary">
+            <div class="card-body py-3">
+                <div class="text-muted small fw-semibold">TOTAL DE PEDIDOS</div>
+                <h3 class="fw-bold mb-0">{{ total_pedidos|default:0 }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm border-start border-4 border-success">
+            <div class="card-body py-3">
+                <div class="text-muted small fw-semibold">FATURAMENTO TOTAL</div>
+                <h3 class="fw-bold text-success font-monospace mb-0">R$ {{ total_faturado|floatformat:2 }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm border-start border-4 {% if total_rupturas > 0 %}border-danger{% else %}border-secondary{% endif %}">
+            <div class="card-body py-3">
+                <div class="text-muted small fw-semibold">ALERTAS DE RUPTURA</div>
+                <h3 class="fw-bold {% if total_rupturas > 0 %}text-danger{% else %}text-muted{% endif %} mb-0">{{ total_rupturas|default:0 }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- FILTROS -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-body py-3">
+        <form method="get" class="row g-2 align-items-center">
+            <div class="col-md-4">
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" value="{{ termo_busca }}" class="form-control" placeholder="Buscar por nº do pedido, comprador ou item...">
+                </div>
+            </div>
+            {% if is_dev %}
+                <div class="col-md-3">
+                    <select name="loja" class="form-select">
+                        <option value="">Todas as Lojas</option>
+                        {% for l in lojas_disponiveis %}
+                            <option value="{{ l.id }}" {% if loja_filtro == l.id|stringformat:"s" %}selected{% endif %}>{{ l.nome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+            <div class="col-md-2">
+                <select name="canal" class="form-select">
+                    <option value="">Todos os Canais</option>
+                    {% for c_val, c_lbl in canais_disponiveis %}
+                        <option value="{{ c_val }}" {% if canal_filtro == c_val %}selected{% endif %}>{{ c_lbl }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select name="ruptura" class="form-select">
+                    <option value="">Status de Ruptura</option>
+                    <option value="1" {% if ruptura_filtro == '1' %}selected{% endif %}>Apenas com Ruptura</option>
+                </select>
+            </div>
+            <div class="col-md-1 d-flex gap-1">
+                <button type="submit" class="btn btn-secondary w-100"><i class="bi bi-funnel"></i></button>
+                {% if termo_busca or canal_filtro or ruptura_filtro or loja_filtro %}
+                    <a href="{% url 'pedido_list' %}" class="btn btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- TABELA DE PEDIDOS -->
+<div class="card shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Data / Hora</th>
+                    <th>Canal</th>
+                    <th>Nº do Pedido</th>
+                    <th>Comprador</th>
+                    {% if is_dev %}<th>Loja</th>{% endif %}
+                    <th class="text-end">Valor Total</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-center">Status de Ruptura</th>
+                    <th class="text-end">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in pedidos %}
+                    <tr>
+                        <td class="text-nowrap text-muted">{{ p.criado_em|date:"d/m/Y H:i" }}</td>
+                        <td>
+                            <span class="badge {% if p.canal_origem == 'mercadolivre' %}bg-warning text-dark{% elif p.canal_origem == 'shopee' %}bg-danger{% elif p.canal_origem == 'magalu' %}bg-primary{% else %}bg-dark{% endif %}">
+                                {{ p.get_canal_origem_display }}
+                            </span>
+                        </td>
+                        <td><a href="{% url 'pedido_detail' pk=p.pk %}" class="fw-bold font-monospace text-decoration-none">#{{ p.pedido_id_externo }}</a></td>
+                        <td>{{ p.comprador_nome|default:"Comprador Marketplace" }}</td>
+                        {% if is_dev %}<td>{{ p.loja.nome }}</td>{% endif %}
+                        <td class="text-end fw-bold font-monospace">R$ {{ p.valor_total|floatformat:2 }}</td>
+                        <td class="text-center"><span class="badge bg-success">{{ p.get_status_display }}</span></td>
+                        <td class="text-center">
+                            {% if p.teve_ruptura_estoque %}
+                                <span class="badge bg-danger" title="Venda gerou saldo negativo de estoque"><i class="bi bi-exclamation-triangle"></i> Ruptura</span>
+                            {% else %}
+                                <span class="badge bg-light text-muted border">Normal</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{% url 'pedido_detail' pk=p.pk %}" class="btn btn-sm btn-outline-secondary" title="Ver Detalhes">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">
+                            <i class="bi bi-cart-x fs-3 d-block mb-2"></i>
+                            Nenhum pedido de venda registrado.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

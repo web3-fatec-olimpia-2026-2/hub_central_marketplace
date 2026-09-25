@@ -1,0 +1,152 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Publicar Anúncio: {{ produto.sku }} — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Publicação de Anúncio em Marketplace{% endblock %}
+{% block page_subtitle %}Envio de Catálogo do Hub para Canais de Venda Integrados (RF-04){% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'produto_detail' pk=produto.pk %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar ao Produto
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4 justify-content-center">
+    <!-- RESUMO DO PRODUTO NO HUB -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm border-primary border-opacity-25 h-100">
+            <div class="card-header bg-primary bg-opacity-10 text-primary fw-bold">
+                <i class="bi bi-box-seam me-2"></i>Produto Mestre (Hub)
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <span class="badge bg-secondary font-monospace">{{ produto.sku }}</span>
+                    <h5 class="fw-bold mt-2 mb-1">{{ produto.nome }}</h5>
+                    <small class="text-muted">{{ produto.categoria.nome }} &bull; {{ produto.loja.nome }}</small>
+                </div>
+
+                <ul class="list-group list-group-flush small mb-3">
+                    <li class="list-group-item d-flex justify-content-between px-0">
+                        <span class="text-muted">Preço Catálogo:</span>
+                        <strong class="font-monospace text-primary">R$ {{ produto.preco|floatformat:2 }}</strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between px-0">
+                        <span class="text-muted">Saldo de Estoque:</span>
+                        <span class="badge bg-success font-monospace">{{ produto.estoque }} un.</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between px-0">
+                        <span class="text-muted">Status do Cadastro:</span>
+                        <span class="badge bg-info text-dark">{{ produto.get_status_display }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between px-0">
+                        <span class="text-muted">Anúncios Existentes:</span>
+                        <span class="fw-bold">{{ produto.anuncios.count }}</span>
+                    </li>
+                </ul>
+
+                <div class="alert alert-info py-2 px-3 small mb-0">
+                    <i class="bi bi-info-circle me-1"></i>
+                    A publicação criará um vínculo direto entre este produto e a conta selecionada, sincronizando preço e saldo de estoque.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FORMULÁRIO DE PUBLICAÇÃO -->
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white fw-bold d-flex align-items-center gap-2">
+                <i class="bi bi-cloud-upload text-primary"></i>
+                <span>Parâmetros de Publicação no Marketplace</span>
+            </div>
+            <div class="card-body p-4">
+                <form method="post">
+                    {% csrf_token %}
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                                <p class="mb-0">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <!-- CONTA DE DESTINO -->
+                    <div class="mb-3">
+                        <label for="{{ form.conta_marketplace.id_for_label }}" class="form-label">
+                            {{ form.conta_marketplace.label }}
+                        </label>
+                        {{ form.conta_marketplace }}
+                        {% if form.conta_marketplace.help_text %}
+                            <small class="form-text text-muted">{{ form.conta_marketplace.help_text }}</small>
+                        {% endif %}
+                        {% if form.conta_marketplace.errors %}
+                            <div class="text-danger small mt-1">{{ form.conta_marketplace.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <!-- TIPO DE LISTAGEM -->
+                        <div class="col-md-6">
+                            <label for="{{ form.listing_type_id.id_for_label }}" class="form-label">
+                                {{ form.listing_type_id.label }}
+                            </label>
+                            {{ form.listing_type_id }}
+                            {% if form.listing_type_id.help_text %}
+                                <small class="form-text text-muted">{{ form.listing_type_id.help_text }}</small>
+                            {% endif %}
+                            {% if form.listing_type_id.errors %}
+                                <div class="text-danger small mt-1">{{ form.listing_type_id.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <!-- PREÇO DE ENVIO -->
+                        <div class="col-md-6">
+                            <label for="{{ form.preco.id_for_label }}" class="form-label">
+                                {{ form.preco.label }}
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">R$</span>
+                                {{ form.preco }}
+                            </div>
+                            {% if form.preco.help_text %}
+                                <small class="form-text text-muted">{{ form.preco.help_text }}</small>
+                            {% endif %}
+                            {% if form.preco.errors %}
+                                <div class="text-danger small mt-1">{{ form.preco.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- CATEGORIA EXTERNA -->
+                    <div class="mb-4">
+                        <label for="{{ form.category_id.id_for_label }}" class="form-label">
+                            {{ form.category_id.label }}
+                        </label>
+                        {{ form.category_id }}
+                        {% if form.category_id.help_text %}
+                            <small class="form-text text-muted">{{ form.category_id.help_text }}</small>
+                        {% endif %}
+                        {% if form.category_id.errors %}
+                            <div class="text-danger small mt-1">{{ form.category_id.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="d-flex justify-content-between align-items-center">
+                        <a href="{% url 'produto_detail' pk=produto.pk %}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle"></i> Cancelar
+                        </a>
+                        <button type="submit" class="btn btn-primary px-4 fw-bold">
+                            <i class="bi bi-cloud-arrow-up-fill me-1"></i> Publicar no Marketplace
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,407 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Visão Geral — Hub Marketplaces{% endblock %}
+
+{% block toolbar %}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .module-card-link,
+    .journey-card-link {
+        color: inherit;
+        text-decoration: none;
+        display: block;
+        height: 100%;
+    }
+    .module-access-card,
+    .journey-step-card {
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .module-access-card:hover,
+    .journey-step-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        border-color: #cbd5e1 !important;
+    }
+    .module-color-badge {
+        width: 38px;
+        height: 32px;
+        border-radius: 8px;
+        flex-shrink: 0;
+    }
+    .journey-badge {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background-color: #034575;
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 0.95rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    [data-bs-theme="dark"] .bg-white {
+        background-color: var(--bs-body-bg) !important;
+    }
+    [data-bs-theme="dark"] .module-access-card,
+    [data-bs-theme="dark"] .journey-step-card {
+        background-color: var(--bs-tertiary-bg) !important;
+        border-color: var(--bs-border-color) !important;
+    }
+    [data-bs-theme="dark"] .text-dark {
+        color: var(--bs-body-color) !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="py-2">
+    <!-- TÍTULO PRINCIPAL -->
+    <div class="mb-4 pt-2">
+        <h2 class="fw-bold mb-1 text-dark" style="font-size: 1.75rem;">Visão geral</h2>
+        <p class="text-muted mb-0" style="font-size: 0.95rem;">
+            {% if is_dev %}
+                Painel global de desenvolvimento e tenants
+            {% else %}
+                Gestão operacional — {{ minha_loja.nome|default:"Minha Loja" }}
+            {% endif %}
+        </p>
+    </div>
+
+    <!-- 1. MÉTRICAS GLOBAIS (TOPO - 4 CARDS) -->
+    <div class="row g-3 mb-4">
+        {% if is_dev %}
+            <!-- Card 1: Total de Lojas -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <div class="card h-100 border-0 shadow-sm rounded-4 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="text-secondary small fw-medium">Total de lojas</span>
+                        <div class="rounded-3" style="width: 28px; height: 28px; background-color: #e0f2fe;"></div>
+                    </div>
+                    <div class="h2 fw-bold text-dark mb-1">{{ total_lojas|default:2 }}</div>
+                    <div class="small text-muted" style="font-size: 0.82rem;">{{ lojas_ativas|default:2 }} ativas</div>
+                </div>
+            </div>
+
+            <!-- Card 2: Total de Usuários -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <div class="card h-100 border-0 shadow-sm rounded-4 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="text-secondary small fw-medium">Total de usuários</span>
+                        <div class="rounded-3" style="width: 28px; height: 28px; background-color: #e0f2fe;"></div>
+                    </div>
+                    <div class="h2 fw-bold text-dark mb-1">{{ total_usuarios|default:1 }}</div>
+                    <div class="small text-muted" style="font-size: 0.82rem;">Em todas as lojas</div>
+                </div>
+            </div>
+
+            <!-- Card 3: Status do Sistema -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <div class="card h-100 border-0 shadow-sm rounded-4 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="text-secondary small fw-medium">Status do sistema</span>
+                        <div class="rounded-3" style="width: 28px; height: 28px; background-color: #dcfce7;"></div>
+                    </div>
+                    <div class="h3 fw-bold mb-1" style="color: #15803d;">Operacional</div>
+                    <div class="small text-muted" style="font-size: 0.82rem;">Arquitetura modular</div>
+                </div>
+            </div>
+
+            <!-- Card 4: Gestão de Módulos -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <div class="card h-100 border-0 shadow-sm rounded-4 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="text-secondary small fw-medium">Gestão de módulos</span>
+                        <div class="rounded-3" style="width: 28px; height: 28px; background-color: #fef3c7;"></div>
+                    </div>
+                    <div class="h4 fw-bold text-dark mb-1">Feature flags</div>
+                    <div class="small text-muted" style="font-size: 0.82rem;">Controle por loja</div>
+                </div>
+            </div>
+        {% else %}
+            <!-- Card 1: Minha Loja -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <div class="card h-100 border-0 shadow-sm rounded-4 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="text-secondary small fw-medium">Minha loja</span>
+                        <div class="rounded-3" style="width: 28px; height: 28px; background-color: #e0f2fe;"></div>
+                    </div>
+                    <div class="h4 fw-bold text-dark mb-1">{{ minha_loja.nome|default:"Loja" }}</div>
+                    <div class="small text-muted" style="font-size: 0.82rem;">{{ minha_loja.cnpj|default:"Ativa" }}</div>
+                </div>
+            </div>
+
+            <!-- Card 2: Usuários da Loja -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <div class="card h-100 border-0 shadow-sm rounded-4 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="text-secondary small fw-medium">Usuários da loja</span>
+                        <div class="rounded-3" style="width: 28px; height: 28px; background-color: #e0f2fe;"></div>
+                    </div>
+                    <div class="h2 fw-bold text-dark mb-1">{{ total_usuarios_loja|default:1 }}</div>
+                    <div class="small text-muted" style="font-size: 0.82rem;">Equipe vinculada</div>
+                </div>
+            </div>
+
+            <!-- Card 3: Status do Sistema -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <div class="card h-100 border-0 shadow-sm rounded-4 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="text-secondary small fw-medium">Status do sistema</span>
+                        <div class="rounded-3" style="width: 28px; height: 28px; background-color: #dcfce7;"></div>
+                    </div>
+                    <div class="h3 fw-bold mb-1" style="color: #15803d;">Operacional</div>
+                    <div class="small text-muted" style="font-size: 0.82rem;">Conectores ativos</div>
+                </div>
+            </div>
+
+            <!-- Card 4: Gestão de Módulos -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <div class="card h-100 border-0 shadow-sm rounded-4 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="text-secondary small fw-medium">Gestão de módulos</span>
+                        <div class="rounded-3" style="width: 28px; height: 28px; background-color: #fef3c7;"></div>
+                    </div>
+                    <div class="h4 fw-bold text-dark mb-1">Feature flags</div>
+                    <div class="small text-muted" style="font-size: 0.82rem;">Controle por loja</div>
+                </div>
+            </div>
+        {% endif %}
+</div>
+
+    <!-- 2. SEÇÃO INTERMEDIÁRIA (MÓDULOS À ESQUERDA + PERFIL À DIREITA) -->
+    <div class="row g-3 mb-4">
+        <!-- Esquerda: Módulos e Acessos Rápidos (Grid 2x2) -->
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm rounded-4 bg-white p-3 p-md-4 h-100">
+                <h5 class="fw-semibold text-dark mb-3" style="font-size: 0.95rem;">Módulos e acessos rápidos</h5>
+                <div class="row g-3">
+                    <!-- 1: Catálogo -->
+                    <div class="col-md-6">
+                        <a href="{% url 'produto_list' %}" class="module-card-link">
+                            <div class="card h-100 border rounded-4 p-3 module-access-card bg-white">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="module-color-badge" style="background-color: #034575;"></div>
+                                    <div>
+                                        <div class="fw-bold text-dark" style="font-size: 0.92rem;">Catálogo</div>
+                                        <div class="text-muted" style="font-size: 0.78rem;">Produtos e categorias</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+
+                    <!-- 2: Vendas e Pedidos -->
+                    <div class="col-md-6">
+                        <a href="{% url 'pedido_list' %}" class="module-card-link">
+                            <div class="card h-100 border rounded-4 p-3 module-access-card bg-white">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="module-color-badge" style="background-color: #365314;"></div>
+                                    <div>
+                                        <div class="fw-bold text-dark" style="font-size: 0.92rem;">Vendas e pedidos</div>
+                                        <div class="text-muted" style="font-size: 0.78rem;">Baixa de estoque</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+
+                    <!-- 3: Hub Marketplaces -->
+                    <div class="col-md-6">
+                        <a href="{% url 'canal_list' %}" class="module-card-link">
+                            <div class="card h-100 border rounded-4 p-3 module-access-card bg-white">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="module-color-badge" style="background-color: #78350f;"></div>
+                                    <div>
+                                        <div class="fw-bold text-dark" style="font-size: 0.92rem;">Hub marketplaces</div>
+                                        <div class="text-muted" style="font-size: 0.78rem;">Conectores e credenciais</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+
+                    <!-- 4: Simulador Financeiro -->
+                    <div class="col-md-6">
+                        <a href="{% url 'simulador_promocional' %}" class="module-card-link">
+                            <div class="card h-100 border rounded-4 p-3 module-access-card bg-white">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="module-color-badge" style="background-color: #0f766e;"></div>
+                                    <div>
+                                        <div class="fw-bold text-dark" style="font-size: 0.92rem;">Simulador financeiro</div>
+                                        <div class="text-muted" style="font-size: 0.78rem;">Preço e margem</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Direita: Informações do Perfil -->
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm rounded-4 bg-white p-3 p-md-4 h-100">
+                <h5 class="fw-semibold text-dark mb-3" style="font-size: 0.95rem;">Informações do perfil</h5>
+                <div class="d-flex flex-column gap-2">
+                    <div>
+                        <div class="text-muted small" style="font-size: 0.8rem;">Usuário</div>
+                        <div class="fw-medium text-dark" style="font-size: 0.88rem;">{{ user.username }}</div>
+                    </div>
+                    <div>
+                        <div class="text-muted small" style="font-size: 0.8rem;">Nome</div>
+                        <div class="fw-medium text-dark" style="font-size: 0.88rem;">{{ user.get_full_name|default:user.username }}</div>
+                    </div>
+                    <div>
+                        <div class="text-muted small" style="font-size: 0.8rem;">Papel RBAC</div>
+                        <div class="fw-medium text-dark" style="font-size: 0.88rem;">
+                            {% if is_dev or user.is_superuser %}
+                                Dev / superuser
+                            {% else %}
+                                {{ user.perfil.get_papel_display }}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. JORNADA OPERACIONAL (INFERIOR - GRID 4x2) -->
+    <div class="card border-0 shadow-sm rounded-4 bg-white p-3 p-md-4 mb-4">
+        <div class="mb-3">
+            <h5 class="fw-semibold text-dark mb-1" style="font-size: 0.95rem;">Jornada operacional</h5>
+            <p class="text-muted mb-0" style="font-size: 0.82rem;">Passo a passo de integração multicanal, em ordem cronológica</p>
+        </div>
+
+        <div class="row g-3">
+            <!-- Linha 1 -->
+            <!-- [1] Lojas -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <a href="{% if is_dev or user.is_superuser %}{% url 'loja_list' %}{% else %}#{% endif %}" class="journey-card-link">
+                    <div class="card border rounded-4 p-3 journey-step-card bg-white h-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="journey-badge">1</div>
+                            <div>
+                                <div class="fw-bold text-dark" style="font-size: 0.88rem;">Lojas</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">Tenant e conta</div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+
+            <!-- [2] Categorias -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <a href="{% url 'categoria_list' %}" class="journey-card-link">
+                    <div class="card border rounded-4 p-3 journey-step-card bg-white h-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="journey-badge">2</div>
+                            <div>
+                                <div class="fw-bold text-dark" style="font-size: 0.88rem;">Categorias</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">Árvore e taxonomia</div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+
+            <!-- [3] Produtos -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <a href="{% url 'produto_list' %}" class="journey-card-link">
+                    <div class="card border rounded-4 p-3 journey-step-card bg-white h-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="journey-badge">3</div>
+                            <div>
+                                <div class="fw-bold text-dark" style="font-size: 0.88rem;">Produtos</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">Catálogo e custo</div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+
+            <!-- [4] Marketplaces -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <a href="{% url 'canal_list' %}" class="journey-card-link">
+                    <div class="card border rounded-4 p-3 journey-step-card bg-white h-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="journey-badge">4</div>
+                            <div>
+                                <div class="fw-bold text-dark" style="font-size: 0.88rem;">Marketplaces</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">OAuth2 e conector</div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+
+            <!-- Linha 2 -->
+            <!-- [5] Anúncios -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <a href="{% url 'anuncio_list' %}" class="journey-card-link">
+                    <div class="card border rounded-4 p-3 journey-step-card bg-white h-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="journey-badge">5</div>
+                            <div>
+                                <div class="fw-bold text-dark" style="font-size: 0.88rem;">Anúncios</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">Importação e sku</div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+
+            <!-- [6] Pedidos -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <a href="{% url 'pedido_list' %}" class="journey-card-link">
+                    <div class="card border rounded-4 p-3 journey-step-card bg-white h-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="journey-badge">6</div>
+                            <div>
+                                <div class="fw-bold text-dark" style="font-size: 0.88rem;">Pedidos</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">Venda e baixa estoque</div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+
+            <!-- [7] Simulador -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <a href="{% url 'simulador_promocional' %}" class="journey-card-link">
+                    <div class="card border rounded-4 p-3 journey-step-card bg-white h-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="journey-badge">7</div>
+                            <div>
+                                <div class="fw-bold text-dark" style="font-size: 0.88rem;">Simulador</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">Preço e margem</div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+
+            <!-- [8] Logs -->
+            <div class="col-xl-3 col-md-6 col-12">
+                <a href="{% url 'log_sincronizacao_list' %}" class="journey-card-link">
+                    <div class="card border rounded-4 p-3 journey-step-card bg-white h-100">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="journey-badge">8</div>
+                            <div>
+                                <div class="fw-bold text-dark" style="font-size: 0.88rem;">Logs</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">Telemetria e auditoria</div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

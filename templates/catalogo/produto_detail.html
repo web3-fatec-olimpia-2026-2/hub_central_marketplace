@@ -1,0 +1,354 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}{{ produto.sku }} — {{ produto.nome }} — Hub Marketplaces{% endblock %}
+
+{% block page_title %}{{ produto.nome }}{% endblock %}
+{% block page_subtitle %}Código SKU: {{ produto.sku }} | Loja: {{ produto.loja.nome }}{% endblock %}
+
+{% block toolbar_actions %}
+    {% if pode_alterar_preco or pode_ajustar_estoque_geral or pode_sincronizar %}
+        <span class="d-inline-block" data-bs-toggle="tooltip" data-bs-placement="bottom" title="{% if anuncios_pendentes_sync %}{{ anuncios_pendentes_sync|length }} ação(ões) de sincronização aguardando decisão (Envio ou Cancelamento){% else %}Nenhuma pendência de sincronização no momento{% endif %}">
+            <button type="button" class="btn btn-warning" id="btnSyncGlobal" data-bs-toggle="modal" data-bs-target="#modalSyncGlobal">
+                <i class="bi bi-arrow-repeat me-1"></i> Sincronizar Preço e Estoque no Canal
+                {% if anuncios_pendentes_sync %}
+                    <span class="badge bg-danger rounded-pill ms-2">{{ anuncios_pendentes_sync|length }}</span>
+                {% endif %}
+            </button>
+        </span>
+    {% endif %}
+    {% if pode_ajustar_estoque_geral %}
+        <a href="{% url 'produto_ajuste_estoque' pk=produto.pk %}" class="btn btn-outline-primary">
+            <i class="bi bi-sliders"></i> Ajuste Geral de Estoque
+        </a>
+    {% endif %}
+    {% if pode_dar_baixa_avaria %}
+        <a href="{% url 'produto_baixa_avaria' pk=produto.pk %}" class="btn btn-outline-warning">
+            <i class="bi bi-box-arrow-down"></i> Baixa por Avaria
+        </a>
+    {% endif %}
+    <a href="{% url 'produto_update' pk=produto.pk %}" class="btn btn-primary">
+        <i class="bi bi-pencil"></i> Editar
+    </a>
+    <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- COLUNA ESQUERDA: ANÚNCIOS MULTICANAL E HISTÓRICO -->
+    <div class="col-lg-8">
+        <!-- ANÚNCIOS MULTICANAL VINCULADOS -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="fw-bold"><i class="bi bi-diagram-3-fill text-primary me-2"></i>Anúncios em Marketplaces Conectados</span>
+                <span class="badge bg-light text-dark border">{{ anuncios.count }} vinculado(s)</span>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive mb-3">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Canal / Conta</th>
+                                <th>ID Externo</th>
+                                <th>Preço</th>
+                                <th>Estoque Publicado</th>
+                                <th>Cota Calculada</th>
+                                <th>Status Sincronização</th>
+                                <th>Última Sincronização</th>
+                                <th class="text-end">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for a in anuncios %}
+                                <tr>
+                                    <td>
+                                        <span class="badge {% if a.conta.canal == 'mercadolivre' %}bg-warning text-dark{% elif a.conta.canal == 'shopee' %}bg-danger{% elif a.conta.canal == 'magalu' %}bg-primary{% else %}bg-dark{% endif %} me-1">
+                                            {{ a.conta.get_canal_display }}
+                                        </span>
+                                        <strong>{{ a.conta.apelido_conta }}</strong>
+                                        {% if a.eh_kit %}
+                                            <span class="badge bg-purple ms-1" style="background-color: #6f42c1; color: white;" title="Anúncio composto por Kit">Kit</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if a.permalink %}
+                                            <a href="{{ a.permalink }}" target="_blank" class="text-decoration-none fw-bold font-monospace" title="Ver no {{ a.conta.get_canal_display }}">
+                                                {{ a.item_id_externo }} <i class="bi bi-box-arrow-up-right small"></i>
+                                            </a>
+                                        {% else %}
+                                            <code>{{ a.item_id_externo }}</code>
+                                        {% endif %}
+                                        <div class="small text-muted text-truncate" style="max-width: 200px;" title="{{ a.titulo }}">{{ a.titulo }}</div>
+                                    </td>
+                                    <td class="font-monospace fw-bold text-success">
+                                        R$ {{ a.preco_venda|floatformat:2 }}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary font-monospace">{{ a.estoque_publicado }} un.</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge {% if a.calcular_cota_disponivel > 0 %}bg-success{% else %}bg-danger{% endif %} font-monospace">
+                                            {{ a.calcular_cota_disponivel }} un.
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if a.status_sincronizacao == 'CANCELADO' %}
+                                            <span class="badge bg-secondary" title="Sincronização cancelada / descartada pelo operador"><i class="bi bi-slash-circle me-1"></i>Cancelado</span>
+                                        {% elif a.status_sincronizacao == 'PENDENTE' %}
+                                            <span class="badge bg-warning text-dark" title="Produto alterado localmente. Envio pendente de confirmação"><i class="bi bi-clock-history me-1"></i>Pendente</span>
+                                        {% else %}
+                                            <span class="badge bg-success" title="Sincronizado com o canal"><i class="bi bi-check-circle me-1"></i>Enviado</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="text-muted small">
+                                            {{ a.ultima_sincronizacao|date:"d/m/Y H:i:s"|default:"—" }}
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <a href="{% url 'anuncio_detail' pk=a.pk %}" class="btn btn-outline-secondary btn-sm" title="Ver Detalhes do Anúncio">
+                                            <i class="bi bi-eye"></i> Detalhes
+                                        </a>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="8" class="text-center py-3 text-muted">
+                                        Nenhum anúncio externo vinculado a este produto via composição.
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- FORM VINCULAR NOVO ANÚNCIO -->
+                <div class="p-3 bg-light rounded border">
+                    <h6 class="fw-bold mb-2"><i class="bi bi-plus-circle me-1"></i>Vincular Novo Anúncio de Marketplace</h6>
+                    <form method="post" action="{% url 'anuncio_marketplace_create' pk=produto.pk %}" class="row g-2 align-items-end">
+                        {% csrf_token %}
+                        <div class="col-md-5">
+                            <label class="form-label small">Conta do Marketplace</label>
+                            {{ form_anuncio.conta_marketplace }}
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small">ID Externo (MLB..., Shopee ID...)</label>
+                            {{ form_anuncio.item_id_externo }}
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary w-100"><i class="bi bi-link"></i> Vincular</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- HISTÓRICO DE ALTERAÇÕES DE PREÇO E ESTOQUE -->
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-clock-history text-primary me-2"></i>Histórico de Alterações de Preço e Estoque
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" style="font-size: 0.875rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Data / Hora</th>
+                            <th>Preço Anterior</th>
+                            <th>Novo Preço</th>
+                            <th>Estoque Anterior</th>
+                            <th>Novo Estoque</th>
+                            <th>Responsável</th>
+                            <th>Motivo / Operação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for h in historicos %}
+                            <tr>
+                                <td class="text-muted">{{ h.criado_em|date:"d/m/Y H:i:s" }}</td>
+                                <td class="font-monospace text-muted">
+                                    {% if h.preco_anterior is not None %}
+                                        R$ {{ h.preco_anterior|floatformat:2 }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="font-monospace fw-bold text-success">
+                                    {% if h.preco_novo is not None %}
+                                        R$ {{ h.preco_novo|floatformat:2 }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="font-monospace text-muted">
+                                    {% if h.estoque_anterior is not None %}
+                                        {{ h.estoque_anterior }} un.
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="font-monospace fw-bold text-primary">
+                                    {% if h.estoque_novo is not None %}
+                                        {{ h.estoque_novo }} un.
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>{{ h.usuario.username|default:"Sistema" }}</td>
+                                <td>{{ h.motivo|default:"—" }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="7" class="text-center py-3 text-muted">Nenhum histórico de alteração registrado.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- COLUNA DIREITA: DADOS DO PRODUTO E CUSTOS -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">
+                <i class="bi bi-info-circle me-2"></i>Informações Principais
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><strong>SKU:</strong> <span class="font-monospace fw-bold">{{ produto.sku }}</span></li>
+                    <li class="mb-2"><strong>Categoria:</strong> {{ produto.categoria.nome }}</li>
+                    <li class="mb-2">
+                        <strong>Preço de Venda:</strong>
+                        <span class="h5 fw-bold text-success font-monospace">R$ {{ produto.preco|floatformat:2 }}</span>
+                    </li>
+                    <li class="mb-2">
+                        <strong>Estoque Físico:</strong>
+                        <span class="badge {% if produto.estoque > 5 %}bg-success{% elif produto.estoque > 0 %}bg-warning text-dark{% else %}bg-danger{% endif %} font-monospace">
+                            {{ produto.estoque }} unidades
+                        </span>
+                    </li>
+                    <li class="mb-2"><strong>Status:</strong> <span class="badge bg-secondary">{{ produto.get_status_display }}</span></li>
+                    <li class="mb-2"><strong>Status Sincronização:</strong> <span class="badge {{ produto.status_sincronizacao_consolidado_badge }}">{{ produto.status_sincronizacao_consolidado }}</span></li>
+                    <li class="mb-0 text-muted small"><strong>Criado em:</strong> {{ produto.criado_em|date:"d/m/Y H:i" }}</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-calculator me-2"></i>Parâmetros Financeiros
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><strong>Custo de Aquisição (CMV):</strong> <span class="font-monospace">R$ {{ produto.custo_aquisicao|floatformat:2 }}</span></li>
+                    <li class="mb-2"><strong>Custo de Embalagem:</strong> <span class="font-monospace">R$ {{ produto.custo_embalagem|floatformat:2 }}</span></li>
+                    <li class="mb-0">
+                        <strong>Modalidade Full:</strong>
+                        {% if produto.modalidade_full %}
+                            <span class="badge bg-primary"><i class="bi bi-check-lg"></i> Sim (Fulfillment)</span>
+                        {% else %}
+                            <span class="badge bg-light text-dark border">Não (Logística Própria)</span>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL DE CONFIRMAÇÃO GLOBAL -->
+<div class="modal fade" id="modalSyncGlobal" tabindex="-1" aria-labelledby="modalSyncGlobalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title fw-bold" id="modalSyncGlobalLabel">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>Sincronizar Preço e Estoque no Canal
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form method="post" action="{% url 'produto_sincronizar_preco' pk=produto.pk %}">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p class="mb-3">
+                        Gerencie a sincronização de <strong>estoque físico e preço</strong> com os marketplaces para o produto <strong>{{ produto.sku }} — {{ produto.nome }}</strong>.
+                    </p>
+
+                    {% if not anuncios_pendentes_sync %}
+                        <div class="alert alert-info py-4 mb-0 text-center">
+                            <i class="bi bi-check-circle-fill text-success fs-3 d-block mb-2"></i>
+                            <strong>Não há anúncios pendentes de sincronização no momento.</strong>
+                            <div class="small text-muted mt-1">Todos os anúncios vinculados já estão atualizados nos canais ou tiveram o envio cancelado/descartado pelo operador.</div>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info py-2 mb-3 small">
+                            <i class="bi bi-info-circle me-1"></i> Apenas anúncios com pendências de envio ou divergência de cota/preço são exibidos. Selecione os itens desejados e escolha entre <strong>Confirmar Envio</strong> ou <strong>Cancelar / Descartar</strong>.
+                        </div>
+                        <h6 class="fw-bold mb-2">Fila de anúncios com pendência de sincronização:</h6>
+                        <div class="table-responsive border rounded">
+                            <table class="table table-sm table-striped align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 35px;" class="text-center">
+                                            <input type="checkbox" id="selectAllAnuncios" class="form-check-input" checked title="Selecionar / Desmarcar Todos">
+                                        </th>
+                                        <th>Canal / Conta</th>
+                                        <th>ID Externo</th>
+                                        <th>Novo Preço</th>
+                                        <th>Nova Cota</th>
+                                        <th>Status Atual</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for a in anuncios_pendentes_sync %}
+                                        <tr>
+                                            <td class="text-center">
+                                                <input type="checkbox" name="anuncios_selecionados" value="{{ a.pk }}" class="form-check-input check-anuncio" checked>
+                                            </td>
+                                            <td>{{ a.conta.get_canal_display }} ({{ a.conta.apelido_conta }})</td>
+                                            <td><code>{{ a.item_id_externo }}</code></td>
+                                            <td class="font-monospace text-success fw-bold">R$ {{ produto.preco|floatformat:2 }}</td>
+                                            <td class="font-monospace fw-bold">{{ a.calcular_cota_disponivel }} un.</td>
+                                            <td>
+                                                <span class="badge bg-warning text-dark"><i class="bi bi-clock-history me-1"></i>Pendente</span>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                    {% if anuncios_pendentes_sync %}
+                        <div class="d-flex gap-2">
+                            <button type="submit" name="acao" value="cancelar" class="btn btn-outline-danger">
+                                <i class="bi bi-slash-circle me-1"></i> Cancelar / Descartar
+                            </button>
+                            <button type="submit" name="acao" value="enviar" class="btn btn-warning fw-bold">
+                                <i class="bi bi-send-check me-1"></i> Confirmar Envio
+                            </button>
+                        </div>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+    const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+
+    const selectAll = document.getElementById('selectAllAnuncios');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            document.querySelectorAll('.check-anuncio').forEach(cb => cb.checked = selectAll.checked);
+        });
+    }
+});
+</script>
+{% endblock %}
