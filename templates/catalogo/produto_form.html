@@ -1,0 +1,114 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}
+    {% if modo_edicao %}Editar Produto: {{ produto.sku }}{% else %}Novo Produto{% endif %}
+{% endblock %}
+
+{% block page_title %}
+    {% if modo_edicao %}Editar Produto: {{ produto.sku }}{% else %}Novo Produto no Catálogo{% endif %}
+{% endblock %}
+{% block page_subtitle %}Cadastro Mestre e Dados Financeiros do Produto{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar ao Catálogo
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-box-seam me-2 text-primary"></i>Dados Cadastrais do Produto
+            </div>
+            <div class="card-body p-4">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Código SKU *</label>
+                            {{ form.sku }}
+                            {% if form.sku.errors %}<div class="text-danger small mt-1">{{ form.sku.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-8">
+                            <label class="form-label">Nome do Produto *</label>
+                            {{ form.nome }}
+                            {% if form.nome.errors %}<div class="text-danger small mt-1">{{ form.nome.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Loja (Tenant) *</label>
+                            {{ form.loja }}
+                            {% if form.loja.errors %}<div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Categoria *</label>
+                            {{ form.categoria }}
+                            {% if form.categoria.errors %}<div class="text-danger small mt-1">{{ form.categoria.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Descrição Detalhada</label>
+                            {{ form.descricao }}
+                            {% if form.descricao.errors %}<div class="text-danger small mt-1">{{ form.descricao.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <hr class="my-3">
+                        <h6 class="fw-bold text-secondary mb-2">Comercialização, Estoque e Custos</h6>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Preço de Venda (R$) *</label>
+                            {{ form.preco }}
+                            {% if form.preco.help_text %}<small class="text-muted d-block mt-1">{{ form.preco.help_text }}</small>{% endif %}
+                            {% if form.preco.errors %}<div class="text-danger small mt-1">{{ form.preco.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Estoque Físico *</label>
+                            {{ form.estoque }}
+                            {% if form.estoque.help_text %}<small class="text-muted d-block mt-1">{{ form.estoque.help_text }}</small>{% endif %}
+                            {% if form.estoque.errors %}<div class="text-danger small mt-1">{{ form.estoque.errors.0 }}</div>{% endif %}
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Status de Venda</label>
+                            {{ form.status }}
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Custo de Aquisição / CMV (R$)</label>
+                            {{ form.custo_aquisicao }}
+                            {% if form.custo_aquisicao.help_text %}<small class="text-muted d-block mt-1">{{ form.custo_aquisicao.help_text }}</small>{% endif %}
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Custo de Embalagem (R$)</label>
+                            {{ form.custo_embalagem }}
+                            {% if form.custo_embalagem.help_text %}<small class="text-muted d-block mt-1">{{ form.custo_embalagem.help_text }}</small>{% endif %}
+                        </div>
+
+                        <div class="col-md-4 d-flex align-items-center mt-4">
+                            <div class="form-check form-switch">
+                                {{ form.modalidade_full }}
+                                <label class="form-check-label fw-bold" for="{{ form.modalidade_full.id_for_label }}">Modalidade Full / Fulfillment</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                        <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">Cancelar</a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check-lg"></i> Salvar Produto
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

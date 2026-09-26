@@ -1,0 +1,310 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Simulador Promocional — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Simulador Financeiro de Promoções{% endblock %}
+{% block page_subtitle %}Análise de Margem Líquida, Resolução de Frete por Partes e Elasticidade de Volume{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- FORMULÁRIO DE SIMULAÇÃO -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold bg-primary text-white">
+                <i class="bi bi-sliders me-2"></i>Parâmetros da Campanha
+            </div>
+            <div class="card-body p-3">
+                <form id="form-simulador">
+                    {% csrf_token %}
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Produto *</label>
+                        <select name="produto_id" id="produto_id" class="form-select" required>
+                            <option value="">— Selecione um Produto —</option>
+                            {% for p in produtos %}
+                                <option value="{{ p.id }}" data-preco="{{ p.preco }}" data-sku="{{ p.sku }}">
+                                    [{{ p.sku }}] {{ p.nome }} (R$ {{ p.preco|floatformat:2 }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Canal / Regra de Comissão *</label>
+                        <select name="canal" id="canal" class="form-select">
+                            {% for c_val, c_lbl in canais %}
+                                <option value="{{ c_val }}">{{ c_lbl }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold d-flex justify-content-between">
+                            <span>Desconto Promocional</span>
+                            <span id="label-desconto" class="badge bg-primary font-monospace">10%</span>
+                        </label>
+                        <input type="range" class="form-range" min="0" max="50" step="1" value="10" id="desconto_slider">
+                        <input type="number" class="form-control mt-1 font-monospace" min="0" max="100" step="0.5" value="10" id="desconto_pct" name="desconto_pct">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Volume Base de Vendas (un./mês)</label>
+                        <input type="number" class="form-control font-monospace" value="100" min="1" id="volume_mensal" name="volume_mensal">
+                    </div>
+
+                    <button type="button" id="btn-calcular" class="btn btn-success w-100 fw-bold">
+                        <i class="bi bi-calculator"></i> Simular Viabilidade
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAINEL DE RESULTADOS REATIVO -->
+    <div class="col-lg-8">
+        <div id="resultado-placeholder" class="card shadow-sm p-5 text-center text-muted">
+            <i class="bi bi-calculator fs-1 text-secondary mb-3 d-block"></i>
+            <h5>Selecione um produto e clique em "Simular Viabilidade".</h5>
+            <p class="small">O motor apurará a margem de contribuição líquida, taxas do canal e o volume compensatório.</p>
+        </div>
+
+        <div id="resultado-painel" class="d-none">
+            <!-- STATUS CARD -->
+            <div id="status-card" class="card shadow-sm mb-4 border-start border-4">
+                <div class="card-body py-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span id="badge-status" class="badge px-3 py-2 fs-6">STATUS</span>
+                            <h5 id="titulo-status" class="fw-bold mt-2 mb-1">Título do Status</h5>
+                            <p id="msg-diagnostico" class="text-muted small mb-0">Mensagem de diagnóstico</p>
+                        </div>
+                        <div class="text-end">
+                            <small class="text-muted d-block">Desconto Máximo Suportável</small>
+                            <span id="desconto-maximo" class="h4 fw-bold text-primary font-monospace">0.0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COMPARATIVO: ORIGINAL VS PROMOCIONAL -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <div class="card h-100 shadow-sm border-secondary border-opacity-25">
+                        <div class="card-header bg-light fw-bold">Cenário Original</div>
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Preço de Venda:</span>
+                                <strong class="font-monospace" id="orig-preco">R$ 0,00</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Custo Direto (CVu):</span>
+                                <span class="font-monospace" id="orig-cvu">R$ 0,00</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Frete / Taxa Fixa:</span>
+                                <span class="font-monospace" id="orig-frete">R$ 0,00</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Comissão + Imposto:</span>
+                                <span class="font-monospace" id="orig-comissao">R$ 0,00</span>
+                            </div>
+                            <hr class="my-2">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="fw-bold">Margem Unitária (MCU):</span>
+                                <strong class="text-success font-monospace" id="orig-mcu">R$ 0,00</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="fw-bold">Margem Líquida %:</span>
+                                <strong class="badge bg-success font-monospace fs-6" id="orig-ml">0%</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card h-100 shadow-sm border-primary border-opacity-25">
+                        <div class="card-header bg-primary bg-opacity-10 text-primary fw-bold">Cenário Promocional</div>
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Novo Preço:</span>
+                                <strong class="font-monospace text-primary" id="promo-preco">R$ 0,00</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Custo Direto (CVu):</span>
+                                <span class="font-monospace" id="promo-cvu">R$ 0,00</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Frete / Taxa Fixa:</span>
+                                <span class="font-monospace" id="promo-frete">R$ 0,00</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Comissão + Imposto:</span>
+                                <span class="font-monospace" id="promo-comissao">R$ 0,00</span>
+                            </div>
+                            <hr class="my-2">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="fw-bold">Nova Margem (MCU):</span>
+                                <strong class="font-monospace" id="promo-mcu">R$ 0,00</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="fw-bold">Nova Margem Líquida %:</span>
+                                <strong class="badge font-monospace fs-6" id="promo-ml">0%</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ELASTICIDADE E VOLUME META -->
+            <div class="card shadow-sm">
+                <div class="card-header fw-bold bg-light">
+                    <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Elasticidade & Volume de Compensação de Lucro
+                </div>
+                <div class="card-body">
+                    <div class="row text-center g-3">
+                        <div class="col-md-4">
+                            <div class="p-3 border rounded">
+                                <small class="text-muted d-block">Volume Base Atual</small>
+                                <span class="h4 fw-bold font-monospace" id="vol-base">100 un.</span>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="p-3 border rounded">
+                                <small class="text-muted d-block">Volume Meta Necessário</small>
+                                <span class="h4 fw-bold text-primary font-monospace" id="vol-meta">—</span>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="p-3 border rounded">
+                                <small class="text-muted d-block">Aumento de Vendas Exigido</small>
+                                <span class="h4 fw-bold font-monospace" id="vol-delta">—</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const slider = document.getElementById('desconto_slider');
+    const inputDesc = document.getElementById('desconto_pct');
+    const labelDesc = document.getElementById('label-desconto');
+    const btnCalcular = document.getElementById('btn-calcular');
+
+    slider.addEventListener('input', function() {
+        inputDesc.value = this.value;
+        labelDesc.textContent = this.value + '%';
+    });
+
+    inputDesc.addEventListener('input', function() {
+        slider.value = this.value;
+        labelDesc.textContent = this.value + '%';
+    });
+
+    btnCalcular.addEventListener('click', function() {
+        const produtoId = document.getElementById('produto_id').value;
+        if (!produtoId) {
+            alert('Por favor, selecione um produto.');
+            return;
+        }
+
+        const payload = {
+            produto_id: produtoId,
+            canal: document.getElementById('canal').value,
+            desconto_pct: inputDesc.value,
+            volume_mensal: document.getElementById('volume_mensal').value || 100
+        };
+
+        fetch('{% url "simulador_promocional" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.erro) {
+                alert(data.erro);
+                return;
+            }
+
+            document.getElementById('resultado-placeholder').classList.add('d-none');
+            document.getElementById('resultado-painel').classList.remove('d-none');
+
+            // Preenche Cenário Original
+            const orig = data.cenario_original;
+            document.getElementById('orig-preco').textContent = 'R$ ' + orig.preco.toFixed(2);
+            document.getElementById('orig-cvu').textContent = 'R$ ' + data.cvu.toFixed(2);
+            document.getElementById('orig-frete').textContent = 'R$ ' + orig.frete.toFixed(2);
+            document.getElementById('orig-comissao').textContent = 'R$ ' + (orig.comissao + orig.imposto).toFixed(2);
+            document.getElementById('orig-mcu').textContent = 'R$ ' + orig.mcu.toFixed(2);
+            document.getElementById('orig-ml').textContent = orig.margem_liquida_pct.toFixed(1) + '%';
+
+            // Preenche Cenário Promocional
+            const promo = data.cenario_promocional;
+            document.getElementById('promo-preco').textContent = 'R$ ' + promo.preco.toFixed(2);
+            document.getElementById('promo-cvu').textContent = 'R$ ' + data.cvu.toFixed(2);
+            document.getElementById('promo-frete').textContent = 'R$ ' + promo.frete.toFixed(2);
+            document.getElementById('promo-comissao').textContent = 'R$ ' + (promo.comissao + promo.imposto).toFixed(2);
+            document.getElementById('promo-mcu').textContent = 'R$ ' + promo.mcu.toFixed(2);
+            document.getElementById('promo-ml').textContent = promo.margem_liquida_pct.toFixed(1) + '%';
+
+            // Estilização do badge de margem promocional
+            const elPromoMl = document.getElementById('promo-ml');
+            if (promo.mcu <= 0) {
+                elPromoMl.className = 'badge bg-danger font-monospace fs-6';
+            } else if (promo.margem_liquida_pct < 15) {
+                elPromoMl.className = 'badge bg-warning text-dark font-monospace fs-6';
+            } else {
+                elPromoMl.className = 'badge bg-success font-monospace fs-6';
+            }
+
+            // Status Card
+            const statusCard = document.getElementById('status-card');
+            const badgeStatus = document.getElementById('badge-status');
+            const tituloStatus = document.getElementById('titulo-status');
+            const msgDiag = document.getElementById('msg-diagnostico');
+            msgDiag.textContent = data.mensagem_diagnostico;
+            document.getElementById('desconto-maximo').textContent = data.desconto_maximo_suportavel_pct.toFixed(1) + '%';
+
+            if (data.status_viabilidade === 'VIAVEL') {
+                statusCard.className = 'card shadow-sm mb-4 border-start border-4 border-success';
+                badgeStatus.className = 'badge bg-success px-3 py-2 fs-6';
+                badgeStatus.textContent = 'PROMOÇÃO VIÁVEL';
+                tituloStatus.textContent = 'Campanha Aprovada para Execução';
+            } else if (data.status_viabilidade === 'ALERTA_ELASTICIDADE') {
+                statusCard.className = 'card shadow-sm mb-4 border-start border-4 border-warning';
+                badgeStatus.className = 'badge bg-warning text-dark px-3 py-2 fs-6';
+                badgeStatus.textContent = 'ALERTA DE ELASTICIDADE';
+                tituloStatus.textContent = 'Risco de Margem ou Volume Excessivo';
+            } else {
+                statusCard.className = 'card shadow-sm mb-4 border-start border-4 border-danger';
+                badgeStatus.className = 'badge bg-danger px-3 py-2 fs-6';
+                badgeStatus.textContent = 'PREJUÍZO DIRETO';
+                tituloStatus.textContent = 'Campanha Inviável (Margem Negativa)';
+            }
+
+            // Elasticidade
+            document.getElementById('vol-base').textContent = orig.volume_base + ' un.';
+            if (promo.volume_meta) {
+                document.getElementById('vol-meta').textContent = promo.volume_meta + ' un.';
+                document.getElementById('vol-delta').textContent = '+' + promo.delta_volume_pct.toFixed(1) + '%';
+            } else {
+                document.getElementById('vol-meta').textContent = 'Inalcançável';
+                document.getElementById('vol-delta').textContent = 'Prejuízo';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Erro ao calcular simulação promocional.');
+        });
+    });
+});
+</script>
+{% endblock %}

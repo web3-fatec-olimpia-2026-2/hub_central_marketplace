@@ -1,0 +1,62 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Entrar — Hub Marketplaces{% endblock %}
+{% block page_title %}Autenticação{% endblock %}
+{% block page_subtitle %}Acesse sua conta no Hub de Marketplaces{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-3">
+    <div class="col-md-6 col-lg-5 col-xl-4">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-primary text-white text-center py-3">
+                <h5 class="mb-0 fw-bold"><i class="bi bi-shield-lock-fill me-2"></i>Acesso ao Sistema</h5>
+            </div>
+            <div class="card-body p-4">
+                {% if login_debug %}
+                    <div class="alert alert-warning py-2 px-3 small border-warning d-flex align-items-center gap-2 mb-3 shadow-sm">
+                        <span>⚠️ Modo Debug: Credenciais de teste injetadas automaticamente (LoginDebug=True)</span>
+                    </div>
+                {% endif %}
+
+                {% if form.errors %}
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>Usuário ou senha incorretos.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endif %}
+
+                <form method="post" action="{% url 'login' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ next|default:'/' }}">
+
+                    <div class="mb-3">
+                        <label for="id_username" class="form-label">Usuário</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light text-muted"><i class="bi bi-person"></i></span>
+                            <input type="text" name="username" autofocus autocapitalize="none" autocomplete="username" maxlength="150" required id="id_username" class="form-control" placeholder="Seu nome de usuário" value="{% if form.username.value %}{{ form.username.value }}{% elif login_debug %}{{ dev_debug_user }}{% endif %}">
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="id_password" class="form-label">Senha</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light text-muted"><i class="bi bi-key"></i></span>
+                            <input type="password" name="password" autocomplete="current-password" required id="id_password" class="form-control" placeholder="Sua senha secreta" value="{% if login_debug %}{{ dev_debug_pass }}{% endif %}">
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary py-2 fw-semibold justify-content-center">
+                            <i class="bi bi-box-arrow-in-right me-1"></i>Entrar no Hub
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="card-footer bg-light text-center py-3 text-muted small">
+                Multi-Tenant Hub &bull; Fonte Única da Verdade
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

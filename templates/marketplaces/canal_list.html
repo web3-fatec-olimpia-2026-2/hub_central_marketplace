@@ -1,0 +1,153 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Hub de Marketplaces — Canais e Conectores{% endblock %}
+
+{% block page_title %}Hub Multicanal de Marketplaces{% endblock %}
+{% block page_subtitle %}
+    {% if is_dev %}
+        Gestão global de conectores, conexões e contas de marketplaces
+    {% else %}
+        Contas e canais integrados para a loja {{ minha_loja.nome }}
+    {% endif %}
+{% endblock %}
+
+{% block toolbar_actions %}
+    {% if pode_configurar %}
+        <a href="{% url 'conta_marketplace_create' %}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> Conectar Nova Conta
+        </a>
+    {% endif %}
+    <a href="{% url 'log_sincronizacao_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-journal-text"></i> Logs de Sincronização
+    </a>
+{% endblock %}
+
+{% block content %}
+<!-- FILTROS -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-body py-3">
+        <form method="get" class="row g-2 align-items-center">
+            {% if is_dev %}
+                <div class="col-md-5">
+                    <select name="loja" class="form-select">
+                        <option value="">Todas as Lojas</option>
+                        {% for l in lojas_disponiveis %}
+                            <option value="{{ l.id }}" {% if loja_filtro == l.id|stringformat:"s" %}selected{% endif %}>{{ l.nome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+            <div class="col-md-5">
+                <select name="canal" class="form-select">
+                    <option value="">Todos os Canais</option>
+                    {% for c_val, c_lbl in canais_disponiveis %}
+                        <option value="{{ c_val }}" {% if canal_filtro == c_val %}selected{% endif %}>{{ c_lbl }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-flex gap-1">
+                <button type="submit" class="btn btn-secondary w-100"><i class="bi bi-funnel"></i> Filtrar</button>
+                {% if canal_filtro or loja_filtro %}
+                    <a href="{% url 'canal_list' %}" class="btn btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- GRADE DE CANAIS E CONTAS -->
+<div class="row g-4 mb-4">
+    {% for conta in contas %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100 shadow-sm border-top border-4 {% if conta.canal == 'mercadolivre' %}border-warning{% elif conta.canal == 'shopee' %}border-danger{% elif conta.canal == 'magalu' %}border-primary{% else %}border-dark{% endif %}">
+                <div class="card-body d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <span class="badge {% if conta.canal == 'mercadolivre' %}bg-warning text-dark{% elif conta.canal == 'shopee' %}bg-danger{% elif conta.canal == 'magalu' %}bg-primary{% else %}bg-dark{% endif %} px-2 py-1 mb-1">
+                                {{ conta.get_canal_display }}
+                            </span>
+                            <h5 class="fw-bold mb-0">{{ conta.apelido_conta }}</h5>
+                            {% if is_dev %}<small class="text-muted d-block mt-1"><i class="bi bi-shop"></i> {{ conta.loja.nome }}</small>{% endif %}
+                        </div>
+                        <div>
+                            {% if conta.access_token %}
+                                <span class="badge bg-success"><i class="bi bi-shield-check"></i> Conectado</span>
+                            {% else %}
+                                <span class="badge bg-danger"><i class="bi bi-shield-x"></i> Desconectado</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="small text-muted mb-3 flex-grow-1">
+                        <div><strong>Seller ID:</strong> <span class="font-monospace fw-bold">{{ conta.seller_id_externo|default:"Não vinculado" }}</span></div>
+                        <div><strong>Última Conexão:</strong> <span>{{ conta.ultima_sincronizacao|date:"d/m/Y H:i:s"|default:"—" }}</span></div>
+                        <div><strong>Criptografia:</strong> <span class="text-success"><i class="bi bi-lock-fill"></i> Ativa (Fernet)</span></div>
+                    </div>
+
+                    <!-- BOTÃO PRINCIPAL DE CONEXÃO OAUTH (QUANDO DESCONECTADO) -->
+                    {% if not conta.access_token and conta.canal == 'mercadolivre' and pode_configurar %}
+                        <div class="mb-3">
+                            <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-warning btn-sm w-100 fw-bold">
+                                <i class="bi bi-box-arrow-up-right me-1"></i> Conectar com Mercado Livre
+                            </a>
+                        </div>
+                    {% endif %}
+
+                    <div class="d-flex justify-content-between align-items-center pt-3 border-top mt-auto">
+                        {% if conta.access_token %}
+                            <div class="d-flex gap-1">
+                                <form method="post" action="{% url 'conta_marketplace_testar' pk=conta.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-info" title="Testar Conexão">
+                                        <i class="bi bi-arrow-repeat"></i> Testar
+                                    </button>
+                                </form>
+                                <form method="post" action="{% url 'anuncio_importar' pk=conta.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-primary" title="Importar Catálogo de Anúncios do Canal">
+                                        <i class="bi bi-cloud-arrow-down"></i> Importar
+                                    </button>
+                                </form>
+                            </div>
+                        {% else %}
+                            <span class="text-muted small"><i class="bi bi-exclamation-circle text-warning me-1"></i>Requer Autorização</span>
+                        {% endif %}
+
+                        {% if pode_configurar %}
+                            <div class="btn-group btn-group-sm">
+                                {% if conta.ultima_sincronizacao and conta.canal == 'mercadolivre' %}
+                                    <a href="{% url 'mercadolivre_autorizar' pk=conta.pk %}" class="btn btn-outline-warning" title="Reconectar Conta">
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    </a>
+                                {% endif %}
+                                <a href="{% url 'conta_marketplace_update' pk=conta.pk %}" class="btn btn-outline-primary" title="Editar Configurações">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <a href="{% url 'conta_marketplace_delete' pk=conta.pk %}" class="btn btn-outline-danger" title="Excluir Conta">
+                                    <i class="bi bi-trash"></i>
+                                </a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <div class="col-12">
+            <div class="card p-5 text-center shadow-sm">
+                <div class="text-muted">
+                    <i class="bi bi-diagram-3 fs-1 text-secondary mb-3 d-block"></i>
+                    <h5>Nenhuma conta de marketplace cadastrada.</h5>
+                    <p class="small">Conecte contas do Mercado Livre, Shopee, Magalu ou Amazon para sincronização multicanal de estoque e preços.</p>
+                    {% if pode_configurar %}
+                        <a href="{% url 'conta_marketplace_create' %}" class="btn btn-primary mt-2">
+                            <i class="bi bi-plus-circle"></i> Conectar Primeira Conta
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}

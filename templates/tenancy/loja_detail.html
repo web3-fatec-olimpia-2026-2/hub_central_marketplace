@@ -1,0 +1,123 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}{{ loja.nome }} — Hub Marketplaces{% endblock %}
+
+{% block page_title %}{{ loja.nome }}{% endblock %}
+{% block page_subtitle %}Visão Consolidada do Tenant e Feature Flags{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'loja_modulos' slug=loja.slug %}" class="btn btn-warning">
+        <i class="bi bi-toggles"></i> Gerenciar Módulos
+    </a>
+    <a href="{% url 'loja_update' slug=loja.slug %}" class="btn btn-primary">
+        <i class="bi bi-pencil"></i> Editar Loja
+    </a>
+    <a href="{% url 'loja_list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Voltar
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- COLUNA PRINCIPAL: DADOS E MÓDULOS -->
+    <div class="col-lg-8">
+        <!-- STATUS DOS MÓDULOS -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span class="fw-bold"><i class="bi bi-toggles text-primary me-2"></i>Módulos e Feature Flags</span>
+                <a href="{% url 'loja_modulos' slug=loja.slug %}" class="btn btn-sm btn-outline-warning">
+                    <i class="bi bi-pencil"></i> Alternar Módulos
+                </a>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {% for mod in modulos %}
+                        <div class="col-md-6">
+                            <div class="p-3 border rounded d-flex justify-content-between align-items-center {% if mod.ativo %}bg-success bg-opacity-10 border-success border-opacity-25{% else %}bg-light border-secondary border-opacity-25{% endif %}">
+                                <div>
+                                    <h6 class="fw-bold mb-1">{{ mod.get_modulo_display }}</h6>
+                                    <small class="text-muted">Chave: <code>{{ mod.modulo }}</code></small>
+                                </div>
+                                <div>
+                                    {% if mod.ativo %}
+                                        <span class="badge bg-success"><i class="bi bi-check-circle"></i> Ativo</span>
+                                    {% else %}
+                                        <span class="badge bg-danger"><i class="bi bi-x-circle"></i> Inativo</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- USUÁRIOS VINCULADOS -->
+        <div class="card shadow-sm">
+            <div class="card-header fw-bold">
+                <i class="bi bi-people text-primary me-2"></i>Usuários da Loja ({{ usuarios.count }})
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Usuário</th>
+                            <th>Nome</th>
+                            <th>Papel RBAC</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for perf in usuarios %}
+                            <tr>
+                                <td><strong>{{ perf.usuario.username }}</strong></td>
+                                <td>{{ perf.usuario.get_full_name|default:"—" }}</td>
+                                <td><span class="badge badge-role-{{ perf.papel|lower }}">{{ perf.get_papel_display }}</span></td>
+                                <td>
+                                    {% if perf.usuario.is_active %}
+                                        <span class="badge bg-success">Ativo</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Inativo</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-center py-3 text-muted">Nenhum usuário cadastrado nesta loja.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- COLUNA LATERAL: DADOS CADASTRAIS -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-bold">
+                <i class="bi bi-info-circle me-2"></i>Ficha do Tenant
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2"><strong>CNPJ:</strong> <span class="font-monospace">{{ loja.cnpj }}</span></li>
+                    <li class="mb-2"><strong>Inscrição Estadual:</strong> {{ loja.inscricao_estadual|default:"Isento" }}</li>
+                    <li class="mb-2"><strong>E-mail:</strong> {{ loja.email|default:"—" }}</li>
+                    <li class="mb-2"><strong>Telefone:</strong> {{ loja.telefone|default:"—" }}</li>
+                    <li class="mb-2"><strong>Endereço:</strong> {{ loja.endereco_completo }}</li>
+                    <li class="mb-2">
+                        <strong>Status:</strong>
+                        {% if loja.ativo %}
+                            <span class="badge bg-success">Ativa</span>
+                        {% else %}
+                            <span class="badge bg-danger">Inativa</span>
+                        {% endif %}
+                    </li>
+                    <li class="mb-0 text-muted small"><strong>Criado em:</strong> {{ loja.criado_em|date:"d/m/Y H:i" }}</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

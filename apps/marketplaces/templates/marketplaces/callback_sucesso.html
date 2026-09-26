@@ -1,0 +1,61 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Mercado Livre Conectado com Sucesso — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Autenticação Concluída{% endblock %}
+{% block page_subtitle %}Integração OAuth 2.0 com o Mercado Livre estabelecida com segurança{% endblock %}
+
+{% block extra_head %}
+<meta http-equiv="refresh" content="3;url={% url 'core:home' %}">
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center my-5">
+    <div class="col-md-8 col-lg-6">
+        <div class="card shadow-lg border-0 text-center p-4">
+            <div class="card-body">
+                <div class="mb-3">
+                    <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+                </div>
+                
+                <h3 class="fw-bold text-dark mb-2">Mercado Livre Conectado com Sucesso!</h3>
+                <p class="text-muted mb-4">
+                    Sua conta foi autorizada com sucesso. Você será redirecionado para a página inicial em <strong id="contador">3</strong> segundos...
+                </p>
+
+                <div class="card bg-light border-0 text-start p-3 mb-4">
+                    <ul class="list-unstyled mb-0 small">
+                        <li class="mb-2"><strong><i class="bi bi-tag text-primary me-1"></i> Apelido da Conta:</strong> {{ conta.apelido_conta|default:apelido }}</li>
+                        <li class="mb-2"><strong><i class="bi bi-shop text-primary me-1"></i> Loja (Tenant):</strong> {{ conta.loja.nome|default:loja.nome }}</li>
+                        <li class="mb-2"><strong><i class="bi bi-person-badge text-primary me-1"></i> Seller ID Conectado:</strong> <span class="font-monospace">{{ conta.seller_id_externo|default:seller_id }}</span></li>
+                        <li><strong><i class="bi bi-shield-lock text-success me-1"></i> Criptografia:</strong> Fernet AES-128 (Tokens protegidos em repouso)</li>
+                    </ul>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <a href="{% url 'core:home' %}" class="btn btn-primary btn-lg fw-bold">
+                        <i class="bi bi-house-door me-1"></i> Ir para a Página Inicial agora
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+  let segundos = 3;
+  const el = document.getElementById('contador');
+  const timer = setInterval(function() {
+    segundos--;
+    if (el) el.textContent = segundos;
+    if (segundos <= 0) {
+      clearInterval(timer);
+    }
+  }, 1000);
+
+  setTimeout(function() {
+    window.location.href = "{% url 'core:home' %}";
+  }, 3000);
+</script>
+{% endblock %}

@@ -1,0 +1,34 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Acesso Negado (403) — Hub Marketplaces{% endblock %}
+
+{% block page_title %}Acesso Restrito / Módulo Inativo{% endblock %}
+{% block page_subtitle %}Controle de Acesso e Feature Flags por Tenant{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-md-8 col-lg-6">
+        <div class="card border-warning shadow-sm">
+            <div class="card-body text-center p-5">
+                <div class="mb-4">
+                    <i class="bi bi-shield-slash-fill text-warning" style="font-size: 4rem;"></i>
+                </div>
+                <h2 class="h4 fw-bold text-danger mb-3">Acesso Não Autorizado ou Módulo Não Habilitado</h2>
+                <p class="text-muted mb-4">
+                    {% if exception %}
+                        {{ exception }}
+                    {% else %}
+                        Sua loja não possui este módulo ativo ou seu perfil de acesso não possui permissões suficientes para esta funcionalidade.
+                    {% endif %}
+                </p>
+                <div class="d-flex justify-content-center gap-2">
+                    <a href="{% url 'home' %}" class="btn btn-primary">
+                        <i class="bi bi-house-door"></i> Voltar ao Início
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

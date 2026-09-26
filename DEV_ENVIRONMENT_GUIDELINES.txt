@@ -1,0 +1,461 @@
+⚠️ AVISO DE ESCOPO (revisão aplicada nesta versão)
+Este documento é o registro histórico do processo de configuração original que deu origem às
+regras operacionais do projeto. As regras vinculantes e atualizadas para qualquer agente de IA
+estão em AGENT_INSTRUCTIONS_DJANGO.md — em caso de divergência entre os dois documentos, o .md
+prevalece. Este arquivo NÃO deve ser usado como fonte de instruções operacionais por agentes
+automatizados; serve apenas como referência narrativa para humanos.
+
+📝 Correções aplicadas nesta revisão:
+
+1) O comando de identidade Git na Parte 2 (abaixo) foi alinhado à política de e-mail mascarado
+   no-reply, evitando a contradição com o checklist de segurança mais adiante neste mesmo
+   documento (que já cobrava o alias mascarado).
+2) Adicionado o cabeçalho "Passo 2.3" (ausente na versão original) antes da instalação do
+   Django e criação do projeto, mantendo a numeração de passos consistente com o restante
+   do documento.
+3) Os valores de SECRET_KEY nos exemplos de .env foram marcados explicitamente como
+   placeholders a substituir, com instrução para gerar uma chave exclusiva por projeto em
+   vez de reaproveitar o exemplo.
+4) Atualizada a topologia de diretórios para acomodar a estrutura de ecossistema multi-stack
+   (~/projetos/django/<nome_do_projeto>/), alinhando o roteiro narrativo à versão 2.2 do MD.
+
+-----
+
+Estrutura de isolamento entre Windows e WSL para desenvolvimento.
+
+Para o Django conseguir ler os dados desse arquivo .env, você precisará de uma biblioteca como o django-environ.
+
+-----
+
+Instalação.
+
+🌐 PARTE 1: Configuração no Host (No PowerShell do Windows)
+Abra o PowerShell como Administrador para instalar a base do sistema e as ferramentas de interface do Windows:
+
+# 1. Instalar o WSL com Ubuntu e verificar
+wsl --install -d Ubuntu
+wsl --version
+
+# 2. Instalar o Git no Windows (Útil para projetos locais do Windows)
+winget install --id Git.Git -e --source winget
+git --version
+
+# 3. Instalar o Antigravity CLI no Windows
+irm https://antigravity.google/cli/install.ps1 | iex
+antigravity --version
+
+# 4. Instalar o VS Code no Windows e a extensão oficial do WSL
+winget install --id Microsoft.VisualStudioCode -e --source winget
+code --version
+code --install-extension ms-vscode-remote.remote-wsl
+
+
+🐧 PARTE 2: Configuração e Desenvolvimento (No Terminal do Ubuntu/WSL)
+A partir daqui, feche o PowerShell. Abra o aplicativo Ubuntu no seu menu iniciar do Windows. 
+Todos os comandos abaixo devem ser rodados dentro do terminal Linux.
+
+Passo 2.1: Instalação das ferramentas nativas no Linux
+
+# 1. Atualizar o sistema e instalar Python, PIP, Venv, compiladores e o Git do Linux
+sudo apt update && sudo apt upgrade -y
+sudo apt install python3 python3-pip python3-venv python3-dev build-essential git -y
+
+# 2. Configurar a identidade do seu Git no Linux (Obrigatório para fazer Commits)
+# ATENÇÃO (correção aplicada): use o alias mascarado no-reply do GitHub, nunca um e-mail
+# pessoal — obtenha o seu em GitHub > Settings > Emails > Keep my email address private.
+# Formato do alias: ID+seu-usuario@users.noreply.github.com
+git config --global user.name "Seu Nome de Usuário GitHub"
+git config --global user.email "SEU_ID+seu-usuario@users.noreply.github.com"
+
+Passo 2.2: Criando a estrutura do projeto Django no Linux/WSL
+Navegue até a pasta dedicada ao ecossistema Django dentro do seu diretório home:
+
+# 3. Criar a pasta do seu projeto dentro do ecossistema Django e entrar nela
+mkdir -p ~/projetos/django/meu_projeto_django
+cd ~/projetos/django/meu_projeto_django
+
+# 4. Criar o Ambiente Virtual (.venv) usando o Python do Linux
+python3 -m venv .venv
+
+# 5. Ativar o ambiente virtual no Linux
+source .venv/bin/activate
+
+# (O seu terminal agora mostrará (.venv) no início da linha)
+
+---
+
+Passo 2.3: Instalação do Django e Criação do Projeto
+
+# 6. Atualizar o gerenciador de pacotes interno e instalar o Django + django-environ
+pip install --upgrade pip
+pip install django django-environ
+
+---
+
+# 7. Criar o projeto Django (Isso vai gerar o settings.py automaticamente)
+
+django-admin startproject meu_site .
+
+# ⚠️ NOTA: O ponto "." no final é crucial. Ele diz para o Django criar 
+# os arquivos direto na raiz atual, mantendo a estrutura limpa que planejamos.
+
+python -m django --version
+
+
+Passo 2.4: Segurança, Git e Requirements (Na raiz do projeto)
+
+# 8. Criar o arquivo .gitignore completo
+cat << 'EOF' > .gitignore
+.venv/
+.env
+*.pyc
+__pycache__/
+db.sqlite3
+EOF
+
+# Verificar se gravou corretamente
+cat .gitignore
+
+# Criar o arquivo .env físico com valores iniciais
+# ATENÇÃO (correção aplicada): substitua o valor de SECRET_KEY abaixo por uma chave gerada
+# aleatoriamente para ESTE projeto — nunca reaproveite o valor de exemplo. Gere com:
+# python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+cat << 'EOF' > .env
+SECRET_KEY=SUBSTITUA_POR_UMA_CHAVE_UNICA_GERADA_LOCALMENTE
+DEBUG=True
+EOF
+
+# 9. Gerar o arquivo requirements.txt na raiz do projeto
+pip freeze > requirements.txt
+
+Passo 2.5: Abrindo o projeto no VS Code do Windows
+
+code .
+
+🛠️ PARTE 3: Integração do django-environ no Código
+Com o VS Code aberto através do WSL, 
+navegue até o arquivo gerado automaticamente meu_site/settings.py e substitua o bloco do topo pelo código abaixo:
+
+---
+import environ
+from pathlib import Path
+
+# Define a raiz do projeto (onde está o arquivo .env)
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Inicializa o leitor de variáveis de ambiente com tipo booleano padrão para o DEBUG
+env = environ.Env(
+    DEBUG=(bool, False)
+)
+
+# Faz a leitura do arquivo .env localizado na raiz do projeto
+environ.Env.read_env(BASE_DIR / '.env')
+
+# Substitua as linhas originais do Django por estas que lêem o arquivo oculto de forma tipada:
+SECRET_KEY = env('SECRET_KEY')
+DEBUG = env.bool('DEBUG', default=False)
+
+---
+
+🌐 PARTE 4: Inicialização do Servidor
+
+Com o ambiente virtual ativo (.venv) no terminal, execute estes dois comandos:
+
+# Executar as migrações iniciais do banco de dados padrão (SQLite)
+python manage.py migrate
+
+# Ligar o servidor de desenvolvimento do Django
+python manage.py runserver
+
+---
+
+💡 Últimas dicas de sobrevivência para o dia a dia com esse roteiro:
+
+Próximos Projetos: Quando você for criar um segundo ou terceiro projeto no futuro, você pulará completamente a PARTE 1. 
+Bastará começar direto na PARTE 2, alterando apenas o nome da pasta no comando mkdir sob ~/projetos/django/ (Passo 3).
+
+Sempre ative o .venv: Lembre-se de que toda vez que você fechar o terminal e voltar a programar no dia seguinte, 
+o primeiro comando ao entrar na pasta do projeto deve ser obrigatoriamente:
+
+source .venv/bin/activate
+
+---
+
+
+📊 Como ficou o seu mapa de isolamento real agora:
+
+
+💻 Seu Computador (Windows Host)
+ ├── 🛠️ Git Windows (Isolado)
+ ├── 🚀 Antigravity CLI Windows (Isolado)
+ └── 🪟 VS Code (Apenas a interface visual / Cliente)
+      │
+      └── 🌁 PONTE DO WSL (Extensão conecta via rede interna)
+           │
+           └── 🐧 Ambiente WSL 2 (Ubuntu Virtualizado)
+                ├── 🐍 Python 3 Global do Linux (O motor)
+                └── 📂 ~/projetos/
+                     └── 📂 django/ (Ecossistema Django)
+                          └── 📂 meu_projeto_django/ (Pasta do Projeto)
+                               ├── 📦 .venv/ (Guarda o Django e o django-environ do Linux)
+                               ├── 📄 .env (Guarda SECRET_KEY e DEBUG sem expor no código)
+                               ├── 📄 .gitignore (Ignora .venv e .env no Git)
+                               ├── 📄 requirements.txt (Lista de pacotes gerada no Linux)
+                               ├── 📄 manage.py (Script de controle do Django)
+                               └── 📂 meu_site/ (Pasta de configurações do seu código)
+                                    └── 📄 settings.py (Lê o .env usando o django-environ)
+
+...
+
+
+Para clonar um projeto existente do Git mantendo essa mesma estrutura de isolamento (Windows/WSL), o fluxo muda um pouco porque o código do projeto já existe e vem do repositório. Você não precisa rodar o django-admin nem configurar o .gitignore do zero, mas precisará recriar os arquivos locais ocultos (.venv e .env) que foram barrados pelo Git por segurança. Aqui está o roteiro complementar focado exclusivamente em clonagem:
+
+📥 Roteiro para Clonar Projetos Django no WSL
+🐧 No Terminal do Ubuntu/WSL
+Abra o aplicativo Ubuntu no menu iniciar do Windows. 
+
+Todos os comandos abaixo devem ser executados no terminal Linux.
+
+Passo 1: Entrar na pasta do ecossistema Django e clonar
+Navegue até o diretório do ecossistema Django e baixe o repositório desejado (substitua a URL pela do seu projeto):
+
+# 1. Ir para a pasta do ecossistema Django
+cd ~/projetos/django
+
+# 2. Clonar o projeto (Isso criará automaticamente a pasta Django_projeto_XYZ)
+git clone https://github.com/usuario/Django_projeto_XYZ.git
+
+# 3. Entrar na pasta recém-criada pelo Git
+cd Django_projeto_XYZ
+
+
+Passo 2: Recriar o Ambiente Virtual Local
+Como a pasta .venv nunca vai para o GitHub, você precisa construir uma nova versão dela dentro desta máquina Linux:
+
+# 4. Criar o Ambiente Virtual local usando o Python do Linux
+python3 -m venv .venv
+
+# 5. Ativar o ambiente virtual
+source .venv/bin/activate
+
+
+Passo 3: Instalar as Dependências do Projeto
+Em vez de instalar os pacotes manualmente um a um, você usará o arquivo requirements.txt que veio no repositório para baixar tudo nas versões exatas:
+
+# 6. Atualizar o pip e instalar todos os pacotes da lista
+pip install --upgrade pip
+pip install -r requirements.txt
+
+
+Passo 4: Criar o arquivo .env local
+
+O arquivo .env original também foi barrado pelo Git para não expor senhas. 
+
+Você precisa criar um arquivo novo na raiz deste projeto clonado:
+
+# ATENÇÃO (correção aplicada): antes de preencher os valores, verifique se existe um
+# arquivo .env.example na raiz do projeto — ele lista os nomes das variáveis exigidas.
+# Gere uma SECRET_KEY nova e exclusiva para este clone (nunca reaproveite o exemplo):
+# python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+
+# 7. Criar o arquivo .env físico local
+cat << 'EOF' > .env
+SECRET_KEY=SUBSTITUA_POR_UMA_CHAVE_UNICA_GERADA_LOCALMENTE
+DEBUG=True
+EOF
+
+# NOTA: Se o criador do projeto tiver deixado variáveis extras (como DB_PASSWORD),
+# você precisará adicioná-las aqui também (verifique o .env.example, se existir).
+
+
+Passo 5: Abrir no VS Code e Rodar o Servidor
+
+# 8. Abrir o projeto no VS Code do Windows conectado ao WSL
+code .
+
+# 9. Executar as migrações locais para o banco de dados (SQLite)
+python manage.py migrate
+
+# 10. Ligar o servidor de desenvolvimento
+python manage.py runserver
+
+🔍 Resumo visual de como a clonagem funciona na prática:
+
+☁️ GitHub (Contém apenas o código puro)
+ │    ├── 📂 meu_site/ (Código Django)
+ │    ├── 📄 manage.py
+ │    └── 📄 requirements.txt (Receita de quais pacotes instalar)
+ │
+ ⬇️ (git clone em ~/projetos/django/)
+ │
+🐧 Seu Ambiente WSL 2 (Gera o que estava oculto localmente)
+      ├── 📦 .venv/ (Criado localmente pelo Passo 4 e alimentado pelo Passo 6)
+      └── 📄 .env (Criado localmente pelo Passo 7 para suas credenciais)
+
+Como os projetos que você vai clonar já possuem a PARTE 3 (as linhas do django-environ no topo do settings.py), 
+assim que o passo 10 rodar, o servidor vai ler o seu .env local imediatamente!
+
+---
+
+🌿 PARTE 5: Rotina Diária de Desenvolvimento e Controle Git (Branching, Commits e Sync)
+
+Utilize este fluxo contínuo para gerenciar seu trabalho diário com segurança, garantindo que tarefas em andamento sejam preservadas e novas tarefas iniciem a partir do código mais recente.
+
+---
+
+Passo 5.1: Início do Dia — Identificação e Preparação do Ambiente
+
+Toda vez que abrir o terminal para programar, siga estes 3 comandos iniciais:
+
+# 1. Entrar na pasta do projeto e ativar o ambiente virtual
+cd ~/projetos/django/meu_projeto_django
+source .venv/bin/activate
+
+# 2. Verificar o status atual e em qual branch você está
+git status
+git branch
+
+# 3. Decidir o fluxo de trabalho do dia (Cenário A ou Cenário B abaixo):
+
+
+======================================================================
+CENÁRIO A: Retomando uma tarefa em andamento (Mesma branch de ontem)
+======================================================================
+
+Se você já estava trabalhando em uma branch (ex: feat/modulo-produtos) e a funcionalidade ainda não acabou:
+
+# 1. Certifique-se de estar na sua branch de trabalho
+git checkout feat/modulo-produtos
+
+# 2. (Opcional, mas recomendado) Trazer novidades que a equipe subiu na main sem sair da sua branch
+git pull origin main
+
+# 3. Abra o editor e continue programando normalmente
+code .
+
+
+======================================================================
+CENÁRIO B: Iniciando uma funcionalidade NOVA do zero
+======================================================================
+
+Se a tarefa anterior já foi finalizada ou você está começando um recurso novo:
+
+# 1. Voltar para a main limpa
+git checkout main
+
+# 2. Sincronizar com as últimas alterações do repositório remoto
+git pull origin main
+
+# 3. Criar e alternar para a nova branch seguindo o padrão Conventional Branches:
+#    (feat/, fix/, refactor/, style/, docs/, test/, chore/)
+git switch -c feat/modulo-produtos
+
+# 4. Abra o editor para começar a programar
+code .
+
+
+---
+
+Passo 5.2: Durante o Dia e Fim de Expediente — Staging e Commits Semânticos
+
+Sempre que concluir uma etapa lógica ou ao final do dia de trabalho (para fazer o salvamento diário):
+
+# 1. Verificar os arquivos modificados
+git status
+
+# 2. Revisar as alterações feitas
+git diff
+
+# 3. Adicionar as alterações à área de preparação (staging)
+git add .
+
+# ⚠️ Verificação de segurança: rode "git status" e confirme que .env e .venv NÃO constam na lista.
+
+# 4. Registrar o commit seguindo o padrão Conventional Commits:
+#    Estrutura: tipo(escopo-opcional): descrição no imperativo
+git commit -m "feat(produtos): implementa listagem e filtro de busca"
+
+
+---
+
+Passo 5.3: Envio para o Repositório Remoto (Push / Backup Diário)
+
+Envie seu progresso para o GitHub para manter o código seguro na nuvem:
+
+# Se for o primeiro envio desta branch para o GitHub:
+git push -u origin feat/modulo-produtos
+
+# Nos envios dos dias seguintes na mesma branch (salvamento diário):
+git push
+
+
+---
+
+Passo 5.4: Conclusão da Funcionalidade, Pull Request e Limpeza
+
+Execute este passo APENAS quando a funcionalidade da branch estiver 100% pronta e testada:
+
+1. Acesse o GitHub no navegador e abra um **Pull Request (PR)** da sua branch (`feat/modulo-produtos`) para a `main`.
+2. Revise e confirme o **Merge** do Pull Request no GitHub.
+3. No terminal WSL, sincronize o ambiente local e remova a branch concluída:
+
+# 1. Retorne para a branch principal
+git checkout main
+
+# 2. Puxe a versão final integrada
+git pull origin main
+
+# 3. Exclua a branch de trabalho local que já foi mesclada
+git branch -d feat/modulo-produtos
+
+# 4. Sincronizar referências locais com o GitHub (remove ramos já deletados remotamente)
+git fetch --prune
+
+---
+
+
+Checklist de Segurança e Validação de Ambiente
+
+1. Ao Iniciar um Projeto Novo (Setup Inicial)
+
+Isolamento de Diretório: Confirmar se a pasta do projeto está sob o ecossistema Django no Linux (~/projetos/django/<nome_do_projeto>/) e não solta na raiz ou dentro de /mnt/c/ para manter a performance e permissões nativas.
+
+Ambiente Virtual Ativo: Certificar-se de que o .venv foi criado e ativado (source .venv/bin/activate) antes de rodar qualquer pip install.
+
+Proteção do .gitignore:
+
+Verificar se .env, .venv/, *.pyc, __pycache__/ e db.sqlite3 estão listados no .gitignore antes do primeiro commit.
+
+Executar git status para confirmar que nenhum arquivo confidencial ou binário está listado em verde (staged) ou vermelho (untracked).
+
+Configuração de Variáveis de Ambiente:
+
+Criar o arquivo .env local com chaves temporárias de desenvolvimento (SECRET_KEY aleatória e DEBUG=True).
+
+No settings.py, garantir a conversão tipada de booleanos: DEBUG = env.bool('DEBUG', default=False).
+
+Nunca deixar strings hardcoded de senhas ou tokens no settings.py.
+
+Identidade do Git: Checar com git config user.email se o e-mail ativo é o alias mascarado no-reply (ID+seu-usuario@users.noreply.github.com).
+
+Dependências Congeladas: Gerar o requirements.txt (pip freeze > requirements.txt) para documentar as versões exatas das bibliotecas.
+
+2. Na Continuidade do Desenvolvimento (Rotina Diária)
+
+Auditoria Rápida do .env e .gitignore:
+
+Rodar git status antes de qualquer git add . para garantir que o .env não foi renomeado, movido ou exposto acidentalmente.
+
+Garantir que novas credenciais adicionadas durante o trabalho (como chaves de API ou acessos a banco) foram para o .env e não direto no código-fonte.
+
+Validação do Ambiente Virtual: Confirmar a tag (.venv) no início da linha do terminal antes de rodar scripts Python, migrações ou inicializar o servidor.
+
+Controle de Branch:
+
+Checar com git branch se você está na branch de trabalho correta (feat/..., fix/...) e nunca alterando código diretamente na main.
+
+Inspeção de Diferenças (git diff):
+
+Revisar as linhas alteradas antes de commitar para garantir que logs com dados sensíveis, senhas de teste ou prints de depuração não sejam enviados ao histórico.
+
+Integridade de Dependências: Se novos pacotes forem instalados via pip durante a sessão, atualizar imediatamente o arquivo de dependências com pip freeze > requirements.txt

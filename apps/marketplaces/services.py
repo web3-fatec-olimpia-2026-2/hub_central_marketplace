@@ -1,0 +1,565 @@
+# Os códigos foram gerados com auxilio de I.A.
+
+# Importa o módulo padrão de logging para registro de eventos operacionais, avisos e erros
+import logging
+
+# Importa traceback para formatação completa de rastros de pilha de exceções
+import traceback
+
+# Importa Decimal para precisão matemática exata em valores monetários e financeiros
+from decimal import Decimal
+
+# Importa tipagens estruturadas da biblioteca typing
+from typing import Dict, Any, Tuple, Optional
+
+# Importa o gerenciador de transações atômicas e exceção de violação de constraints do banco
+from django.db import transaction, IntegrityError
+
+# Importa timezone para manipulação de carimbos temporais cientes de fuso horário
+from django.utils import timezone
+
+# Importa o modelo Loja para contextualização e vinculação multi-tenant
+from apps.tenancy.models import Loja
+
+# Importa modelos de credenciais de contas, telemetria de webhooks e trilha de auditoria
+from apps.marketplaces.models import ContaMarketplace, WebhookEventLog, LogAuditoria
+
+# Importa enums com os canais suportados, categorias de eventos auditáveis e estados de ciclo de vida de webhooks
+from apps.marketplaces.enums import CanalMarketplaceEnum, EventoAuditoriaEnum, WebhookStatusEnum
+
+# Importa helpers para coerção e parsing defensivo de números inteiros e decimais
+from apps.marketplaces.utils import safe_decimal, safe_int
+
+# Importa o modelo central de anúncios de marketplace da aplicação dedicada de anúncios
+from apps.anuncios.models import Anuncio
+
+# Importa as entidades Produto físico e AnuncioMarketplace do catálogo base
+from apps.catalogo.models import Produto, AnuncioMarketplace
+
+# Importa entidades de pedidos de venda e itens de pedidos para baixa e reconciliação comercial
+from apps.pedidos.models import PedidoVenda, ItemPedidoVenda
+
+# Importa enumeração de status do ciclo de vida dos pedidos
+from apps.pedidos.enums import StatusPedidoEnum
+
+# Instancia o logger específico deste módulo
+logger = logging.getLogger(__name__)
+
+
+# Serviço especialista responsável pelo ciclo de vida, integridade transacional e idempotência de webhooks do Mercado Livre
+class MercadoLivreWebhookService:
+    # Início do bloco de docstring documentando a orquestração do serviço
+    """
+    O QUE FAZ: Serviço central de recepção, validação, idempotência estrita e baixa de estoque para webhooks do Mercado Livre.
+    POR QUE FAZ:
+      1. Garante que notificações duplicadas (retentativas de rede, atualizações intermediárias de status) sejam registradas como IGNORADO e NÃO debitem estoque mais de uma vez.
+      2. Executa a baixa atômica de estoque físico em Produto com lock pessimista (select_for_update), cobrindo anúncios unitários e kits com multiplicadores via AnuncioComposicao.
+      3. Dispara automaticamente recálculo e broadcast de cotas através dos sinais post_save da Fase 2.
+    """
+    # Fim da docstring informativa da classe
+
+    # Método de classe que recebe e processa o payload JSON bruto da notificação remota
+    @classmethod
+    def processar_notificacao(cls, payload: Dict[str, Any], conta: Optional[ContaMarketplace] = None) -> Tuple[int, Dict[str, Any]]:
+        # Início da docstring do método de processamento
+        """
+        O QUE FAZ: Ponto de entrada de processamento da notificação do webhook.
+        RETORNO: (status_code_http: int, resposta_json: dict)
+        """
+        # Fim da docstring explicativa
+
+        # Validação estrutural do payload: deve ser um dicionário não vazio
+        if not isinstance(payload, dict) or not payload:
+            return 400, {"error": "Payload JSON inválido ou vazio."}
+
+        # Extrai e sanitiza os campos obrigatórios do cabeçalho da notificação
+        topic = str(payload.get('topic', '')).strip()
+        resource = str(payload.get('resource', '')).strip()
+        user_id = str(payload.get('user_id', '')).strip()
+
+        # Rejeita requisição se os metadados vitais topic ou resource estiverem ausentes
+        if not topic or not resource:
+            return 400, {"error": "Campos obrigatórios 'topic' e 'resource' não informados no payload."}
+
+        # 1. Tópicos não relacionados a pedidos (ex: items, questions, etc.)
+        # Filtra e ignora eventos que não pertencem ao tópico de ordens de venda (orders_v2)
+        if topic != 'orders_v2':
+            # Registra o descarte deliberado no log de eventos com status IGNORADO
+            WebhookEventLog.objects.create(
+                marketplace='mercadolivre',
+                topic=topic,
+                resource=resource,
+                user_id=user_id,
+                payload_raw=payload,
+                status=WebhookStatusEnum.IGNORADO,
+                error_log=f"Tópico '{topic}' ignorado. Apenas 'orders_v2' dispara movimentação de estoque.",
+                processed_at=timezone.now()
+            )
+            # Retorna 200 OK ao webhook para confirmar recebimento e evitar retentativas inúteis do parceiro
+            return 200, {
+                "status": "ignored",
+                "message": f"Tópico '{topic}' recebido e ignorado com sucesso (sem impacto em estoque)."
+            }
+
+        # 2. Idempotência Estrita e Concorrência para 'orders_v2':
+        # Extrai o ID externo do pedido a partir de múltiplas propriedades possíveis no payload ou da URI do resource
+        pedido_id_ext = str(
+            payload.get('id')
+            or (payload.get('order_data') or {}).get('id')
+            or (resource.split('/orders/')[-1] if '/orders/' in resource else resource)
+        ).strip()
+
+        # Abre bloco transacional atômico para verificar concorrência e travar registros
+        with transaction.atomic():
+            # A. Idempotência por PedidoVenda: se já persistido com sucesso, bloqueia reprocessamento
+            if pedido_id_ext:
+                # Aplica lock pessimista (select_for_update) na consulta para verificar se o pedido já existe
+                pedido_existente = PedidoVenda.objects.select_for_update().filter(
+                    canal_origem=CanalMarketplaceEnum.MERCADOLIVRE,
+                    pedido_id_externo=pedido_id_ext
+                ).first()
+
+                # Se o pedido já tiver sido registrado anteriormente no sistema
+                if pedido_existente:
+                    # Registra log de duplicidade com status IGNORADO
+                    WebhookEventLog.objects.create(
+                        marketplace='mercadolivre',
+                        topic=topic,
+                        resource=resource,
+                        user_id=user_id,
+                        payload_raw=payload,
+                        status=WebhookStatusEnum.IGNORADO,
+                        error_log=f"Notificação duplicada ignorada: PedidoVenda #{pedido_id_ext} já persistido anteriormente no Hub.",
+                        processed_at=timezone.now()
+                    )
+                    logger.info(f"[Webhook Meli] Pedido '{pedido_id_ext}' duplicado recebido e ignorado.")
+                    # Retorna 200 OK informando que o pedido já foi processado anteriormente
+                    return 200, {
+                        "status": "ignored",
+                        "message": f"Notificação duplicada para '{resource}'. Pedido #{pedido_id_ext} já existente no Hub."
+                    }
+
+            # B. Concorrência: Verifica se há requisição simultânea ATIVAMENTE em processamento
+            # Aplica lock pessimista buscando evento com mesmo recurso e estado PROCESSANDO
+            log_processando = WebhookEventLog.objects.select_for_update().filter(
+                marketplace='mercadolivre',
+                resource=resource,
+                status=WebhookStatusEnum.PROCESSANDO
+            ).first()
+
+            # Se houver outro worker processando a mesma notificação no mesmo milissegundo
+            if log_processando:
+                # Descarta a requisição concorrente duplicada
+                WebhookEventLog.objects.create(
+                    marketplace='mercadolivre',
+                    topic=topic,
+                    resource=resource,
+                    user_id=user_id,
+                    payload_raw=payload,
+                    status=WebhookStatusEnum.IGNORADO,
+                    error_log="Notificação concorrente ignorada: pedido já está em processamento.",
+                    processed_at=timezone.now()
+                )
+                logger.info(f"[Webhook Meli] Pedido '{resource}' em processamento concorrente ignorado.")
+                return 200, {
+                    "status": "ignored",
+                    "message": f"Pedido '{resource}' já em processamento por outra requisição concorrente."
+                }
+
+            # Reivindica o processamento registrando o log inicial como PROCESSANDO
+            event_log = WebhookEventLog.objects.create(
+                marketplace='mercadolivre',
+                topic=topic,
+                resource=resource,
+                user_id=user_id,
+                payload_raw=payload,
+                status=WebhookStatusEnum.PROCESSANDO
+            )
+
+        # 3. Execução da busca dos dados do pedido e baixa atômica
+        try:
+            # Resolução de conta: usa conta fornecida (fluxo individual) ou busca por seller_id (fluxo global)
+            if not conta and user_id:
+                conta = ContaMarketplace.objects.filter(
+                    canal=CanalMarketplaceEnum.MERCADOLIVRE,
+                    seller_id_externo=user_id
+                ).select_related('loja').first()
+
+            # Se a conta correspondente não existir na base do sistema
+            if not conta:
+                msg_erro = f"ContaMarketplace não localizada para o seller_id {user_id}"
+                logger.error(f"[Webhook Meli] {msg_erro} (resource: {resource})")
+                event_log.status = WebhookStatusEnum.ERRO
+                event_log.error_log = msg_erro
+                event_log.processed_at = timezone.now()
+                event_log.save(update_fields=['status', 'error_log', 'processed_at'])
+                return 200, {
+                    "status": "error",
+                    "message": msg_erro
+                }
+
+            # Se a conta de integração estiver marcada como inativa
+            if not conta.ativo:
+                msg_erro = f"ContaMarketplace encontrada para o seller_id {user_id}, mas está inativa"
+                logger.error(f"[Webhook Meli] {msg_erro} (resource: {resource})")
+                event_log.status = WebhookStatusEnum.ERRO
+                event_log.error_log = msg_erro
+                event_log.processed_at = timezone.now()
+                event_log.save(update_fields=['status', 'error_log', 'processed_at'])
+                return 200, {
+                    "status": "error",
+                    "message": msg_erro
+                }
+
+            # Obtém os detalhes do pedido
+            order_data = payload.get('order_data')
+            # Caso os detalhes não tenham vindo no payload, consome via conector da API remota
+            if not order_data:
+                connector = conta.get_connector()
+                sucesso, msg_ped, order_data = connector.obter_detalhes_pedido(resource)
+                if not sucesso:
+                    raise RuntimeError(f"Falha ao obter detalhes do pedido na API: {msg_ped}")
+
+            # Extrai os itens do pedido com fallback para chaves alternativas
+            order_items = order_data.get('order_items', order_data.get('items', []))
+            if not order_items:
+                raise ValueError(f"Pedido '{resource}' retornado sem itens em 'order_items'.")
+
+            # Identificação da Loja rigorosamente a partir da ContaMarketplace
+            loja_pedido = conta.loja
+
+            # Baixa atômica de estoque por produto e persistência do Pedido (RF-06 / RN-05 / Tarefa 2)
+            # Inicia bloco transacional estrito para as mutações de estoque e gravação do pedido
+            with transaction.atomic():
+                pedido_id_ext = str(
+                    order_data.get('id')
+                    or (resource.split('/orders/')[-1] if '/orders/' in resource else resource)
+                ).strip()
+
+                # Extração defensiva dos dados do comprador
+                buyer = order_data.get('buyer')
+                if not isinstance(buyer, dict):
+                    buyer = {}
+                comprador_nome = (
+                    f"{buyer.get('first_name', '')} {buyer.get('last_name', '')}".strip()
+                    or buyer.get('nickname')
+                    or buyer.get('name')
+                    or "Comprador Mercado Livre"
+                )
+                billing = buyer.get('billing_info')
+                if not isinstance(billing, dict):
+                    billing = {}
+                comprador_doc = str(billing.get('doc_number') or buyer.get('document') or '').strip()
+
+                # Extração e conversão segura do valor financeiro total do pedido
+                total_val = order_data.get('total_amount')
+                if total_val is None:
+                    total_val = order_data.get('valor_total')
+                if total_val is None:
+                    total_val = order_data.get('paid_amount')
+                valor_total = safe_decimal(total_val, Decimal('0.00'))
+
+                # Extração do valor de frete
+                shipping_data = order_data.get('shipping')
+                if not isinstance(shipping_data, dict):
+                    shipping_data = {}
+                frete_val = order_data.get('shipping_cost')
+                if frete_val is None:
+                    frete_val = shipping_data.get('cost')
+                if frete_val is None:
+                    frete_val = order_data.get('valor_frete')
+                valor_frete = safe_decimal(frete_val, Decimal('0.00'))
+
+                # Ajuste 2: Proteção de concorrência com captura de IntegrityError no banco
+                # Atualiza ou cria a entidade PedidoVenda vinculando loja, conta e comprador
+                try:
+                    pedido, _ = PedidoVenda.objects.update_or_create(
+                        canal_origem=CanalMarketplaceEnum.MERCADOLIVRE,
+                        pedido_id_externo=pedido_id_ext,
+                        defaults={
+                            'loja': loja_pedido,
+                            'conta_marketplace': conta,
+                            'status_externo': str(order_data.get('status', 'paid')),
+                            'status': StatusPedidoEnum.PAGO,
+                            'comprador_nome': comprador_nome,
+                            'comprador_documento': comprador_doc,
+                            'valor_total': valor_total,
+                            'valor_frete': valor_frete,
+                            'payload_original': order_data,
+                            'processado_com_sucesso': True,
+                        }
+                    )
+                # Captura colisão de concorrência detectada pela constraint única do banco
+                except IntegrityError as ie:
+                    logger.warning(f"[Webhook Meli] Colisão concorrente capturada por constraint de banco para pedido #{pedido_id_ext}: {ie}")
+                    event_log.status = WebhookStatusEnum.IGNORADO
+                    event_log.error_log = f"Notificação concorrente bloqueada por constraint de banco: Pedido #{pedido_id_ext} gravado simultaneamente."
+                    event_log.processed_at = timezone.now()
+                    event_log.save(update_fields=['status', 'error_log', 'processed_at'])
+                    return 200, {
+                        "status": "ignored",
+                        "message": f"Notificação duplicada/concorrente para '{resource}'. Pedido #{pedido_id_ext} já gravado por transação concorrente."
+                    }
+
+                # Limpa itens pré-existentes se for reprocessamento
+                # Remove itens anteriores vinculados ao pedido para regravação atômica consistente
+                pedido.itens.all().delete()
+                # Inicializa flag que detectará estoque insuficiente
+                houve_ruptura = False
+
+                # Itera por cada item integrante do pedido remoto
+                for order_item in order_items:
+                    if not isinstance(order_item, dict):
+                        continue
+                    # Normaliza o dicionário de informações do item
+                    item_info = order_item.get('item', {}) if isinstance(order_item.get('item'), dict) else order_item
+                    item_id = item_info.get('id') or order_item.get('item_id') or order_item.get('id')
+                    item_id_externo = str(item_id or '').strip()
+                    qtd_vendida = max(1, safe_int(order_item.get('quantity'), default=1))
+
+                    # Extrai e converte o preço unitário praticado na venda
+                    unit_price_val = order_item.get('unit_price')
+                    if unit_price_val is None:
+                        unit_price_val = order_item.get('full_unit_price')
+                    if unit_price_val is None:
+                        unit_price_val = order_item.get('price')
+                    unit_price = safe_decimal(unit_price_val, Decimal('0.00'))
+                    titulo_item = item_info.get('title') or order_item.get('title', '')
+
+                    # Localiza o Anuncio no sistema estritamente no escopo da conta
+                    # Consulta anúncio carregando composições de kit
+                    anuncio = Anuncio.objects.filter(
+                        conta=conta, item_id_externo=item_id_externo
+                    ).prefetch_related('itens_composicao__produto').first()
+
+                    # Consulta se há vínculo no modelo complementar AnuncioMarketplace
+                    anuncio_mkt = AnuncioMarketplace.objects.filter(
+                        conta_marketplace=conta, item_id_externo=item_id_externo
+                    ).first()
+
+                    prod_vinculado = None
+                    saldo_ant_item = None
+                    novo_saldo_item = None
+                    item_ruptura = False
+
+                    # Cenário 1: O anúncio foi localizado na tabela Anuncio
+                    if anuncio:
+                        if not titulo_item:
+                            titulo_item = anuncio.titulo
+                        # Obtém as composições de produtos do anúncio (suporte a kits e combos)
+                        composicoes = anuncio.itens_composicao.order_by('produto_id')
+                        # Se o anúncio for composto por itens de composição
+                        if composicoes.exists():
+                            for comp in composicoes:
+                                # Bloqueia pessimistamente a linha do produto físico para evitar corrida de estoque
+                                prod_locked = Produto.objects.select_for_update().get(pk=comp.produto_id)
+                                prod_vinculado = prod_locked
+                                # Quantidade a baixar é a quantidade vendida multiplicada pelo fator do item no kit
+                                qtd_baixa = qtd_vendida * comp.quantidade
+                                saldo_ant = prod_locked.estoque
+                                novo_saldo = max(0, saldo_ant - qtd_baixa)
+                                saldo_ant_item = saldo_ant
+                                novo_saldo_item = novo_saldo
+
+                                # Se o saldo físico for menor que a quantidade exigida, marca evento de ruptura
+                                if saldo_ant < qtd_baixa:
+                                    item_ruptura = True
+                                    houve_ruptura = True
+
+                                # Define motivo interno para rastreamento no modelo
+                                prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
+                                prod_locked.estoque = novo_saldo
+                                prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+
+                                # Registra auditoria histórica no catálogo
+                                prod_locked.registrar_historico(
+                                    estoque_anterior=saldo_ant,
+                                    novo_estoque=novo_saldo,
+                                    motivo=f"Baixa por venda via Mercado Livre - Pedido #{pedido_id_ext}"
+                                )
+
+                                # Registra log de governança de baixa de estoque
+                                LogAuditoria.objects.create(
+                                    loja=prod_locked.loja,
+                                    evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
+                                    detalhes=(
+                                        f"Baixa automática de estoque por venda: Pedido {resource}. "
+                                        f"Anúncio: {anuncio.item_id_externo} ({anuncio.titulo[:30]}). "
+                                        f"Qtd vendida: {qtd_vendida} un. Multiplicador: {comp.quantidade}x. "
+                                        f"Total baixado do SKU '{prod_locked.sku}': {qtd_baixa} un. "
+                                        f"Saldo anterior: {saldo_ant} -> Novo saldo: {novo_saldo} un."
+                                    )
+                                )
+
+                            # Recalcula a cota disponível do anúncio composto e persiste
+                            anuncio.estoque_publicado = anuncio.calcular_cota_disponivel()
+                            anuncio.save(update_fields=['estoque_publicado', 'atualizado_em'])
+                        # Se o anúncio não possuir itens_composicao, busca vinculação direta por SKU
+                        else:
+                            # Anúncio sem composição direta: tenta por sku_vendedor
+                            sku = anuncio.sku_vendedor or item_info.get('seller_sku')
+                            if sku:
+                                # Trava o produto correspondente ao SKU no banco
+                                prod_locked = Produto.objects.select_for_update().filter(
+                                    loja=anuncio.conta.loja, sku=sku
+                                ).first()
+                                if prod_locked:
+                                    prod_vinculado = prod_locked
+                                    qtd_baixa = qtd_vendida
+                                    saldo_ant = prod_locked.estoque
+                                    novo_saldo = max(0, saldo_ant - qtd_baixa)
+                                    saldo_ant_item = saldo_ant
+                                    novo_saldo_item = novo_saldo
+
+                                    if saldo_ant < qtd_baixa:
+                                        item_ruptura = True
+                                        houve_ruptura = True
+
+                                    prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
+                                    prod_locked.estoque = novo_saldo
+                                    prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+
+                                    prod_locked.registrar_historico(
+                                        estoque_anterior=saldo_ant,
+                                        novo_estoque=novo_saldo,
+                                        motivo=f"Baixa por venda via Mercado Livre - Pedido #{pedido_id_ext}"
+                                    )
+
+                                    anuncio.status_sincronizacao = 'ENVIADO'
+                                    anuncio.estoque_publicado = novo_saldo
+                                    anuncio.save(update_fields=['status_sincronizacao', 'estoque_publicado', 'atualizado_em'])
+
+                                    LogAuditoria.objects.create(
+                                        loja=prod_locked.loja,
+                                        evento=EventoAuditoriaEnum.BAIXA_ESTOQUE_VENDA,
+                                        detalhes=(
+                                            f"Baixa automática de estoque por venda (via SKU {sku}): Pedido {resource}. "
+                                            f"Total baixado do SKU '{prod_locked.sku}': {qtd_baixa} un. "
+                                            f"Saldo anterior: {saldo_ant} -> Novo saldo: {novo_saldo} un."
+                                        )
+                                    )
+                    # Cenário 2: Anúncio localizado via modelo legada AnuncioMarketplace
+                    elif anuncio_mkt and anuncio_mkt.produto:
+                        prod_locked = Produto.objects.select_for_update().get(pk=anuncio_mkt.produto_id)
+                        prod_vinculado = prod_locked
+                        qtd_baixa = qtd_vendida
+                        saldo_ant = prod_locked.estoque
+                        novo_saldo = max(0, saldo_ant - qtd_baixa)
+                        saldo_ant_item = saldo_ant
+                        novo_saldo_item = novo_saldo
+
+                        if saldo_ant < qtd_baixa:
+                            item_ruptura = True
+                            houve_ruptura = True
+
+                        prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
+                        prod_locked.estoque = novo_saldo
+                        prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+
+                        prod_locked.registrar_historico(
+                            estoque_anterior=saldo_ant,
+                            novo_estoque=novo_saldo,
+                            motivo=f"Baixa por venda via Mercado Livre - Pedido #{pedido_id_ext}"
+                        )
+                    # Cenário 3: Resolução de contingência (fallback) por SKU direto informado no payload da venda
+                    else:
+                        # Fallback por SKU do seller dentro da loja identificada
+                        sku = item_info.get('seller_sku', item_info.get('seller_custom_field'))
+                        if sku:
+                            prod_locked = Produto.objects.select_for_update().filter(
+                                loja=loja_pedido, sku=sku
+                            ).first()
+                            if prod_locked:
+                                prod_vinculado = prod_locked
+                                qtd_baixa = qtd_vendida
+                                saldo_ant = prod_locked.estoque
+                                novo_saldo = max(0, saldo_ant - qtd_baixa)
+                                saldo_ant_item = saldo_ant
+                                novo_saldo_item = novo_saldo
+
+                                if saldo_ant < qtd_baixa:
+                                    item_ruptura = True
+                                    houve_ruptura = True
+
+                                prod_locked._motivo_alteracao = 'VENDA_MARKETPLACE'
+                                prod_locked.estoque = novo_saldo
+                                prod_locked.save(update_fields=['estoque', 'atualizado_em'])
+
+                                prod_locked.registrar_historico(
+                                    estoque_anterior=saldo_ant,
+                                    novo_estoque=novo_saldo,
+                                    motivo=f"Baixa por venda via Mercado Livre - Pedido #{pedido_id_ext}"
+                                )
+
+                    # Tarefa 2: Se o produto não foi localizado no catálogo da loja, registra com status pendente de vínculo
+                    # Define flags e alertas caso o SKU vendido não possua produto correspondente no catálogo local
+                    if prod_vinculado:
+                        status_integracao_item = 'vinculado'
+                        estoque_baixado_item = True
+                    else:
+                        status_integracao_item = 'pendente_vinculo'
+                        estoque_baixado_item = False
+                        # Gera alerta de conciliação para intervenção operacional
+                        LogAuditoria.objects.create(
+                            loja=loja_pedido,
+                            evento=EventoAuditoriaEnum.ALERTA_RUPTURA_ESTOQUE,
+                            detalhes=(
+                                f"AVISO DE RECONCILIAÇÃO: Item '{item_id_externo}' ({titulo_item}) do pedido #{pedido_id_ext} "
+                                f"não possui anúncio ou produto vinculado no catálogo da loja '{loja_pedido.nome}'. "
+                                f"Item gravado com status 'pendente_vinculo' para reconciliação manual posterior."
+                            )
+                        )
+                        logger.warning(
+                            f"[Webhook Meli] Item '{item_id_externo}' sem produto vinculado na loja '{loja_pedido.nome}'. "
+                            f"Gravado com status_integracao='pendente_vinculo'."
+                        )
+
+                    # Registra ItemPedidoVenda
+                    # Persiste a linha detalhada do item no pedido de venda
+                    ItemPedidoVenda.objects.create(
+                        pedido=pedido,
+                        produto=prod_vinculado,
+                        anuncio_marketplace=anuncio_mkt,
+                        item_id_externo=item_id_externo,
+                        titulo_anuncio=titulo_item or f"Item {item_id_externo}",
+                        quantidade=qtd_vendida,
+                        preco_unitario=unit_price,
+                        status_integracao=status_integracao_item,
+                        estoque_baixado=estoque_baixado_item,
+                        estoque_anterior=saldo_ant_item,
+                        estoque_posterior=novo_saldo_item,
+                        ruptura_estoque=item_ruptura
+                    )
+
+                # Se ao menos um dos itens sofreu ruptura por saldo insuficiente, marca a flag no cabeçalho do pedido
+                if houve_ruptura:
+                    pedido.teve_ruptura_estoque = True
+                    pedido.save(update_fields=['teve_ruptura_estoque', 'atualizado_em'])
+
+                # Sucesso: atualiza log para PROCESSADO
+                event_log.status = WebhookStatusEnum.PROCESSADO
+                event_log.processed_at = timezone.now()
+                event_log.save(update_fields=['status', 'processed_at'])
+
+            logger.info(f"[Webhook Meli] Pedido '{resource}' processado com sucesso!")
+            # Retorna 200 confirmando a conclusão do processamento
+            return 200, {
+                "status": "ok",
+                "message": f"Pedido '{resource}' processado com sucesso com baixa atômica de estoque."
+            }
+
+        # Trata exceções não mapeadas durante a execução
+        except Exception as exc:
+            logger.exception(f"[Webhook Meli] Erro ao processar pedido '{resource}': {exc}")
+            erro_str = f"{str(exc)}\n\nTraceback completo:\n{traceback.format_exc()}"
+            # Marca o log do evento como ERRO persistindo o stack trace completo
+            event_log.status = WebhookStatusEnum.ERRO
+            event_log.error_log = erro_str
+            event_log.processed_at = timezone.now()
+            event_log.save(update_fields=['status', 'error_log', 'processed_at'])
+
+            # Retorna status 200 com payload de erro (evita retry loops infinitos do webhook externo)
+            return 200, {
+                "status": "error",
+                "message": f"Falha no processamento interno do pedido '{resource}'. Evento registrado como ERRO."
+            }
