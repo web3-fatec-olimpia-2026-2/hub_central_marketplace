@@ -1,7 +1,7 @@
 <!-- Os códigos foram gerados com auxilio de I.A. -->
 {% extends "base.html" %}
 
-{% block title %}Entrar — Hub Marketplaces{% endblock %}
+{% block title %}Entrar — Hub Central Marketplaces{% endblock %}
 {% block page_title %}Autenticação{% endblock %}
 {% block page_subtitle %}Acesse sua conta no Hub de Marketplaces{% endblock %}
 
@@ -26,10 +26,12 @@
                     </div>
                 {% endif %}
 
+                <!-- Formulário com ordem canônica do DOM (Doc ① §16.2) -->
                 <form method="post" action="{% url 'login' %}">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{{ next|default:'/' }}">
 
+                    <!-- 1. Campo Usuário (autocomplete="username") -->
                     <div class="mb-3">
                         <label for="id_username" class="form-label">Usuário</label>
                         <div class="input-group">
@@ -38,6 +40,7 @@
                         </div>
                     </div>
 
+                    <!-- 2. Campo Senha (autocomplete="current-password") -->
                     <div class="mb-4">
                         <label for="id_password" class="form-label">Senha</label>
                         <div class="input-group">
@@ -46,10 +49,18 @@
                         </div>
                     </div>
 
-                    <div class="d-grid gap-2">
+                    <!-- 4. Botão Entrar (Ação Principal) -->
+                    <div class="d-grid gap-2 mb-3">
                         <button type="submit" class="btn btn-primary py-2 fw-semibold justify-content-center">
                             <i class="bi bi-box-arrow-in-right me-1"></i>Entrar no Hub
                         </button>
+                    </div>
+
+                    <!-- 5. Link Esqueci minha senha (Obrigatoriamente ABAIXO do botão Entrar no DOM - §16.2) -->
+                    <div class="text-center pt-1">
+                        <a href="{% url 'password_reset' %}" class="text-decoration-none small text-muted">
+                            <i class="bi bi-question-circle me-1"></i>Esqueci minha senha
+                        </a>
                     </div>
                 </form>
             </div>

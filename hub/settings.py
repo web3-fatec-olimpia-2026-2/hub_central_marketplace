@@ -25,6 +25,7 @@ import environ
 
 # Importa a classe orientada a objetos 'Path' do módulo 'pathlib' para manipulação segura de caminhos de arquivos e pastas
 from pathlib import Path
+from django.contrib.messages import constants as messages
 
 # Define a raiz do projeto (onde está o arquivo .env)
 # Resolve o caminho absoluto do diretório-pai da pasta atual (hub), apontando para a raiz do repositório
@@ -56,6 +57,12 @@ SECRET_KEY = env('SECRET_KEY')
 # Lê DEBUG do .env (se não encontrar, assume False por segurança)
 # Converte a variável DEBUG para tipo booleano nativo, mantendo False como fallback seguro
 DEBUG = env.bool('DEBUG', default=False)
+
+# Mapeia a tag de erro do Django para a classe danger do Bootstrap (Anexo A.5)
+MESSAGE_TAGS = {messages.ERROR: 'danger'}
+
+# Contrato neutro de Tenancy (Doc ① §10.6 e Anexo A.5)
+TENANCY_MODE = env('TENANCY_MODE', default='single')
 
 # Lê LOGIN_DEBUG do .env para injeção automática de credenciais em desenvolvimento
 # Carrega a flag que habilita o preenchimento ou login automático rápido em ambientes de desenvolvimento
@@ -108,6 +115,10 @@ INSTALLED_APPS = [
     # Novos Apps Modulares Desacoplados
     # Registra o app core com classes utilitárias, mixins e modelos transversais da plataforma
     'apps.core.apps.CoreConfig',
+    # Registra o app accounts com autenticação e catálogo de RBAC
+    'apps.accounts.apps.AccountsConfig',
+    # Registra o app site com motor de temas desacoplados e visibilidade pública
+    'apps.site.apps.SiteConfig',
     # Registra o app tenancy responsável pelo isolamento multi-inquilino e contexto de lojas
     'apps.tenancy.apps.TenancyConfig',
     # Registra o conector responsável pelas integrações e comunicações com canais de venda externos
@@ -174,6 +185,8 @@ TEMPLATES = [
                 'apps.tenancy.context_processors.modulos_loja_context',
                 # Injeta atalhos e credenciais rápidas de depuração no rodapé/painel de templates
                 'apps.mockar_dados.context_processors.login_debug_context',
+                # Injeta tokens visuais do tema desacoplado, shell e menus filtrados por RBAC (Anexo A.5)
+                'apps.site.context_processors.tema',
             ],
         },
     },
@@ -246,7 +259,16 @@ USE_TZ = True
 # Comentário de referência para o gerenciamento de arquivos estáticos
 
 # Define o prefixo de rota pública HTTP por onde os assets estáticos são requisitados
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+
+# Diretório para onde o comando 'collectstatic' reunirá todos os estáticos em produção
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Diretórios adicionais contendo arquivos estáticos do projeto
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
+
 
 
 # Autenticação e Redirecionamentos

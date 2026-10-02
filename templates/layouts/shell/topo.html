@@ -1,0 +1,556 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br" data-bs-theme="{{ html_theme|default:'light' }}" data-tema="{{ tema.slug|default:'profissional' }}"
+      data-raio="{{ tema.raio|default:'suave' }}" data-sombra="{{ tema.sombra|default:'suave' }}"
+      data-densidade="{{ tema.densidade|default:'confortavel' }}" data-movimento="{{ tema.movimento|default:'discreto' }}"
+      data-tipografia="{{ tema.tipografia|default:'sans' }}" data-icones="{{ tema.icones|default:'contorno' }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Hub Central de Marketplaces{% endblock %}</title>
+    {% block meta %}{% endblock %}
+    {% include "layouts/_assets.html" %}
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <a class="visually-hidden-focusable" href="#conteudo">Ir para o conteúdo</a>
+
+    <!-- CABEÇALHO / NAVBAR OPERACIONAL COMPLETA (Fundo Sólido e Alto Contraste) -->
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top shadow-sm navbar-app app-navbar"
+         style="background-color: var(--tema-destaque, #0f2b48) !important;">
+        <div class="container-fluid px-2 px-md-3">
+            <a class="navbar-brand fw-bold me-2 me-xl-3 d-flex align-items-center gap-2" href="{% url 'home' %}">
+                <i class="bi bi-layers-fill"></i> Hub Marketplaces
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu" aria-controls="navMenu" aria-expanded="false" aria-label="Alternar navegação">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navMenu">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0 align-items-center">
+                    {% if user.is_authenticated %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}" href="{% url 'home' %}">
+                                <i class="bi bi-house-door me-1"></i> Início
+                            </a>
+                        </li>
+                        
+                        {% if is_dev or user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if 'loja' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'loja_list' %}">
+                                    <i class="bi bi-shop me-1"></i> Lojas
+                                </a>
+                            </li>
+                        {% endif %}
+
+                        {% if modulos_ativos.catalogo or is_dev %}
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle {% if 'categoria' in request.resolver_match.url_name or 'produto' in request.resolver_match.url_name %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-box-seam me-1"></i> Catálogo
+                                </a>
+                                <ul class="dropdown-menu shadow">
+                                    <li><a class="dropdown-item" href="{% url 'categoria_list' %}"><i class="bi bi-tag me-2"></i> Categorias</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'produto_list' %}"><i class="bi bi-boxes me-2"></i> Produtos</a></li>
+                                </ul>
+                            </li>
+                        {% endif %}
+
+                        {% if modulos_ativos.marketplaces or is_dev %}
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle {% if 'canal' in request.resolver_match.url_name or 'anuncio' in request.resolver_match.url_name %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-diagram-3 me-1"></i> Marketplaces
+                                </a>
+                                <ul class="dropdown-menu shadow">
+                                    <li><a class="dropdown-item" href="{% url 'canal_list' %}"><i class="bi bi-link-45deg me-2"></i> Canais / Contas</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'anuncio_list' %}"><i class="bi bi-megaphone me-2"></i> Anúncios</a></li>
+                                </ul>
+                            </li>
+                        {% endif %}
+
+                        {% if modulos_ativos.pedidos or is_dev %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if 'pedido' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'pedido_list' %}">
+                                    <i class="bi bi-receipt me-1"></i> Pedidos
+                                </a>
+                            </li>
+                        {% endif %}
+
+                        {% if modulos_ativos.financeiro or is_dev %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if 'simulador' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'simulador_promocional' %}">
+                                    <i class="bi bi-calculator me-1"></i> Simulador
+                                </a>
+                            </li>
+                        {% endif %}
+
+                        {% if modulos_ativos.marketplaces or is_dev %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if 'log' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'log_sincronizacao_list' %}">
+                                    <i class="bi bi-clock-history me-1"></i> Logs
+                                </a>
+                            </li>
+                        {% endif %}
+
+                        {% if is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if 'usuario' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'usuario_list' %}">
+                                    <i class="bi bi-people me-1"></i> Usuários
+                                </a>
+                            </li>
+                        {% endif %}
+
+                        {% if is_dev or user.perfil.is_dev or user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link {% if 'teste' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'testes_dashboard' %}">
+                                    <i class="bi bi-cpu me-1"></i> Testes
+                                </a>
+                            </li>
+                        {% endif %}
+                    {% endif %}
+                </ul>
+
+                <ul class="navbar-nav ms-auto align-items-center gap-2">
+                    {% if user.is_authenticated %}
+                        <!-- SELETOR DE TEMA E CATÁLOGO DOS 10 MODELOS (Doc ① §11.6 a §11.9) -->
+                        <li class="nav-item dropdown">
+                        <button class="btn btn-outline-light btn-theme-nav dropdown-toggle" id="bd-theme" type="button" aria-expanded="false" data-bs-toggle="dropdown" aria-label="Alternar tema">
+                            <span id="bd-theme-text"><i class="bi bi-palette-fill me-1"></i> Tema: {{ tema.modelo|default:'T05' }}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow border-0 p-2" aria-labelledby="bd-theme" style="min-width: 320px; max-height: 520px; overflow-y: auto;">
+                            <!-- MODO DE ILUMINAÇÃO (BOOTSTRAP) -->
+                            <li class="px-2 py-1"><span class="text-uppercase small fw-bold text-muted">Modo de Iluminação</span></li>
+                            <li class="d-flex gap-1 px-2 mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill py-1" data-bs-theme-value="light" title="Modo Claro">
+                                    <i class="bi bi-sun-fill text-warning me-1"></i> Claro
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill py-1" data-bs-theme-value="dark" title="Modo Escuro">
+                                    <i class="bi bi-moon-stars-fill text-info me-1"></i> Escuro
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill py-1" data-bs-theme-value="auto" title="Automático">
+                                    <i class="bi bi-circle-half text-secondary me-1"></i> Auto
+                                </button>
+                            </li>
+
+                            <li><hr class="dropdown-divider my-2"></li>
+
+                            <!-- 10 MODELOS CANÔNICOS DE DESIGN (Doc ① §11.6) -->
+                            <li class="px-2 py-1 d-flex justify-content-between align-items-center">
+                                <span class="text-uppercase small fw-bold text-muted">10 Modelos Canônicos</span>
+                                <span class="badge bg-secondary-subtle text-secondary small">Doc ① §11.6</span>
+                            </li>
+
+                            <!-- T01 Alegre -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T01">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T01' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #FFFBF0 50%, #E4572E 50%); border:1px solid #ccc;"></span>
+                                            <span>T01 — Alegre</span>
+                                        </span>
+                                        {% if tema.modelo == 'T01' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <!-- T02 Sofisticado -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T02">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T02' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #F5F1EA 50%, #7B2D3B 50%); border:1px solid #ccc;"></span>
+                                            <span>T02 — Sofisticado</span>
+                                        </span>
+                                        {% if tema.modelo == 'T02' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <!-- T03 Sóbrio -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T03">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T03' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #F1F5F9 50%, #334155 50%); border:1px solid #ccc;"></span>
+                                            <span>T03 — Sóbrio</span>
+                                        </span>
+                                        {% if tema.modelo == 'T03' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <!-- T04 Animado -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T04">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T04' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #FAF5FF 50%, #7E22CE 50%); border:1px solid #ccc;"></span>
+                                            <span>T04 — Animado</span>
+                                        </span>
+                                        {% if tema.modelo == 'T04' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <!-- T05 Profissional (Padrão) -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T05">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T05' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #F8FAFC 50%, #1E3A8A 50%); border:1px solid #ccc;"></span>
+                                            <span>T05 — Profissional (Padrão)</span>
+                                        </span>
+                                        {% if tema.modelo == 'T05' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <!-- T06 Luxuoso -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T06">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T06' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #16120F 50%, #D4AF37 50%); border:1px solid #ccc;"></span>
+                                            <span>T06 — Luxuoso</span>
+                                        </span>
+                                        {% if tema.modelo == 'T06' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <!-- T07 SoftClean -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T07">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T07' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #FBFBFD 50%, #4A76A8 50%); border:1px solid #ccc;"></span>
+                                            <span>T07 — SoftClean</span>
+                                        </span>
+                                        {% if tema.modelo == 'T07' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <!-- T08 Noturno -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T08">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T08' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #12141A 50%, #4FA3FF 50%); border:1px solid #ccc;"></span>
+                                            <span>T08 — Noturno</span>
+                                        </span>
+                                        {% if tema.modelo == 'T08' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <!-- T09 Acessível -->
+                            <li>
+                                <form method="post" action="{% url 'site:tema_alternar' %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="modelo" value="T09">
+                                    <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between py-1 rounded {% if tema.modelo == 'T09' %}active fw-bold{% endif %}">
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span style="display:inline-block; width:16px; height:16px; border-radius:50%; background: linear-gradient(135deg, #FFFFFF 50%, #0B3D91 50%); border:1px solid #ccc;"></span>
+                                            <span>T09 — Acessível (7:1)</span>
+                                        </span>
+                                        {% if tema.modelo == 'T09' %}<i class="bi bi-check2 text-primary fw-bold"></i>{% endif %}
+                                    </button>
+                                </form>
+                            </li>
+
+                            <li><hr class="dropdown-divider my-2"></li>
+
+                            <!-- T10 Personalizado: 3 Cores da Paleta -->
+                            <li>
+                                <button type="button" class="dropdown-item d-flex align-items-center justify-content-between py-2 text-primary fw-semibold rounded"
+                                        data-bs-toggle="modal" data-bs-target="#modalTemaPersonalizado">
+                                    <span class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-brush-fill text-primary"></i>
+                                        <span>T10 — Personalizado (3 Cores)</span>
+                                    </span>
+                                    {% if tema.modelo == 'T10' %}<span class="badge bg-primary text-white small">Ativo</span>{% else %}<i class="bi bi-sliders"></i>{% endif %}
+                                </button>
+                            </li>
+                        </ul>
+                    <!-- FERRAMENTAS DEV / MOCK E IDENTIFICAÇÃO DO USUÁRIO -->
+                    {% if is_dev or user.perfil.is_dev or user.is_superuser %}
+                            <li class="nav-item dropdown">
+                                <div class="btn-group btn-group-sm">
+                                    <a class="btn btn-warning fw-semibold text-dark shadow-sm btn-mock-nav" href="{% url 'mockar_dados_dashboard' %}" title="Ambiente de Testes e Mock de Dados">
+                                        Mockar dados
+                                    </a>
+                                    <button type="button" class="btn btn-warning text-dark dropdown-toggle dropdown-toggle-split shadow-sm btn-mock-nav ms-1" data-bs-toggle="dropdown" aria-expanded="false" title="Controle de Simulação Mock">
+                                        <span class="visually-hidden">Controle Mock</span>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow p-3" style="min-width: 250px;">
+                                        <li>
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <span class="small fw-bold text-muted text-uppercase">Simulação de Rotas</span>
+                                                {% if simular_rotas_mock %}
+                                                    <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Ativa</span>
+                                                {% else %}
+                                                    <span class="badge bg-danger"><i class="bi bi-x-circle-fill me-1"></i>Desativada</span>
+                                                {% endif %}
+                                            </div>
+                                            <p class="small text-muted mb-3" style="font-size: 0.78rem;">
+                                                {% if simular_rotas_mock %}
+                                                    Contas mockadas respondem com HTTP 200 simulado.
+                                                {% else %}
+                                                    Contas mockadas respondem com recusa HTTP 401.
+                                                {% endif %}
+                                            </p>
+                                            <form method="post" action="{% url 'alternar_simulacao_mock' %}">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm {% if simular_rotas_mock %}btn-outline-danger{% else %}btn-outline-success{% endif %} w-100 fw-bold">
+                                                    {% if simular_rotas_mock %}
+                                                        <i class="bi bi-toggle-on text-success me-1 fs-6"></i> Desativar Simulação
+                                                    {% else %}
+                                                        <i class="bi bi-toggle-off text-muted me-1 fs-6"></i> Ativar Simulação
+                                                    {% endif %}
+                                                </button>
+                                            </form>
+                                        </li>
+                                        <li><hr class="dropdown-divider my-2"></li>
+                                        <li>
+                                            <a class="dropdown-item small d-flex align-items-center gap-1 text-primary" href="{% url 'mockar_dados_dashboard' %}">
+                                                <i class="bi bi-sliders"></i> Abrir Painel de Mock
+                                            </a>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </li>
+                        {% endif %}
+                        <li class="nav-item">
+                            {% if user.is_superuser %}
+                                <span class="badge bg-danger badge-nav-role">Superusuário</span>
+                            {% elif user.perfil %}
+                                <span class="badge badge-role-{{ user.perfil.papel|lower }} badge-nav-role">
+                                    {{ user.perfil.get_papel_display }}
+                                </span>
+                            {% endif %}
+                        </li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle text-white d-flex align-items-center gap-1 user-nav-dropdown" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-person-circle fs-5 me-1"></i>
+                                <span>{{ user.get_full_name|default:user.username }}</span>
+                                {% if user.perfil.loja %}
+                                    <span class="badge bg-light text-dark small ms-1">{{ user.perfil.loja.nome }}</span>
+                                {% endif %}
+                            </a>
+                            <ul class="dropdown-menu dropdown-menu-end shadow">
+                                <li>
+                                    <h6 class="dropdown-header">
+                                        <i class="bi bi-shield-lock me-1"></i>
+                                        Papel: {{ user.perfil.get_papel_display|default:'Usuário' }}
+                                    </h6>
+                                </li>
+                                {% if user.is_staff or user.is_superuser %}
+                                    <li><a class="dropdown-item" href="{% url 'admin:index' %}"><i class="bi bi-gear-fill me-1"></i> Admin Django</a></li>
+                                {% endif %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <form method="post" action="{% url 'logout' %}" class="d-inline">
+                                        {% csrf_token %}
+                                        <button type="submit" class="dropdown-item text-danger d-flex align-items-center gap-2">
+                                            <i class="bi bi-box-arrow-right"></i> Sair do Sistema
+                                        </button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="btn btn-sm btn-outline-light fw-semibold px-3" href="{% url 'login' %}">
+                                <i class="bi bi-box-arrow-in-right me-1"></i> Entrar
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- TOOLBAR DA PÁGINA -->
+    {% block toolbar %}
+    <header class="app-toolbar">
+        <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
+            <div>
+                <h1 class="h4 mb-0 fw-bold">{% block page_title %}Visão Geral{% endblock %}</h1>
+                <small class="text-muted">{% block page_subtitle %}{% endblock %}</small>
+            </div>
+            <div class="d-flex gap-2">{% block toolbar_actions %}{% endblock %}</div>
+        </div>
+    </header>
+    {% endblock %}
+
+    <!-- MENSAGENS FLASH -->
+    <div class="container-fluid px-4">
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Fechar"></button>
+            </div>
+        {% endfor %}
+    </div>
+
+    <!-- CONTEÚDO PRINCIPAL -->
+    <main id="conteudo" class="container-fluid px-4 mb-5">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- MODAL DE PERSONALIZAÇÃO DE TEMA (T10 — 3 CORES DA PALETA) -->
+    {% if user.is_authenticated %}
+    <div class="modal fade" id="modalTemaPersonalizado" tabindex="-1" aria-labelledby="modalTemaPersonalizadoLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content shadow border-0">
+                <form method="post" action="{% url 'site:tema_alternar' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="modelo" value="T10">
+                    <div class="modal-header bg-dark text-white">
+                        <h5 class="modal-title d-flex align-items-center gap-2" id="modalTemaPersonalizadoLabel">
+                            <i class="bi bi-palette2"></i> Personalizar Tema (Modelo T10 — 3 Cores)
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                    </div>
+                    <div class="modal-body p-4">
+                        <p class="text-muted small mb-4">
+                            Selecione as 3 cores canônicas (Fundos, Destaques e Escritas) ou utilize uma das paletas de referência.
+                            Os tokens CSS e variáveis derivadas serão gerados dinamicamente.
+                        </p>
+
+                        <!-- PALETAS RÁPIDAS -->
+                        <div class="mb-4">
+                            <label class="form-label text-uppercase small text-muted fw-bold">Paletas Sugeridas de 1 Clique</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 btn-paleta-rapida"
+                                        data-fundo="#F0FDF4" data-destaque="#059669" data-escrita="#064E3B">
+                                    <span style="display:inline-block; width:14px; height:14px; border-radius:50%; background: #059669;"></span>
+                                    Esmeralda
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 btn-paleta-rapida"
+                                        data-fundo="#FFFBEB" data-destaque="#D97706" data-escrita="#78350F">
+                                    <span style="display:inline-block; width:14px; height:14px; border-radius:50%; background: #D97706;"></span>
+                                    Âmbar / Laranja
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 btn-paleta-rapida"
+                                        data-fundo="#EEF2FF" data-destaque="#4F46E5" data-escrita="#1E1B4B">
+                                    <span style="display:inline-block; width:14px; height:14px; border-radius:50%; background: #4F46E5;"></span>
+                                    Índigo Corporativo
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 btn-paleta-rapida"
+                                        data-fundo="#0A0A0F" data-destaque="#00F0FF" data-escrita="#F0F0FF">
+                                    <span style="display:inline-block; width:14px; height:14px; border-radius:50%; background: #00F0FF;"></span>
+                                    Cyber Neon (Dark)
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 btn-paleta-rapida"
+                                        data-fundo="#F8FAFC" data-destaque="#0F2B48" data-escrita="#0F172A">
+                                    <span style="display:inline-block; width:14px; height:14px; border-radius:50%; background: #0F2B48;"></span>
+                                    Hub Clássico
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 3 SELETORES DE CORES -->
+                        <div class="row g-3 mb-4">
+                            <!-- Cor 1: Fundos -->
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small">1. Cor de Fundos</label>
+                                <div class="input-group">
+                                    <input type="color" class="form-control form-control-color" id="picker_fundos"
+                                           name="picker_fundos" value="{{ tema.fundos|default:'#F8FAFC' }}" title="Escolha a cor de fundo">
+                                    <input type="text" class="form-control font-monospace text-uppercase" id="cor_fundos"
+                                           name="cor_fundos" value="{{ tema.fundos|default:'#F8FAFC' }}" maxlength="7" required>
+                                </div>
+                                <div class="form-text small">Fundo principal das páginas</div>
+                            </div>
+
+                            <!-- Cor 2: Destaques -->
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small">2. Cor de Destaques</label>
+                                <div class="input-group">
+                                    <input type="color" class="form-control form-control-color" id="picker_destaques"
+                                           name="picker_destaques" value="{{ tema.destaques|default:'#1E3A8A' }}" title="Escolha a cor de destaque">
+                                    <input type="text" class="form-control font-monospace text-uppercase" id="cor_destaques"
+                                           name="cor_destaques" value="{{ tema.destaques|default:'#1E3A8A' }}" maxlength="7" required>
+                                </div>
+                                <div class="form-text small">Navbar, botões primários e links</div>
+                            </div>
+
+                            <!-- Cor 3: Escritas -->
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold small">3. Cor de Escritas</label>
+                                <div class="input-group">
+                                    <input type="color" class="form-control form-control-color" id="picker_escritas"
+                                           name="picker_escritas" value="{{ tema.escritas|default:'#0F172A' }}" title="Escolha a cor dos textos">
+                                    <input type="text" class="form-control font-monospace text-uppercase" id="cor_escritas"
+                                           name="cor_escritas" value="{{ tema.escritas|default:'#0F172A' }}" maxlength="7" required>
+                                </div>
+                                <div class="form-text small">Títulos e corpo de texto</div>
+                            </div>
+                        </div>
+
+                        <!-- EIXOS DE ESTILO (Raio e Sombra) -->
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Raio dos Cantos (data-raio)</label>
+                                <select name="raio" class="form-select form-select-sm">
+                                    <option value="reto" {% if tema.raio == 'reto' %}selected{% endif %}>Reto (0px)</option>
+                                    <option value="suave" {% if tema.raio == 'suave' %}selected{% endif %}>Suave (.375rem)</option>
+                                    <option value="arredondado" {% if tema.raio == 'arredondado' %}selected{% endif %}>Arredondado (1rem)</option>
+                                    <option value="pilula" {% if tema.raio == 'pilula' %}selected{% endif %}>Pílula (2rem)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Sombras (data-sombra)</label>
+                                <select name="sombra" class="form-select form-select-sm">
+                                    <option value="nenhuma" {% if tema.sombra == 'nenhuma' %}selected{% endif %}>Nenhuma (Plano)</option>
+                                    <option value="suave" {% if tema.sombra == 'suave' %}selected{% endif %}>Suave (Discreta)</option>
+                                    <option value="marcada" {% if tema.sombra == 'marcada' %}selected{% endif %}>Marcada</option>
+                                    <option value="difusa" {% if tema.sombra == 'difusa' %}selected{% endif %}>Difusa</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary fw-bold px-4">
+                            <i class="bi bi-check-lg me-1"></i> Salvar e Aplicar Tema
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- RODAPÉ INSTITUCIONAL -->
+    <footer class="py-3 text-center text-muted small">
+        <div class="container-fluid">
+            &copy; 2026 Hub Central de Marketplaces &bull; Plataforma Multicanal &bull; Fonte Única da Verdade
+        </div>
+    </footer>
+
+    <!-- Bootstrap 5.3.3 JS com SRI oficial -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            crossorigin="anonymous" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"></script>
+    <script src="{% static 'js/app.js' %}?v={{ tema_versao }}" defer></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

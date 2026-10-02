@@ -44,7 +44,10 @@ urlpatterns = [
     
     # Mapeia as rotas padrão de autenticação do Django (login, logout, recuperação e reset de senha)
     path('auth/', include('django.contrib.auth.urls')),
-    
+
+    # Conecta o app site (rota raiz '/', '/tema.css' e apresentação/landing)
+    path('', include('apps.site.urls')),
+
     # Conecta as rotas do módulo tenancy diretamente na raiz (contexto de lojistas, onboarding, seleção de empresa)
     path('', include('apps.tenancy.urls')),
     
@@ -81,4 +84,20 @@ urlpatterns = [
     # Rota agregadora para os cenários consolidados de estresse e concorrência
     path('testes/concorrencia/', ConcorrenciaTestesView.as_view(), name='testes_concorrencia'),
 ]
+
+# Entrega resiliente de arquivos estáticos nativos (Django Admin e Hub) em ambiente de desenvolvimento local
+from django.conf import settings
+from django.contrib.staticfiles.urls import staticfiles_urlpatterns
+
+urlpatterns += staticfiles_urlpatterns()
+
+if not settings.DEBUG:
+    # Garante que durante testes locais ou em desenvolvimento com DEBUG=False no .env,
+    # os arquivos CSS/JS do Django Admin e da aplicação não retornem HTTP 404.
+    from django.contrib.staticfiles.views import serve as static_serve
+    from django.urls import re_path
+    urlpatterns += [
+        re_path(r'^static/(?P<path>.*)$', static_serve, {'insecure': True}),
+    ]
+
 

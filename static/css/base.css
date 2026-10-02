@@ -1,0 +1,447 @@
+/* static/css/base.css — Estrutura Estática e Eixos de Estilo (Doc ① §11.4, §11.10 e Anexo A.4) */
+
+:root {
+  /* Fallback = T05 Profissional. A rota /tema.css redefine estes valores com base no modelo ativo */
+  --tema-fundo: #F8FAFC;
+  --tema-destaque: #1E3A8A;
+  --tema-escrita: #0F172A;
+  --tema-destaque-rgb: 30, 58, 138;
+  --tema-superficie: #FFFFFF;
+  --tema-borda: #E2E8F0;
+  --tema-escrita-suave: #475569;
+  --tema-destaque-hover: #1A3278;
+  --tema-sobre-destaque: #FFFFFF;
+
+  /* Semânticas: fora das três cores (Doc ① §11.7) */
+  --sem-sucesso: #16A34A;
+  --sem-sucesso-hover: #15803D;
+  --sem-perigo: #DC2626;
+  --sem-perigo-hover: #B91C1C;
+  --sem-alerta: #D97706;
+
+  /* Eixos de estilo: valores-padrão; os atributos data-* ajustam dinamicamente */
+  --raio: .375rem;
+  --sombra: 0 1px 3px rgba(0, 0, 0, .06);
+  --espaco: 1;
+  --duracao: .15s;
+
+  /* Mapeamento para o Bootstrap 5.3 */
+  --bs-primary: var(--tema-destaque);
+  --bs-primary-rgb: var(--tema-destaque-rgb);
+  --bs-secondary: var(--tema-escrita-suave);
+  --bs-success: var(--sem-sucesso);
+  --bs-danger: var(--sem-perigo);
+  --bs-warning: var(--sem-alerta);
+  --bs-body-bg: var(--tema-fundo);
+  --bs-body-color: var(--tema-escrita);
+  --bs-border-color: var(--tema-borda);
+  --bs-link-color: var(--tema-destaque);
+  --bs-link-color-rgb: var(--tema-destaque-rgb);
+  --bs-border-radius: var(--raio);
+}
+
+/* Eixos de estilo: Raio dos Cantos (Doc ① §11.10) */
+[data-raio="reto"] { --raio: 0; }
+[data-raio="suave"] { --raio: .375rem; }
+[data-raio="arredondado"] { --raio: 1rem; }
+[data-raio="pilula"] { --raio: 2rem; }
+
+/* Eixos de estilo: Sombra */
+[data-sombra="nenhuma"] { --sombra: none; }
+[data-sombra="suave"] { --sombra: 0 1px 3px rgba(0, 0, 0, .08); }
+[data-sombra="marcada"] { --sombra: 0 6px 18px rgba(0, 0, 0, .18); }
+[data-sombra="difusa"] { --sombra: 0 10px 30px rgba(0, 0, 0, .06); }
+
+/* Eixos de estilo: Densidade */
+[data-densidade="compacta"] { --espaco: .75; }
+[data-densidade="confortavel"] { --espaco: 1; }
+[data-densidade="ampla"] { --espaco: 1.35; }
+
+/* Eixos de estilo: Movimento */
+[data-movimento="nenhum"] { --duracao: 0s; }
+[data-movimento="discreto"] { --duracao: .15s; }
+[data-movimento="expressivo"] { --duracao: .35s; }
+
+/* Eixos de estilo: Tipografia (Pilha do Sistema) */
+[data-tipografia="sans"] { --bs-body-font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+[data-tipografia="arredondada"] { --bs-body-font-family: ui-rounded, "Trebuchet MS", "Segoe UI", sans-serif; }
+[data-tipografia="serifa-titulos"] h1,
+[data-tipografia="serifa-titulos"] h2,
+[data-tipografia="serifa-titulos"] h3 {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+/* Acessibilidade: Prefers Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* No Bootstrap 5.3 os botões usam variáveis próprias: remapear explicitamente */
+.btn-primary {
+  --bs-btn-color: var(--tema-sobre-destaque);
+  --bs-btn-hover-color: var(--tema-sobre-destaque);
+  --bs-btn-bg: var(--tema-destaque);
+  --bs-btn-border-color: var(--tema-destaque);
+  --bs-btn-hover-bg: var(--tema-destaque-hover);
+  --bs-btn-hover-border-color: var(--tema-destaque-hover);
+  --bs-btn-active-bg: var(--tema-destaque-hover);
+  --bs-btn-active-border-color: var(--tema-destaque-hover);
+  --bs-btn-disabled-bg: var(--tema-destaque);
+  --bs-btn-disabled-border-color: var(--tema-destaque);
+}
+
+.btn-success {
+  --bs-btn-color: #fff;
+  --bs-btn-hover-color: #fff;
+  --bs-btn-bg: var(--sem-sucesso);
+  --bs-btn-border-color: var(--sem-sucesso);
+  --bs-btn-hover-bg: var(--sem-sucesso-hover);
+  --bs-btn-hover-border-color: var(--sem-sucesso-hover);
+  --bs-btn-active-bg: var(--sem-sucesso-hover);
+  --bs-btn-active-border-color: var(--sem-sucesso-hover);
+  --bs-btn-disabled-bg: var(--sem-sucesso);
+  --bs-btn-disabled-border-color: var(--sem-sucesso);
+}
+
+.btn-danger {
+  --bs-btn-color: #fff;
+  --bs-btn-hover-color: #fff;
+  --bs-btn-bg: var(--sem-perigo);
+  --bs-btn-border-color: var(--sem-perigo);
+  --bs-btn-hover-bg: var(--sem-perigo-hover);
+  --bs-btn-hover-border-color: var(--sem-perigo-hover);
+  --bs-btn-active-bg: var(--sem-perigo-hover);
+  --bs-btn-active-border-color: var(--sem-perigo-hover);
+  --bs-btn-disabled-bg: var(--sem-perigo);
+  --bs-btn-disabled-border-color: var(--sem-perigo);
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-navbar {
+  background-color: var(--tema-destaque);
+}
+
+.btn-login {
+  background-color: var(--tema-sobre-destaque);
+  color: var(--tema-destaque);
+  border: 1px solid var(--tema-sobre-destaque);
+}
+
+.app-toolbar {
+  background-color: var(--tema-superficie);
+  border-bottom: 1px solid var(--tema-borda);
+  padding: calc(.75rem * var(--espaco)) 0;
+  margin-bottom: calc(1.5rem * var(--espaco));
+}
+
+.btn {
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  border-radius: var(--raio);
+  transition: background-color var(--duracao), box-shadow var(--duracao), transform var(--duracao);
+}
+
+.card {
+  background-color: var(--tema-superficie);
+  border: 1px solid var(--tema-borda);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+}
+
+.form-label {
+  font-weight: 600;
+  font-size: .875rem;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--tema-destaque);
+  box-shadow: 0 0 0 .25rem rgba(var(--tema-destaque-rgb), .2);
+}
+
+footer {
+  margin-top: auto;
+  border-top: 1px solid var(--tema-borda);
+  background-color: var(--tema-superficie);
+}
+
+/* Navbar Operacional e Estilos de Identidade do Hub Central */
+.navbar-app,
+.app-navbar {
+  background-color: var(--tema-destaque, #0f2b48) !important;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  opacity: 1 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.navbar-app .navbar-brand,
+.app-navbar .navbar-brand {
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  color: var(--tema-sobre-destaque, #ffffff) !important;
+  font-weight: 700 !important;
+}
+
+.navbar-app .nav-link,
+.app-navbar .nav-link {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--tema-sobre-destaque, #ffffff) !important;
+  opacity: 0.92;
+  padding: 0.35rem 0.55rem !important;
+  border-radius: var(--raio, 0.375rem);
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.15s ease-in-out;
+}
+
+.navbar-app .nav-link:hover,
+.navbar-app .nav-link:focus,
+.navbar-app .nav-link.active,
+.app-navbar .nav-link:hover,
+.app-navbar .nav-link:focus,
+.app-navbar .nav-link.active {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  background-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+.btn-theme-nav,
+.btn-theme-nav:hover,
+.btn-theme-nav:focus,
+.btn-theme-nav:active,
+.show > .btn-theme-nav.dropdown-toggle {
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.35rem 0.95rem !important;
+  border-radius: 50rem !important;
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.btn-theme-nav:hover,
+.btn-theme-nav:focus,
+.show > .btn-theme-nav.dropdown-toggle {
+  background-color: rgba(255, 255, 255, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.7) !important;
+  color: #ffffff !important;
+}
+
+.btn-mock-nav {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.35rem 0.95rem !important;
+  border-radius: 50rem !important;
+  white-space: nowrap;
+  background-color: #f59e0b !important;
+  border-color: #f59e0b !important;
+  color: #0f172a !important;
+}
+.btn-mock-nav:hover {
+  background-color: #d97706 !important;
+  border-color: #d97706 !important;
+  color: #0f172a !important;
+}
+
+.badge-nav-role {
+  font-size: 0.8rem;
+  padding: 0.38rem 0.95rem !important;
+  font-weight: 600;
+  border-radius: 50rem !important;
+  white-space: nowrap;
+  background-color: #b91c1c !important;
+  color: #ffffff !important;
+}
+
+.user-nav-dropdown {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #ffffff !important;
+  padding: 0.35rem 0.6rem !important;
+  white-space: nowrap;
+}
+
+/* Badges por Papel */
+.badge-role-admin {
+  background-color: #0284c7 !important;
+  color: #ffffff !important;
+}
+.badge-role-supervisor {
+  background-color: #0d9488 !important;
+  color: #ffffff !important;
+}
+.badge-role-operador {
+  background-color: #475569 !important;
+  color: #ffffff !important;
+}
+.badge-role-dev {
+  background-color: #7c3aed !important;
+  color: #ffffff !important;
+}
+
+/* Cores sólidas do Hub para botões e destaques */
+.btn-hub-solid {
+  background-color: #0f2b48 !important;
+  border-color: #0f2b48 !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  transition: all 0.15s ease-in-out;
+}
+.btn-hub-solid:hover,
+.btn-hub-solid:focus {
+  background-color: #173d63 !important;
+  border-color: #173d63 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(15, 43, 72, 0.25);
+}
+.btn-hub-solid:active {
+  background-color: #0a1e33 !important;
+  border-color: #0a1e33 !important;
+  color: #ffffff !important;
+}
+.btn-hub-solid:disabled {
+  background-color: #4b6b8b !important;
+  border-color: #4b6b8b !important;
+  color: #e2e8f0 !important;
+  opacity: 0.7;
+}
+.text-hub-solid {
+  color: #0f2b48 !important;
+}
+.border-hub-solid {
+  border-color: #0f2b48 !important;
+}
+.bg-hub-solid {
+  background-color: #0f2b48 !important;
+  color: #ffffff !important;
+}
+[data-bs-theme="dark"] .text-hub-solid {
+  color: #5c93c4 !important;
+}
+
+/* ==============================================================================
+   ESTRUTURA E ADAPTAÇÃO PARA MODO ESCURO (data-bs-theme="dark")
+   ============================================================================== */
+[data-bs-theme="dark"] .card {
+  background-color: var(--tema-superficie) !important;
+  color: var(--tema-escrita) !important;
+  border-color: var(--tema-borda) !important;
+}
+
+[data-bs-theme="dark"] .bg-white,
+[data-bs-theme="dark"] .card.bg-white,
+[data-bs-theme="dark"] .module-access-card.bg-white,
+[data-bs-theme="dark"] .journey-step-card.bg-white {
+  background-color: var(--tema-superficie) !important;
+  color: var(--tema-escrita) !important;
+}
+
+[data-bs-theme="dark"] .module-access-card,
+[data-bs-theme="dark"] .journey-step-card {
+  background-color: var(--tema-superficie) !important;
+  border-color: var(--tema-borda) !important;
+}
+
+[data-bs-theme="dark"] .module-access-card:hover,
+[data-bs-theme="dark"] .journey-step-card:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-color: var(--tema-borda) !important;
+}
+
+[data-bs-theme="dark"] .app-toolbar {
+  background-color: var(--tema-superficie) !important;
+  border-bottom-color: var(--tema-borda) !important;
+}
+
+[data-bs-theme="dark"] footer {
+  background-color: var(--tema-superficie) !important;
+  border-top-color: var(--tema-borda) !important;
+  color: var(--tema-escrita-suave) !important;
+}
+
+[data-bs-theme="dark"] .text-dark {
+  color: var(--tema-escrita) !important;
+}
+
+[data-bs-theme="dark"] .text-muted,
+[data-bs-theme="dark"] .text-secondary {
+  color: var(--tema-escrita-suave) !important;
+}
+
+[data-bs-theme="dark"] .table {
+  --bs-table-color: var(--tema-escrita);
+  --bs-table-bg: transparent;
+  --bs-table-border-color: var(--tema-borda);
+}
+
+[data-bs-theme="dark"] .dropdown-menu {
+  background-color: var(--tema-superficie) !important;
+  border-color: var(--tema-borda) !important;
+  color: var(--tema-escrita) !important;
+}
+
+[data-bs-theme="dark"] .dropdown-item {
+  color: var(--tema-escrita) !important;
+}
+
+[data-bs-theme="dark"] .dropdown-item:hover,
+[data-bs-theme="dark"] .dropdown-item:focus {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+[data-bs-theme="dark"] .dropdown-header {
+  color: var(--tema-escrita-suave) !important;
+}
+
+[data-bs-theme="dark"] .modal-content {
+  background-color: var(--tema-superficie) !important;
+  color: var(--tema-escrita) !important;
+  border-color: var(--tema-borda) !important;
+}
+
+[data-bs-theme="dark"] .modal-header,
+[data-bs-theme="dark"] .modal-footer {
+  border-color: var(--tema-borda) !important;
+}
+
+[data-bs-theme="dark"] .modal-footer.bg-light {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+[data-bs-theme="dark"] .form-control,
+[data-bs-theme="dark"] .form-select {
+  background-color: var(--tema-fundo) !important;
+  color: var(--tema-escrita) !important;
+  border-color: var(--tema-borda) !important;
+}
+
+[data-bs-theme="dark"] .form-control:focus,
+[data-bs-theme="dark"] .form-select:focus {
+  background-color: var(--tema-fundo) !important;
+  color: var(--tema-escrita) !important;
+  border-color: var(--tema-destaque) !important;
+}
+
+[data-bs-theme="dark"] .bg-light {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  color: var(--tema-escrita) !important;
+}
+
+[data-bs-theme="dark"] .border {
+  border-color: var(--tema-borda) !important;
+}
+
