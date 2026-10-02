@@ -1,0 +1,104 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Hub Central de Marketplaces — Plataforma de Integração Multicanal{% endblock %}
+{% block page_title %}Plataforma Multicanal{% endblock %}
+{% block page_subtitle %}Centralize seus produtos, conectores, pedidos e finanças em um único local{% endblock %}
+
+{% block content %}
+<div class="row align-items-center py-5">
+    <div class="col-lg-7">
+        <span class="badge bg-primary px-3 py-2 rounded-pill mb-3">Fonte Única da Verdade</span>
+        <h1 class="display-4 fw-bold mb-3">Conecte seus produtos a múltiplos marketplaces com segurança total</h1>
+        <p class="lead text-muted mb-4">
+            Gerencie catálogo, preços dinâmicos, estoques atômicos e conciliação de repasses com isolamento multi-tenant e governança RBAC de ponta a ponta.
+        </p>
+        <div class="d-flex gap-3">
+            {% if user.is_authenticated %}
+                <a href="{% url 'home' %}" class="btn btn-primary btn-lg px-4 py-2">
+                    <i class="bi bi-speedometer2 me-1"></i> Ir para o Painel
+                </a>
+            {% else %}
+                <a href="{% url 'login' %}" class="btn btn-primary btn-lg px-4 py-2">
+                    <i class="bi bi-box-arrow-in-right me-1"></i> Entrar no Sistema
+                </a>
+            {% endif %}
+            <a href="#recursos" class="btn btn-outline-secondary btn-lg px-4 py-2">
+                <i class="bi bi-info-circle me-1"></i> Saiba Mais
+            </a>
+        </div>
+    </div>
+    <div class="col-lg-5 text-center mt-5 mt-lg-0">
+        <div class="card p-4 shadow-sm border-0 bg-body-tertiary">
+            <div class="d-flex justify-content-around py-3">
+                <div class="text-center">
+                    <i class="bi bi-diagram-3 fs-1 text-primary"></i>
+                    <h5 class="fw-bold mt-2">Canais</h5>
+                    <small class="text-muted">ML, Shopee, Magalu</small>
+                </div>
+                <div class="text-center">
+                    <i class="bi bi-shield-check fs-1 text-success"></i>
+                    <h5 class="fw-bold mt-2">Segurança</h5>
+                    <small class="text-muted">RBAC & Fernet</small>
+                </div>
+                <div class="text-center">
+                    <i class="bi bi-cash-stack fs-1 text-warning"></i>
+                    <h5 class="fw-bold mt-2">Finanças</h5>
+                    <small class="text-muted">Margens e Tarifas</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<section id="recursos" class="pt-5 border-top">
+    <div class="text-center mb-5">
+        <h2 class="fw-bold">Arquitetura Desacoplada e Modular</h2>
+        <p class="text-muted">Projetado com os mais rigorosos padrões do ecossistema Django</p>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-body p-4">
+                    <div class="d-inline-flex p-3 rounded-3 bg-primary-subtle text-primary mb-3">
+                        <i class="bi bi-boxes fs-3"></i>
+                    </div>
+                    <h4 class="card-title fw-bold">Catálogo Mestre</h4>
+                    <p class="card-text text-muted">
+                        Cadastro centralizado de produtos e estoque interno. Todas as alterações são sincronizadas automaticamente com os canais parceiros.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-body p-4">
+                    <div class="d-inline-flex p-3 rounded-3 bg-success-subtle text-success mb-3">
+                        <i class="bi bi-arrow-repeat fs-3"></i>
+                    </div>
+                    <h4 class="card-title fw-bold">Sincronização em Tempo Real</h4>
+                    <p class="card-text text-muted">
+                        Fila de sincronização resiliente e idempotente, prevenindo divergências de inventário e vendas sem estoque físico.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-body p-4">
+                    <div class="d-inline-flex p-3 rounded-3 bg-warning-subtle text-warning mb-3">
+                        <i class="bi bi-palette fs-3"></i>
+                    </div>
+                    <h4 class="card-title fw-bold">Temas Acessíveis WCAG 2.1</h4>
+                    <p class="card-text text-muted">
+                        Sistema visual de temas desacoplados com validação automática de luminância e contraste para inclusão e usabilidade exemplar.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
