@@ -324,3 +324,4 @@ class PerfilUsuario(models.Model):
         # Obriga que qualquer usuário não-DEV possua um tenant Loja obrigatoriamente associado
         if self.papel != PapelUsuarioEnum.DEV and not self.loja:
             raise ValidationError({'loja': 'Usuários com papel diferente de DEV devem pertencer a uma Loja (RN-01).'})
+
