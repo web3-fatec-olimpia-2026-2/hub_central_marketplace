@@ -286,8 +286,8 @@ class UsuarioCreateForm(forms.Form):
         elif usuario_is_admin(self.autor):
             # Restringe papéis elegíveis a Supervisor e Usuário Comum
             self.fields['papel'].choices = [
-                (PapelUsuarioEnum.SUPERVISOR, 'Supervisor da Loja (SUPERVISOR)'),
-                (PapelUsuarioEnum.USUARIO, 'Usuário Padrão da Loja (USUÁRIO)'),
+                (PapelUsuarioEnum.SUPERVISOR, 'Supervisor (SUPERVISOR)'),
+                (PapelUsuarioEnum.USUARIO, 'Usuário (USUÁRIO)'),
             ]
             loja_admin = getattr(self.autor.perfil, 'loja', None)
             # Trava a loja compulsoriamente na mesma loja do administrador
@@ -413,8 +413,8 @@ class UsuarioUpdateForm(forms.ModelForm):
         # Configura opções para administradores de loja (apenas subordinados na sua própria loja)
         elif usuario_is_admin(self.autor):
             self.fields['papel'].choices = [
-                (PapelUsuarioEnum.SUPERVISOR, 'Supervisor da Loja (SUPERVISOR)'),
-                (PapelUsuarioEnum.USUARIO, 'Usuário Padrão da Loja (USUÁRIO)'),
+                (PapelUsuarioEnum.SUPERVISOR, 'Supervisor (SUPERVISOR)'),
+                (PapelUsuarioEnum.USUARIO, 'Usuário (USUÁRIO)'),
             ]
             self.fields['loja'].queryset = Loja.objects.filter(id=self.autor.perfil.loja_id)
             self.fields['loja'].disabled = True
