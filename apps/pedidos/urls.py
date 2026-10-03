@@ -12,8 +12,8 @@ urlpatterns = [
     # Rota que renderiza a listagem paginada e filtrável de pedidos de venda da loja (tenant)
     path('pedidos/', views.PedidoVendaListView.as_view(), name='pedido_list'),
 
-    # Rota que renderiza a visualização detalhada de um pedido de venda específico pelo seu ID (chave primária)
-    path('pedidos/<int:pk>/', views.PedidoVendaDetailView.as_view(), name='pedido_detail'),
+    # Rota que renderiza a visualização detalhada de um pedido de venda específico pelo seu identificador público universal (public_id)
+    path('pedidos/<uuid:public_id>/', views.PedidoVendaDetailView.as_view(), name='pedido_detail'),
 
     # Endpoints de Webhooks Multicanal (RF-06 / RN-05)
     # Endpoint público genérico para recepção assíncrona de notificações de vendas do Mercado Livre

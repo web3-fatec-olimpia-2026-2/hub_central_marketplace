@@ -133,7 +133,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Autentica no cliente de testes com usuário administrador
         self.client.login(username='admin_cat', password='password123')
         # Submete alteração aumentando o preço do notebook de R$ 5000.00 para R$ 5200.00
-        response = self.client.post(reverse('produto_update', kwargs={'pk': self.produto.pk}), {
+        response = self.client.post(reverse('produto_update', kwargs={'public_id': self.produto.public_id}), {
             'sku': self.produto.sku,
             'nome': self.produto.nome,
             'categoria': self.categoria.pk,
@@ -163,7 +163,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Efetua login com o usuário restrito de operação
         self.client.login(username='usuario_cat', password='password123')
         # Tenta enviar formulário de edição com novo nome, mas adulterando preço e estoque
-        self.client.post(reverse('produto_update', kwargs={'pk': self.produto.pk}), {
+        self.client.post(reverse('produto_update', kwargs={'public_id': self.produto.public_id}), {
             'sku': self.produto.sku,
             'nome': 'Notebook Dell G15 Editado',
             'categoria': self.categoria.pk,
@@ -183,7 +183,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
 
         # 2. Tenta excluir produto -> Espera 403 Forbidden
         # Submete requisição POST para a rota de exclusão do produto
-        res_del = self.client.post(reverse('produto_delete', kwargs={'pk': self.produto.pk}))
+        res_del = self.client.post(reverse('produto_delete', kwargs={'public_id': self.produto.public_id}))
         # Valida que o acesso à exclusão foi bloqueado com status HTTP 403 Forbidden
         self.assertEqual(res_del.status_code, 403)
 
@@ -193,7 +193,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Autentica com o usuário de operação regular
         self.client.login(username='usuario_cat', password='password123')
         # Submete a baixa por avaria de 2 unidades informando justificativa
-        response = self.client.post(reverse('produto_baixa_avaria', kwargs={'pk': self.produto.pk}), {
+        response = self.client.post(reverse('produto_baixa_avaria', kwargs={'public_id': self.produto.public_id}), {
             'quantidade': 2,
             'tipo_baixa': TipoAjusteEstoqueEnum.SAIDA_AVARIA,
             'justificativa': 'Tela trincada durante o manuseio no galpão'
@@ -212,7 +212,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Autentica com usuário administrador
         self.client.login(username='admin_cat', password='password123')
         # Tenta excluir a categoria vinculada ao produto existente
-        res = self.client.post(reverse('categoria_delete', kwargs={'pk': self.categoria.pk}))
+        res = self.client.post(reverse('categoria_delete', kwargs={'public_id': self.categoria.public_id}))
         # Confirma redirecionamento emitindo alerta
         self.assertEqual(res.status_code, 302)
         # Categoria deve continuar existindo
@@ -225,7 +225,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Autentica com perfil de administrador
         self.client.login(username='admin_cat', password='password123')
         # Envia requisição para criação do vínculo do anúncio
-        res = self.client.post(reverse('anuncio_marketplace_create', kwargs={'pk': self.produto.pk}), {
+        res = self.client.post(reverse('anuncio_marketplace_create', kwargs={'public_id': self.produto.public_id}), {
             'conta_marketplace': self.conta_ml.pk,
             'item_id_externo': 'MLB_NOVO_123',
             'status_anuncio': 'ativo',
@@ -242,12 +242,12 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Autentica com perfil USUARIO
         self.client.login(username='usuario_cat', password='password123')
         # Tenta acessar via GET a tela de publicação de anúncio
-        res_get = self.client.get(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}))
+        res_get = self.client.get(reverse('anuncio_marketplace_publicar', kwargs={'public_id': self.produto.public_id}))
         # Valida bloqueio HTTP 403
         self.assertEqual(res_get.status_code, 403)
 
         # Tenta disparar o POST de publicação de anúncio
-        res_post = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}), {
+        res_post = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'public_id': self.produto.public_id}), {
             'conta_marketplace': self.conta_ml.pk,
             'listing_type_id': 'gold_special',
             'preco': '5000.00',
@@ -262,14 +262,14 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Autentica como administrador
         self.client.login(username='admin_cat', password='password123')
         # Requisita a tela de publicação via GET
-        res_get = self.client.get(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}))
+        res_get = self.client.get(reverse('anuncio_marketplace_publicar', kwargs={'public_id': self.produto.public_id}))
         # Confirma carregamento da página com status HTTP 200
         self.assertEqual(res_get.status_code, 200)
         # Valida a presença do título da tela no HTML renderizado
         self.assertContains(res_get, "Parâmetros de Publicação no Marketplace")
 
         # Submete os parâmetros de publicação via POST
-        res_post = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}), {
+        res_post = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'public_id': self.produto.public_id}), {
             'conta_marketplace': self.conta_ml.pk,
             'listing_type_id': 'gold_special',
             'preco': '4950.00',
@@ -308,7 +308,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
         # Autentica como administrador da loja original
         self.client.login(username='admin_cat', password='password123')
         # Tenta publicar o produto da loja original na conta da loja alheia
-        res_cross = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'pk': self.produto.pk}), {
+        res_cross = self.client.post(reverse('anuncio_marketplace_publicar', kwargs={'public_id': self.produto.public_id}), {
             'conta_marketplace': conta_alheia.pk,
             'listing_type_id': 'gold_special',
             'preco': '5000.00'
@@ -398,7 +398,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
 
         # Autentica como administrador
         self.client.login(username='admin_cat', password='password123')
-        url_sync = reverse('produto_sincronizar_preco', kwargs={'pk': self.produto.pk})
+        url_sync = reverse('produto_sincronizar_preco', kwargs={'public_id': self.produto.public_id})
 
         # 1. Submissão sem nenhum anúncio selecionado
         # Submete requisição sem marcar nenhum checkbox
@@ -455,8 +455,8 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
 
         # Autentica com administrador
         self.client.login(username='admin_cat', password='password123')
-        url_detail = reverse('produto_detail', kwargs={'pk': self.produto.pk})
-        url_sync = reverse('produto_sincronizar_preco', kwargs={'pk': self.produto.pk})
+        url_detail = reverse('produto_detail', kwargs={'public_id': self.produto.public_id})
+        url_sync = reverse('produto_sincronizar_preco', kwargs={'public_id': self.produto.public_id})
 
         # Antes do cancelamento, o anúncio está na fila de pendentes
         # Carrega a tela de detalhes do produto
@@ -521,8 +521,8 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
 
         # Autentica com administrador
         self.client.login(username='admin_cat', password='password123')
-        url_detail = reverse('produto_detail', kwargs={'pk': self.produto.pk})
-        url_baixa = reverse('produto_baixa_avaria', kwargs={'pk': self.produto.pk})
+        url_detail = reverse('produto_detail', kwargs={'public_id': self.produto.public_id})
+        url_baixa = reverse('produto_baixa_avaria', kwargs={'public_id': self.produto.public_id})
 
         # Inicialmente está CANCELADO e com cota igual ao publicado (10 un), logo não está pendente
         res_antes = self.client.get(url_detail)
@@ -592,7 +592,7 @@ class CatalogoAndRBACPermissionsTestCase(TestCase):
 
         # Autentica como administrador
         self.client.force_login(self.user_admin)
-        url_ajuste = reverse('produto_ajuste_estoque', kwargs={'pk': prod_sem_anuncio.pk})
+        url_ajuste = reverse('produto_ajuste_estoque', kwargs={'public_id': prod_sem_anuncio.public_id})
 
         # Executa ajuste de saldo físico de 50 para 45 unidades
         resp = self.client.post(url_ajuste, {

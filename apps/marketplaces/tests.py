@@ -207,7 +207,7 @@ class MarketplacesHubTestCase(TestCase):
         client.login(username='admin_loja', password='password123')
 
         # Teste de conexão via view
-        res_test = client.post(reverse('conta_marketplace_testar', kwargs={'pk': self.conta_shopee.pk}))
+        res_test = client.post(reverse('conta_marketplace_testar', kwargs={'public_id': self.conta_shopee.public_id}))
         self.assertEqual(res_test.status_code, 302)
 
         # Listagem de canais
@@ -323,7 +323,7 @@ class MarketplacesHubTestCase(TestCase):
         client = Client()
         client.login(username='admin_loja', password='password123')
 
-        res = client.post(reverse('conta_marketplace_desconectar', kwargs={'pk': self.conta_meli.pk}))
+        res = client.post(reverse('conta_marketplace_desconectar', kwargs={'public_id': self.conta_meli.public_id}))
         self.assertEqual(res.status_code, 302)
 
         self.conta_meli.refresh_from_db()
@@ -441,7 +441,7 @@ class MarketplacesHubTestCase(TestCase):
         res_list = client.get(reverse('canal_list'))
         self.assertEqual(res_list.status_code, 200)
         # Não deve haver botão de reconectar para a conta sem sincronização
-        res_form = client.get(reverse('conta_marketplace_update', kwargs={'pk': conta_nova_ml.pk}))
+        res_form = client.get(reverse('conta_marketplace_update', kwargs={'public_id': conta_nova_ml.public_id}))
         self.assertEqual(res_form.status_code, 200)
         self.assertNotContains(res_form, "Reconectar Conta")
         self.assertContains(res_form, "Conectar com Mercado Livre")
@@ -451,7 +451,7 @@ class MarketplacesHubTestCase(TestCase):
         conta_nova_ml.ultima_sincronizacao = timezone.now()
         conta_nova_ml.save()
 
-        res_form_apos = client.get(reverse('conta_marketplace_update', kwargs={'pk': conta_nova_ml.pk}))
+        res_form_apos = client.get(reverse('conta_marketplace_update', kwargs={'public_id': conta_nova_ml.public_id}))
         self.assertEqual(res_form_apos.status_code, 200)
         self.assertContains(res_form_apos, "Reconectar Conta")
 
@@ -816,7 +816,7 @@ class MarketplacesHubTestCase(TestCase):
         client.login(username='admin_loja', password='password123')
 
         # 1. Autorização gera state randômico na sessão
-        res_auth = client.get(reverse('mercadolivre_autorizar', kwargs={'pk': self.conta_meli.pk}))
+        res_auth = client.get(reverse('mercadolivre_autorizar', kwargs={'public_id': self.conta_meli.public_id}))
         self.assertEqual(res_auth.status_code, 302)
         session_state = client.session.get('oauth_state')
         self.assertTrue(session_state)
@@ -847,7 +847,7 @@ class MarketplacesHubTestCase(TestCase):
         client.login(username='admin_loja', password='password123')
 
         # 1. Inicia fluxo de autorização/reconexão a partir do card existente
-        res_auth = client.get(reverse('mercadolivre_autorizar', kwargs={'pk': self.conta_meli.pk}))
+        res_auth = client.get(reverse('mercadolivre_autorizar', kwargs={'public_id': self.conta_meli.public_id}))
         self.assertEqual(res_auth.status_code, 302)
         session_state = client.session.get('oauth_state')
         self.assertEqual(client.session.get('oauth_conta_id'), self.conta_meli.pk)
@@ -890,7 +890,7 @@ class MarketplacesHubTestCase(TestCase):
         client.login(username='admin_loja', password='password123')
 
         # 1. Inicia reconexão no card 1
-        client.get(reverse('mercadolivre_autorizar', kwargs={'pk': self.conta_meli.pk}))
+        client.get(reverse('mercadolivre_autorizar', kwargs={'public_id': self.conta_meli.public_id}))
         session_state = client.session.get('oauth_state')
         self.assertEqual(client.session.get('oauth_conta_id'), self.conta_meli.pk)
 
@@ -1382,7 +1382,7 @@ class MercadoLivreWebhookTestCase(TestCase):
 
         # Verifica produto_detail: anúncio NÃO deve constar como pendente no modal
         self.client.force_login(self.user)
-        res_prod = self.client.get(reverse('produto_detail', kwargs={'pk': produto.pk}))
+        res_prod = self.client.get(reverse('produto_detail', kwargs={'public_id': produto.public_id}))
         self.assertEqual(res_prod.status_code, 200)
         self.assertNotIn(anuncio, res_prod.context['anuncios_pendentes_sync'])
 
@@ -1777,7 +1777,7 @@ class MercadoLivreWebhookTestCase(TestCase):
         )
 
         self.client.force_login(self.user)
-        url_replay = reverse('webhook_event_replay', kwargs={'pk': event_log.pk})
+        url_replay = reverse('webhook_event_replay', kwargs={'public_id': event_log.public_id})
 
         res = self.client.post(url_replay)
         self.assertEqual(res.status_code, 302)
@@ -1804,7 +1804,7 @@ class MercadoLivreWebhookTestCase(TestCase):
             status=WebhookStatusEnum.ERRO
         )
 
-        url_replay = reverse('webhook_event_replay', kwargs={'pk': event_log.pk})
+        url_replay = reverse('webhook_event_replay', kwargs={'public_id': event_log.public_id})
 
         # Usuário sem permissão
         self.client.force_login(user_comum)
@@ -2295,7 +2295,7 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
     def test_conta_form_view_renders_https_under_ngrok(self):
         """Valida que a view do formulário de conta emite https:// para redirect_uri e webhook_url quando acessada via ngrok com HTTPS."""
         self.client.force_login(self.user)
-        url = reverse('conta_marketplace_update', kwargs={'pk': self.conta.pk})
+        url = reverse('conta_marketplace_update', kwargs={'public_id': self.conta.public_id})
 
         response = self.client.get(
             url,
@@ -2326,7 +2326,7 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
     def test_conta_form_view_renders_http_without_https(self):
         """Valida que quando a requisição não tem HTTPS, emite http:// independentemente do host."""
         self.client.force_login(self.user)
-        url = reverse('conta_marketplace_update', kwargs={'pk': self.conta.pk})
+        url = reverse('conta_marketplace_update', kwargs={'public_id': self.conta.public_id})
 
         response = self.client.get(url, HTTP_HOST='127.0.0.1:8000')
         self.assertEqual(response.status_code, 200)

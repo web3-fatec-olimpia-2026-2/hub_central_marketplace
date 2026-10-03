@@ -1,4 +1,5 @@
-# Os códigos foram gerados com auxilio de I.A.
+# Importa o módulo nativo uuid para mitigação de IDOR/BOLA via identificadores públicos universais
+import uuid
 
 # Importa o módulo matemático padrão para operações numéricas como arredondamento para baixo (floor)
 import math
@@ -38,6 +39,16 @@ class Anuncio(models.Model):
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR (gestão completa); USUARIO (leitura).
     MULTI-TENANCY: Vinculado à ContaMarketplace da Loja do lojista.
     """
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Opções válidas para o status de publicação comercial do anúncio no canal parceiro
     STATUS_CHOICES = [
@@ -317,6 +328,16 @@ class AnuncioComposicao(models.Model):
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR.
     MULTI-TENANCY: Produto físico e Anúncio devem pertencer à mesma Loja.
     """
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Chave estrangeira ligando o componente ao anúncio pai
     anuncio = models.ForeignKey(

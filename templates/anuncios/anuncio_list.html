@@ -50,7 +50,7 @@
                         <li><h6 class="dropdown-header">Selecione a Conta para Sincronizar</h6></li>
                         {% for c in contas_disponiveis %}
                             <li>
-                                <form method="post" action="{% url 'anuncio_importar' pk=c.pk %}" class="px-2 py-1">
+                                <form method="post" action="{% url 'anuncio_importar' public_id=c.public_id %}" class="px-2 py-1">
                                     {% csrf_token %}
                                     <button type="submit" class="dropdown-item rounded d-flex align-items-center justify-content-between">
                                         <span>
@@ -165,7 +165,7 @@
                                 </td>
                                 <td>
                                     <div class="fw-bold">
-                                        <a href="{% url 'anuncio_detail' pk=a.pk %}" class="text-decoration-none text-dark">
+                                        <a href="{% url 'anuncio_detail' public_id=a.public_id %}" class="text-decoration-none text-dark">
                                             {{ a.titulo|truncatechars:60 }}
                                         </a>
                                     </div>
@@ -224,11 +224,11 @@
                                 </td>
                                 <td class="text-center">
                                     <div class="btn-group btn-group-sm">
-                                        <a href="{% url 'anuncio_detail' pk=a.pk %}" class="btn btn-outline-primary" title="Ficha Técnica">
+                                        <a href="{% url 'anuncio_detail' public_id=a.public_id %}" class="btn btn-outline-primary" title="Ficha Técnica">
                                             <i class="bi bi-sliders"></i>
                                         </a>
                                         {% if pode_sincronizar %}
-                                            <a href="{% url 'anuncio_update' pk=a.pk %}" class="btn btn-outline-secondary" title="Editar Anúncio e Composição">
+                                            <a href="{% url 'anuncio_update' public_id=a.public_id %}" class="btn btn-outline-secondary" title="Editar Anúncio e Composição">
                                                 <i class="bi bi-pencil-square"></i>
                                             </a>
                                         {% endif %}

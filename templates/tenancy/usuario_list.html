@@ -102,14 +102,14 @@
                             <td class="text-end">
                                 {% if is_dev or u.perfil.papel != 'DEV' and u.perfil.papel != 'ADMIN' or u == user %}
                                     <div class="btn-group btn-group-sm">
-                                        <a href="{% url 'usuario_update' pk=u.pk %}" class="btn btn-outline-primary" title="Editar">
+                                        <a href="{% url 'usuario_update' public_id=u.perfil.public_id %}" class="btn btn-outline-primary" title="Editar">
                                             <i class="bi bi-pencil"></i>
                                         </a>
-                                        <a href="{% url 'usuario_password_reset' pk=u.pk %}" class="btn btn-outline-warning" title="Redefinir Senha">
+                                        <a href="{% url 'usuario_password_reset' public_id=u.perfil.public_id %}" class="btn btn-outline-warning" title="Redefinir Senha">
                                             <i class="bi bi-key"></i>
                                         </a>
                                         {% if u != user %}
-                                            <form method="post" action="{% url 'usuario_toggle_status' pk=u.pk %}" class="d-inline">
+                                            <form method="post" action="{% url 'usuario_toggle_status' public_id=u.perfil.public_id %}" class="d-inline">
                                                 {% csrf_token %}
                                                 <button type="submit" class="btn btn-outline-{% if u.is_active %}danger{% else %}success{% endif %}" title="{% if u.is_active %}Desativar{% else %}Ativar{% endif %}">
                                                     <i class="bi bi-power"></i>

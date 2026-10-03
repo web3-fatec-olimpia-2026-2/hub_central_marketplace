@@ -1,4 +1,5 @@
-# Os códigos foram gerados com auxilio de I.A.
+# Importa o módulo nativo uuid para mitigação de IDOR/BOLA via identificadores públicos universais
+import uuid
 
 # Importa a classe Decimal para cálculo e persistência precisa de valores financeiros sem erro de ponto flutuante
 from decimal import Decimal
@@ -32,6 +33,16 @@ class PedidoVenda(models.Model):
     MULTI-TENANCY: FK obrigatória para Loja com unicidade composta ('loja', 'canal_origem', 'pedido_id_externo').
     """
     # Fim do bloco de docstring explicativa
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Chave estrangeira para o tenant Loja com exclusão em cascata
     loja = models.ForeignKey(
@@ -168,6 +179,16 @@ class ItemPedidoVenda(models.Model):
     MULTI-TENANCY: Herda o tenant do pedido pai.
     """
     # Fim da docstring explicativa
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Opções válidas para o status de vínculo do item comercial com o estoque físico interno
     STATUS_INTEGRACAO_CHOICES = [

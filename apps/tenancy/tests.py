@@ -240,7 +240,7 @@ class TenancyFeatureFlagAndRBACTestCase(TestCase):
 
         # Alterna status do subordinado
         # Emite requisição POST para desativar a conta do operador padrão da mesma loja
-        res_toggle = self.client.post(reverse('usuario_toggle_status', kwargs={'pk': self.user_padrao_alpha.pk}))
+        res_toggle = self.client.post(reverse('usuario_toggle_status', kwargs={'public_id': self.user_padrao_alpha.perfil.public_id}))
         self.assertEqual(res_toggle.status_code, 302)
         # Recarrega o usuário do banco e valida que a conta foi efetivamente inativada
         self.user_padrao_alpha.refresh_from_db()
@@ -248,7 +248,7 @@ class TenancyFeatureFlagAndRBACTestCase(TestCase):
 
         # Redefinição de senha
         # Submete formulário com nova senha administrativa para o subordinado
-        res_pwd = self.client.post(reverse('usuario_password_reset', kwargs={'pk': self.user_padrao_alpha.pk}), {
+        res_pwd = self.client.post(reverse('usuario_password_reset', kwargs={'public_id': self.user_padrao_alpha.perfil.public_id}), {
             'nova_senha1': 'NovaSenhaForte123',
             'nova_senha2': 'NovaSenhaForte123'
         })

@@ -344,6 +344,8 @@ class PedidoVendaDetailView(LoginRequiredMixin, ModuloRequeridoMixin, DetailView
 
     # Modelo ORM alvo
     model = PedidoVenda
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
 
     # Template HTML correspondente à tela de detalhes
     template_name = 'pedidos/pedido_detail.html'

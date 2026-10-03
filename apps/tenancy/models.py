@@ -1,4 +1,7 @@
 # Os códigos foram gerados com auxilio de I.A.
+# Importa o módulo nativo uuid para mitigação de IDOR/BOLA via identificadores públicos universais
+import uuid
+
 # Importa o módulo models do Django para declaração de modelos e campos ORM
 from django.db import models
 
@@ -36,6 +39,16 @@ class Loja(models.Model):
     MULTI-TENANCY: É a raiz de particionamento lógico de todas as entidades do sistema.
     """
     # Fim da docstring explicativa da classe Loja
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Razão social ou nome fantasia da loja
     nome = models.CharField(max_length=150, verbose_name="Nome da Loja")
@@ -241,6 +254,16 @@ class PerfilUsuario(models.Model):
     MULTI-TENANCY: Vínculo obrigatório a uma Loja para perfis não-DEV (RN-01 / RN-03).
     """
     # Fim da docstring explicativa
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Relacionamento unívoco (1:1) com a conta de autenticação nativa do Django
     usuario = models.OneToOneField(

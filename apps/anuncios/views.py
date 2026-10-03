@@ -166,6 +166,8 @@ class AnuncioDetailView(LoginRequiredMixin, ModuloRequeridoMixin, DetailView):
     # Módulo requerido para verificação de permissão contratual
     modulo_requerido = 'marketplaces'
     model = Anuncio
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     template_name = 'anuncios/anuncio_detail.html'
     context_object_name = 'anuncio'
 
@@ -387,7 +389,7 @@ class AnuncioCreateView(LoginRequiredMixin, ModuloRequeridoMixin, CreateView):
             # Notifica mensagem de sucesso na interface
             messages.success(self.request, f"Anúncio [{self.object.item_id_externo}] criado com sucesso!")
             # Redireciona o usuário para a visualização detalhada do anúncio criado
-            return redirect(reverse('anuncio_detail', kwargs={'pk': self.object.pk}))
+            return redirect(reverse('anuncio_detail', kwargs={'public_id': self.object.public_id}))
         # Se houver erro de validação nas linhas da composição, reapresenta o formulário com as mensagens de erro
         else:
             return self.render_to_response(self.get_context_data(form=form, formset=formset))
@@ -406,6 +408,8 @@ class AnuncioUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, UpdateView):
 
     modulo_requerido = 'marketplaces'
     model = Anuncio
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     form_class = AnuncioForm
     template_name = 'anuncios/anuncio_form.html'
 
@@ -505,7 +509,7 @@ class AnuncioUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, UpdateView):
 
             # Notifica mensagem de atualização bem-sucedida
             messages.success(self.request, f"Anúncio [{self.object.item_id_externo}] atualizado com sucesso!")
-            return redirect(reverse('anuncio_detail', kwargs={'pk': self.object.pk}))
+            return redirect(reverse('anuncio_detail', kwargs={'public_id': self.object.public_id}))
         # Re-renderiza a tela em caso de falha de validação no formset
         else:
             return self.render_to_response(self.get_context_data(form=form, formset=formset))
@@ -524,13 +528,13 @@ class AnuncioImportarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
     modulo_requerido = 'marketplaces'
 
     # Processa requisições do tipo POST disparadas pelo botão de importação
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, public_id, *args, **kwargs):
         # Validação de permissões de sincronização
         if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
             raise PermissionDenied("Acesso negado: seu perfil não tem permissão para importar anúncios.")
 
-        # Obtém a conta alvo pela chave primária ou dispara 404
-        conta = get_object_or_404(ContaMarketplace, pk=pk)
+        # Obtém a conta alvo pelo public_id ou dispara 404
+        conta = get_object_or_404(ContaMarketplace, public_id=public_id)
 
         # Checagem de tenant: impede que um operador dispare importação em contas de outras empresas
         if not usuario_is_dev(request.user):
@@ -551,7 +555,6 @@ class AnuncioImportarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
         else:
             messages.error(request, f"[{conta.get_canal_display()}] Falha na importação: {resultado.get('mensagem')}")
 
-        # Redireciona para a lista filtrando pela conta importada
         # Redireciona para a listagem de anúncios mantendo o filtro ativo na conta importada
         return redirect(f"{reverse('anuncio_list')}?conta={conta.pk}")
 
@@ -566,11 +569,11 @@ class AnuncioComposicaoCreateView(LoginRequiredMixin, ModuloRequeridoMixin, View
     modulo_requerido = 'marketplaces'
 
     # Processa a inclusão via requisição POST
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, public_id, *args, **kwargs):
         if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
             raise PermissionDenied("Acesso negado.")
 
-        anuncio = get_object_or_404(Anuncio, pk=pk)
+        anuncio = get_object_or_404(Anuncio, public_id=public_id)
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
             if not perfil or not perfil.loja or anuncio.conta.loja_id != perfil.loja_id:
@@ -595,7 +598,7 @@ class AnuncioComposicaoCreateView(LoginRequiredMixin, ModuloRequeridoMixin, View
             messages.error(request, f"Erro ao adicionar produto à composição: {form.errors.as_text()}")
 
         # Retorna para a visualização de detalhe do anúncio
-        return redirect('anuncio_detail', pk=anuncio.pk)
+        return redirect('anuncio_detail', public_id=anuncio.public_id)
 
 
 # Visualização para exclusão de um componente físico da ficha técnica de um anúncio
@@ -612,12 +615,13 @@ class AnuncioComposicaoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, View
         if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
             raise PermissionDenied("Acesso negado.")
 
-        # Localiza o registro de composição considerando o anúncio_id caso presente na rota
-        anuncio_id = self.kwargs.get('anuncio_id') or request.POST.get('anuncio_id')
-        if anuncio_id:
-            item = get_object_or_404(AnuncioComposicao, pk=self.kwargs['pk'], anuncio_id=anuncio_id)
+        # Localiza o registro de composição considerando o anúncio_public_id caso presente na rota
+        anuncio_public_id = self.kwargs.get('anuncio_public_id')
+        comp_public_id = self.kwargs.get('public_id')
+        if anuncio_public_id:
+            item = get_object_or_404(AnuncioComposicao, public_id=comp_public_id, anuncio__public_id=anuncio_public_id)
         else:
-            item = get_object_or_404(AnuncioComposicao, pk=self.kwargs['pk'])
+            item = get_object_or_404(AnuncioComposicao, public_id=comp_public_id)
 
         # Valida tenant entre a loja do usuário e a loja dona do anúncio
         anuncio = item.anuncio
@@ -631,7 +635,7 @@ class AnuncioComposicaoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, View
             # Serializa a composição completa antes da operação
             snapshot_antes = [
                 {
-                    'composicao_id': comp.pk,
+                    'composicao_id': str(comp.public_id),
                     'produto_id': comp.produto_id,
                     'sku': comp.produto.sku,
                     'nome': comp.produto.nome,
@@ -650,7 +654,7 @@ class AnuncioComposicaoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, View
             # Serializa a composição restante após a exclusão do componente
             snapshot_depois = [
                 {
-                    'composicao_id': comp.pk,
+                    'composicao_id': str(comp.public_id),
                     'produto_id': comp.produto_id,
                     'sku': comp.produto.sku,
                     'nome': comp.produto.nome,
@@ -676,7 +680,7 @@ class AnuncioComposicaoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, View
             )
 
         messages.success(request, f"Vínculo com '{produto_nome}' removido da composição.")
-        return redirect('anuncio_detail', pk=anuncio.pk)
+        return redirect('anuncio_detail', public_id=anuncio.public_id)
 
 
 # Visualização para disparar a sincronização imediata do estoque e preço com a API externa
@@ -692,11 +696,11 @@ class AnuncioSincronizarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
     modulo_requerido = 'marketplaces'
 
     # Processa o disparo da sincronização
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, public_id, *args, **kwargs):
         if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
             raise PermissionDenied("Acesso negado: seu perfil não tem permissão para sincronizar anúncios.")
 
-        anuncio = get_object_or_404(Anuncio, pk=pk)
+        anuncio = get_object_or_404(Anuncio, public_id=public_id)
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
             if not perfil or not perfil.loja or anuncio.conta.loja_id != perfil.loja_id:
@@ -745,7 +749,7 @@ class AnuncioSincronizarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
         referer = request.META.get('HTTP_REFERER')
         if referer:
             return redirect(referer)
-        return redirect('anuncio_detail', pk=anuncio.pk)
+        return redirect('anuncio_detail', public_id=anuncio.public_id)
 
 
 # Visualização para alternar o status de cancelamento/ignorar sincronização do anúncio
@@ -760,11 +764,11 @@ class AnuncioToggleIgnorarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
     modulo_requerido = 'marketplaces'
 
     # Processa a alteração de status
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, public_id, *args, **kwargs):
         if not pode_disparar_sincronizacao(request.user) and not usuario_is_dev(request.user):
             raise PermissionDenied("Acesso negado: seu perfil não tem permissão para alterar anúncios.")
 
-        anuncio = get_object_or_404(Anuncio, pk=pk)
+        anuncio = get_object_or_404(Anuncio, public_id=public_id)
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
             if not perfil or not perfil.loja or anuncio.conta.loja_id != perfil.loja_id:
@@ -811,4 +815,4 @@ class AnuncioToggleIgnorarView(LoginRequiredMixin, ModuloRequeridoMixin, View):
         referer = request.META.get('HTTP_REFERER')
         if referer:
             return redirect(referer)
-        return redirect('anuncio_detail', pk=anuncio.pk)
+        return redirect('anuncio_detail', public_id=anuncio.public_id)

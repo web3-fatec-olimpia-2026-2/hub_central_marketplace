@@ -242,7 +242,7 @@ class LojaUpdateView(DevRequiredMixin, UpdateView):
     # Formulário utilizado para edição
     form_class = LojaForm
 
-    # Identificação do registro via campo slug
+    # Identificação do registro via campo slug ou public_id
     slug_field = 'slug'
     slug_url_kwarg = 'slug'
 
@@ -251,6 +251,15 @@ class LojaUpdateView(DevRequiredMixin, UpdateView):
 
     # Redirecionamento após salvar alterações
     success_url = reverse_lazy('loja_list')
+
+    # Suporta identificação tanto por public_id quanto por slug
+    def get_object(self, queryset=None):
+        if queryset is None:
+            queryset = self.get_queryset()
+        public_id = self.kwargs.get('public_id')
+        if public_id:
+            return get_object_or_404(queryset, public_id=public_id)
+        return super().get_object(queryset=queryset)
 
     # Emite mensagem de sucesso após a gravação das alterações
     def form_valid(self, form):
@@ -293,6 +302,15 @@ class LojaDetailView(DevRequiredMixin, DetailView):
     # Nome da variável da loja no template
     context_object_name = 'loja'
 
+    # Suporta identificação tanto por public_id quanto por slug
+    def get_object(self, queryset=None):
+        if queryset is None:
+            queryset = self.get_queryset()
+        public_id = self.kwargs.get('public_id')
+        if public_id:
+            return get_object_or_404(queryset, public_id=public_id)
+        return super().get_object(queryset=queryset)
+
     # Injeta no contexto os módulos provisionados e a lista de operadores vinculados à loja
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -322,9 +340,13 @@ class LojaModulosView(DevRequiredMixin, FormView):
     # Formulário especialista com os checkboxes dinâmicos de módulos
     form_class = LojaModulosForm
 
-    # Intercepta o despacho para carregar previamente a instância de Loja a partir do slug
+    # Intercepta o despacho para carregar previamente a instância de Loja a partir do slug ou public_id
     def dispatch(self, request, *args, **kwargs):
-        self.loja = get_object_or_404(Loja, slug=self.kwargs['slug'])
+        public_id = self.kwargs.get('public_id')
+        if public_id:
+            self.loja = get_object_or_404(Loja, public_id=public_id)
+        else:
+            self.loja = get_object_or_404(Loja, slug=self.kwargs['slug'])
         return super().dispatch(request, *args, **kwargs)
 
     # Injeta a instância da loja nos argumentos de inicialização do LojaModulosForm
@@ -520,6 +542,20 @@ class UsuarioUpdateView(UserWriteAccessMixin, UserOwnershipCheckMixin, UpdateVie
         kwargs['autor'] = self.request.user
         return kwargs
 
+    # Suporta identificação pelo public_id do PerfilUsuario ou pk com validação de ownership
+    def get_object(self, queryset=None):
+        if queryset is None:
+            queryset = self.get_queryset()
+        public_id = self.kwargs.get('public_id')
+        if public_id:
+            obj = get_object_or_404(queryset.select_related('perfil', 'perfil__loja'), perfil__public_id=public_id)
+        else:
+            obj = super().get_object(queryset=queryset)
+        target_user = obj if hasattr(obj, 'perfil') else getattr(obj, 'usuario', obj)
+        if not pode_editar_usuario(self.request.user, target_user):
+            raise PermissionDenied("Acesso negado: você não possui permissão para gerenciar este usuário.")
+        return obj
+
     # Emite mensagem de sucesso após salvar as modificações do usuário
     def form_valid(self, form):
         response = super().form_valid(form)
@@ -549,9 +585,9 @@ class UsuarioToggleStatusView(UserWriteAccessMixin, View):
     # Fim da docstring informativa
 
     # Trata requisição POST para alternar o status booleano is_active do usuário
-    def post(self, request, pk, *args, **kwargs):
-        # Carrega o usuário alvo com seu perfil e loja
-        usuario_alvo = get_object_or_404(User.objects.select_related('perfil', 'perfil__loja'), pk=pk)
+    def post(self, request, public_id, *args, **kwargs):
+        # Carrega o usuário alvo com seu perfil e loja pelo public_id
+        usuario_alvo = get_object_or_404(User.objects.select_related('perfil', 'perfil__loja'), perfil__public_id=public_id)
 
         # Valida se o operador atual possui autorização hierárquica e de tenant sobre a conta alvo
         if not pode_editar_usuario(request.user, usuario_alvo):
@@ -596,7 +632,7 @@ class UsuarioPasswordResetAdminView(UserWriteAccessMixin, FormView):
     # Intercepta o despacho para carregar o usuário alvo e validar permissões de edição
     def dispatch(self, request, *args, **kwargs):
         self.usuario_alvo = get_object_or_404(
-            User.objects.select_related('perfil', 'perfil__loja'), pk=self.kwargs['pk']
+            User.objects.select_related('perfil', 'perfil__loja'), perfil__public_id=self.kwargs['public_id']
         )
         # Bloqueia se o gestor não tiver autorização sobre o subordinado
         if not pode_editar_usuario(request.user, self.usuario_alvo):

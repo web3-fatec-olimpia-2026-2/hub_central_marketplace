@@ -21,7 +21,7 @@
                     <h5 class="fw-bold mb-0">
                         <i class="bi bi-info-circle text-primary me-2"></i>Dados do Anúncio Comercial
                     </h5>
-                    <a href="{% url 'anuncio_update' pk=anuncio.pk %}" class="btn btn-sm btn-outline-primary fw-bold" title="Editar Anúncio e Composição">
+                    <a href="{% url 'anuncio_update' public_id=anuncio.public_id %}" class="btn btn-sm btn-outline-primary fw-bold" title="Editar Anúncio e Composição">
                         <i class="bi bi-pencil-square me-1"></i> Editar
                     </a>
                 </div>
@@ -129,7 +129,7 @@
                                 {% for item in anuncio.itens_composicao.all %}
                                     <tr>
                                         <td>
-                                            <a href="{% url 'produto_detail' pk=item.produto.pk %}" class="fw-bold text-decoration-none text-dark">
+                                            <a href="{% url 'produto_detail' public_id=item.produto.public_id %}" class="fw-bold text-decoration-none text-dark">
                                                 {{ item.produto.nome }}
                                             </a>
                                             <small class="d-block text-muted font-monospace">SKU: {{ item.produto.sku }}</small>
@@ -152,7 +152,7 @@
                                                     data-nome="{{ item.produto.nome|escape }}"
                                                     data-sku="{{ item.produto.sku|escape }}"
                                                     data-quantidade="{{ item.quantidade }}"
-                                                    data-delete-url="{% url 'anuncio_composicao_delete' anuncio_id=anuncio.pk pk=item.pk %}"
+                                                    data-delete-url="{% url 'anuncio_composicao_delete' anuncio_public_id=anuncio.public_id public_id=item.public_id %}"
                                                     title="Remover componente">
                                                 <i class="bi bi-trash"></i>
                                             </button>
@@ -174,7 +174,7 @@
                     <!-- FORMULÁRIO DE ADIÇÃO DE PRODUTO À COMPOSIÇÃO -->
                     <div class="border-top pt-3 mt-3">
                         <h6 class="fw-bold mb-3"><i class="bi bi-plus-circle me-1"></i> Vincular Produto Físico / Componente de Kit</h6>
-                        <form method="post" action="{% url 'anuncio_composicao_add' pk=anuncio.pk %}" class="row g-3 align-items-end">
+                        <form method="post" action="{% url 'anuncio_composicao_add' public_id=anuncio.public_id %}" class="row g-3 align-items-end">
                             {% csrf_token %}
                             <div class="col-md-7">
                                 <label class="form-label small">Produto do Estoque Central</label>

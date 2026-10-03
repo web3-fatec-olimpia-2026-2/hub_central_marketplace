@@ -16,30 +16,30 @@ urlpatterns = [
     path('produtos/novo/', views.ProdutoCreateView.as_view(), name='produto_create'),
 
     # Rota de detalhamento do produto: exibe custos, saldo físico, anúncios vinculados e histórico de auditoria
-    path('produtos/<int:pk>/', views.ProdutoDetailView.as_view(), name='produto_detail'),
+    path('produtos/<uuid:public_id>/', views.ProdutoDetailView.as_view(), name='produto_detail'),
 
     # Rota de edição de dados cadastrais, preço e estoque do produto (respeitando as regras de perfil RN-09)
-    path('produtos/<int:pk>/editar/', views.ProdutoUpdateView.as_view(), name='produto_update'),
+    path('produtos/<uuid:public_id>/editar/', views.ProdutoUpdateView.as_view(), name='produto_update'),
 
     # Rota para exclusão de produto físico (bloqueada para o papel USUARIO conforme RN-09)
-    path('produtos/<int:pk>/excluir/', views.ProdutoDeleteView.as_view(), name='produto_delete'),
+    path('produtos/<uuid:public_id>/excluir/', views.ProdutoDeleteView.as_view(), name='produto_delete'),
 
     # Movimentações de Estoque (RN-06 / RN-09)
     # Rota de registro de baixa pontual por avaria ou defeito físico (liberada para todos os operadores com justificativa)
-    path('produtos/<int:pk>/baixa-avaria/', views.ProdutoBaixaEstoqueView.as_view(), name='produto_baixa_avaria'),
+    path('produtos/<uuid:public_id>/baixa-avaria/', views.ProdutoBaixaEstoqueView.as_view(), name='produto_baixa_avaria'),
 
     # Alias da rota de baixa pontual de estoque por perda/avaria para consistência semântica de chamadas
-    path('produtos/<int:pk>/baixa-estoque/', views.ProdutoBaixaEstoqueView.as_view(), name='produto_baixa_estoque'),
+    path('produtos/<uuid:public_id>/baixa-estoque/', views.ProdutoBaixaEstoqueView.as_view(), name='produto_baixa_estoque'),
 
     # Rota para contagem de inventário ou ajuste geral do saldo físico de estoque (restrita a gestores/ADMIN/DEV)
-    path('produtos/<int:pk>/ajuste-estoque/', views.ProdutoAjusteEstoqueView.as_view(), name='produto_ajuste_estoque'),
+    path('produtos/<uuid:public_id>/ajuste-estoque/', views.ProdutoAjusteEstoqueView.as_view(), name='produto_ajuste_estoque'),
 
     # Sincronização de Preços com Canais
     # Rota para confirmar o envio manual do novo preço aos anúncios vinculados ou descartar alterações no modal
-    path('produtos/<int:pk>/sincronizar-preco/', views.ProdutoSincronizarPrecoView.as_view(), name='produto_sincronizar_preco'),
+    path('produtos/<uuid:public_id>/sincronizar-preco/', views.ProdutoSincronizarPrecoView.as_view(), name='produto_sincronizar_preco'),
 
     # Alias legado da rota de sincronização unitária de preço mantido para compatibilidade com templates antigos
-    path('produtos/<int:pk>/sincronizar-meli/', views.ProdutoSincronizarPrecoView.as_view(), name='produto_sincronizar_preco_meli'),
+    path('produtos/<uuid:public_id>/sincronizar-meli/', views.ProdutoSincronizarPrecoView.as_view(), name='produto_sincronizar_preco_meli'),
 
     # Rota para disparo de sincronização em massa dos produtos selecionados via checkboxes na listagem
     path('produtos/sincronizar-lote/', views.ProdutoSincronizarPrecoLoteView.as_view(), name='produto_sincronizar_lote'),
@@ -49,13 +49,13 @@ urlpatterns = [
 
     # Vínculo e Publicação de Anúncios Multicanal (RF-04)
     # Rota para criação de uma nova publicação remota no marketplace a partir do produto do catálogo
-    path('produtos/<int:pk>/publicar-anuncio/', views.PublicarAnuncioView.as_view(), name='anuncio_marketplace_publicar'),
+    path('produtos/<uuid:public_id>/publicar-anuncio/', views.PublicarAnuncioView.as_view(), name='anuncio_marketplace_publicar'),
 
     # Rota para vinculação manual direta de um anúncio remoto existente (MLB...) a um produto local
-    path('produtos/<int:pk>/anuncios/novo/', views.AnuncioMarketplaceCreateView.as_view(), name='anuncio_marketplace_create'),
+    path('produtos/<uuid:public_id>/anuncios/novo/', views.AnuncioMarketplaceCreateView.as_view(), name='anuncio_marketplace_create'),
 
     # Rota para exclusão/desvinculação de um anúncio direto vinculado ao produto
-    path('anuncios/<int:pk>/excluir/', views.AnuncioMarketplaceDeleteView.as_view(), name='anuncio_marketplace_delete'),
+    path('anuncios/<uuid:public_id>/excluir/', views.AnuncioMarketplaceDeleteView.as_view(), name='anuncio_marketplace_delete'),
 
     # Categorias de Produtos
     # Rota para listar todas as categorias taxonômicas cadastradas sob o tenant do lojista
@@ -65,8 +65,8 @@ urlpatterns = [
     path('categorias/nova/', views.CategoriaCreateView.as_view(), name='categoria_create'),
 
     # Rota para edição de nome, slug e status de ativação de uma categoria existente
-    path('categorias/<int:pk>/editar/', views.CategoriaUpdateView.as_view(), name='categoria_update'),
+    path('categorias/<uuid:public_id>/editar/', views.CategoriaUpdateView.as_view(), name='categoria_update'),
 
     # Rota para exclusão de categoria (bloqueada caso existam produtos vinculados a ela via PROTECT)
-    path('categorias/<int:pk>/excluir/', views.CategoriaDeleteView.as_view(), name='categoria_delete'),
+    path('categorias/<uuid:public_id>/excluir/', views.CategoriaDeleteView.as_view(), name='categoria_delete'),
 ]

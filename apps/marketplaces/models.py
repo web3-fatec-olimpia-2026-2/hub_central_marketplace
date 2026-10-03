@@ -33,6 +33,16 @@ class ContaMarketplace(models.Model):
     """
     # Fim da documentação da classe ContaMarketplace
 
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
+
     # Chave estrangeira ligando a conta à Loja dona, com exclusão em cascata em caso de expurgo do tenant
     loja = models.ForeignKey(
         Loja, on_delete=models.CASCADE, related_name='contas_marketplace', verbose_name="Loja (Tenant)"
@@ -424,6 +434,16 @@ class WebhookEventLog(models.Model):
     PERMISSÕES RBAC: DEV e ADMIN (consulta); gravação automatizada pelo webhook.
     """
     # Fim da documentação de WebhookEventLog
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Nome do marketplace que emitiu o evento
     marketplace = models.CharField(

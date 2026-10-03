@@ -20,20 +20,20 @@ urlpatterns = [
     path('marketplaces/contas/nova/', views.ContaMarketplaceCreateView.as_view(), name='conta_marketplace_create'),
 
     # Rota com formulário de edição de parâmetros e credenciais de uma conta existente pelo ID primário
-    path('marketplaces/contas/<int:pk>/editar/', views.ContaMarketplaceUpdateView.as_view(), name='conta_marketplace_update'),
+    path('marketplaces/contas/<uuid:public_id>/editar/', views.ContaMarketplaceUpdateView.as_view(), name='conta_marketplace_update'),
 
     # Rota de confirmação e exclusão de uma conta de marketplace vinculada à loja
-    path('marketplaces/contas/<int:pk>/excluir/', views.ContaMarketplaceDeleteView.as_view(), name='conta_marketplace_delete'),
+    path('marketplaces/contas/<uuid:public_id>/excluir/', views.ContaMarketplaceDeleteView.as_view(), name='conta_marketplace_delete'),
 
     # Endpoint acionado via POST para executar ping/teste de conectividade com a API externa do canal
-    path('marketplaces/contas/<int:pk>/testar/', views.ContaMarketplaceTestarView.as_view(), name='conta_marketplace_testar'),
+    path('marketplaces/contas/<uuid:public_id>/testar/', views.ContaMarketplaceTestarView.as_view(), name='conta_marketplace_testar'),
 
     # Endpoint acionado via POST para revogar ou limpar tokens OAuth da conta mantendo o cadastro intacto
-    path('marketplaces/contas/<int:pk>/desconectar/', views.ContaMarketplaceDesconectarView.as_view(), name='conta_marketplace_desconectar'),
+    path('marketplaces/contas/<uuid:public_id>/desconectar/', views.ContaMarketplaceDesconectarView.as_view(), name='conta_marketplace_desconectar'),
 
     # Fluxo OAuth 2.0 Mercado Livre
     # Rota que inicia o redirecionamento para o portal de login e consentimento da API do Mercado Livre
-    path('marketplaces/contas/<int:pk>/conectar-meli/', views.MercadoLivreAutorizarView.as_view(), name='mercadolivre_autorizar'),
+    path('marketplaces/contas/<uuid:public_id>/conectar-meli/', views.MercadoLivreAutorizarView.as_view(), name='mercadolivre_autorizar'),
 
     # Rota oficial de callback que recebe o 'code' de autorização temporário retornado pelo Mercado Livre
     path('marketplaces/mercadolivre/callback/', views.MercadoLivreCallbackView.as_view(), name='mercadolivre_callback'),
@@ -49,7 +49,7 @@ urlpatterns = [
     path('logs/sincronizacao/', views.LogSincronizacaoListView.as_view(), name='log_sincronizacao_list'),
 
     # Endpoint administrativo restrito para reprocessar manualmente um evento de webhook que tenha falhado
-    path('logs/webhooks/<int:pk>/replay/', views.WebhookEventReplayView.as_view(), name='webhook_event_replay'),
+    path('logs/webhooks/<uuid:public_id>/replay/', views.WebhookEventReplayView.as_view(), name='webhook_event_replay'),
 
     # Webhook Unificado com Suporte Híbrido (Global e Individual com UUID)
     # Endpoint central de ingestão de webhooks multi-tenant parametrizado pelo nome do canal (ex.: mercadolivre, shopee)

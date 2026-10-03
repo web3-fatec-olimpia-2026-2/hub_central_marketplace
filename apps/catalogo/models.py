@@ -1,5 +1,8 @@
 # Os códigos foram gerados com auxilio de I.A.
 
+# Importa o módulo nativo uuid para mitigação de IDOR/BOLA via identificadores públicos universais
+import uuid
+
 # Importa a classe Decimal para manipulação financeira sem erros de arredondamento de ponto flutuante
 from decimal import Decimal
 
@@ -37,6 +40,16 @@ class Categoria(models.Model):
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR (CRUD completo); USUARIO (criação e edição descritiva; exclusão bloqueada por RN-09).
     MULTI-TENANCY: FK obrigatória para Loja com unicidade composta ('loja', 'slug').
     """
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Chave estrangeira que vincula a categoria estritamente à sua Loja com exclusão em cascata
     loja = models.ForeignKey(
@@ -102,6 +115,16 @@ class Produto(models.Model):
     PERMISSÕES RBAC: DEV, ADMIN, SUPERVISOR (acesso total); USUARIO (descritivos e baixa de avaria apenas; alteração de preço e estoque geral bloqueadas por RN-09).
     MULTI-TENANCY: FK para Loja e unicidade composta ('loja', 'sku') (RN-01 / RN-02).
     """
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Vínculo mandatório com a Loja proprietária do item físico
     loja = models.ForeignKey(
@@ -328,6 +351,16 @@ class AnuncioMarketplace(models.Model):
     PERMISSÕES RBAC: DEV, ADMIN e SUPERVISOR.
     MULTI-TENANCY: Vinculado ao Produto e à ContaMarketplace da mesma Loja.
     """
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Opções válidas para o status do anúncio direto
     STATUS_CHOICES = [
