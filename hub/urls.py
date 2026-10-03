@@ -48,6 +48,9 @@ urlpatterns = [
     # Conecta o app site (rota raiz '/', '/tema.css' e apresentação/landing)
     path('', include('apps.site.urls')),
 
+    # Conecta o app accounts (Matriz RBAC e governança de identidades)
+    path('accounts/', include('apps.accounts.urls', namespace='accounts')),
+
     # Conecta as rotas do módulo tenancy diretamente na raiz (contexto de lojistas, onboarding, seleção de empresa)
     path('', include('apps.tenancy.urls')),
     

@@ -93,10 +93,16 @@
                         {% endif %}
 
                         {% if is_dev or user.perfil.is_admin or user.perfil.is_supervisor or user.is_superuser %}
-                            <li class="nav-item">
-                                <a class="nav-link {% if 'usuario' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'usuario_list' %}">
-                                    <i class="bi bi-people me-1"></i> Usuários
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle {% if 'usuario' in request.resolver_match.url_name or 'matriz' in request.resolver_match.url_name %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-person-badge me-1"></i> Gestão de Identidade
                                 </a>
+                                <ul class="dropdown-menu shadow">
+                                    <li><a class="dropdown-item" href="{% url 'usuario_list' %}"><i class="bi bi-people me-2"></i> Usuários</a></li>
+                                    {% if is_dev or user.perfil.is_admin or user.is_superuser %}
+                                        <li><a class="dropdown-item" href="{% url 'accounts:matriz' %}"><i class="bi bi-shield-lock me-2"></i> Matriz RBAC</a></li>
+                                    {% endif %}
+                                </ul>
                             </li>
                         {% endif %}
 
