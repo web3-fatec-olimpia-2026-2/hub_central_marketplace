@@ -8,7 +8,10 @@ RESILIÊNCIA: NUNCA levanta exceção. Em qualquer falha, retorna transparenteme
 from typing import Dict, Any, List
 from django.urls import reverse
 from .utils_tema import PRESETS_MODELOS, calcular_derivados_tema
-from apps.accounts.rbac import tem_funcionalidade, FUNC_SITE_TEMA_EDITAR, FUNC_SITE_VISIBILIDADE_PUBLICA, FUNC_ACCOUNTS_ATRIBUIR_PERFIS
+from apps.accounts.rbac import (
+    tem_funcionalidade, FUNC_SITE_TEMA_EDITAR, FUNC_SITE_VISIBILIDADE_PUBLICA,
+    FUNC_ACCOUNTS_ATRIBUIR_PERFIS, FUNC_ACCOUNTS_MATRIZ
+)
 
 
 def _get_fallback_context() -> Dict[str, Any]:
@@ -109,6 +112,10 @@ def _construir_menus_rbac(user) -> List[Dict[str, Any]]:
         # Usuários e Perfis
         if tem_funcionalidade(user, FUNC_ACCOUNTS_ATRIBUIR_PERFIS) or getattr(user, 'is_staff', False):
             itens_admin.append({'titulo': 'Operadores & Perfis', 'url': reverse('usuario_list')})
+
+        # Matriz RBAC
+        if tem_funcionalidade(user, FUNC_ACCOUNTS_MATRIZ):
+            itens_admin.append({'titulo': 'Matriz RBAC', 'url': reverse('accounts:matriz')})
 
         # Gestão de Lojas (Tenants - Exclusivo DEV)
         perfil = getattr(user, 'perfil', None)

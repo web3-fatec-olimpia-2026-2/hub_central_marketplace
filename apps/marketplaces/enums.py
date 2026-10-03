@@ -133,6 +133,10 @@ class EventoAuditoriaEnum(models.TextChoices):
     # Evento que audita a remoção de categorias de produtos do sistema
     EXCLUSAO_CATEGORIA = 'EXCLUSAO_CATEGORIA', 'Exclusão de Categoria'
 
+    # Governança e Matriz RBAC
+    # Evento que registra alterações nos switches da matriz de permissões RBAC
+    ALTERACAO_MATRIZ_RBAC = 'ALTERACAO_MATRIZ_RBAC', 'Alteração da Matriz RBAC'
+
 
 # Declaração da enumeração textual para controle do fluxo de processamento e garantia de idempotência de Webhooks
 class WebhookStatusEnum(models.TextChoices):

@@ -43,4 +43,8 @@ urlpatterns = [
 
     # Rota para redefinição administrativa da senha de um operador subordinado por gestores
     path('usuarios/<int:pk>/redefinir-senha/', views.UsuarioPasswordResetAdminView.as_view(), name='usuario_password_reset'),
+
+    # Matriz RBAC (Governança de Identidade e Acessos)
+    path('usuarios/matriz/', __import__('apps.accounts.views', fromlist=['MatrizRBACView']).MatrizRBACView.as_view(), name='usuario_matriz'),
+    path('usuarios/matriz/toggle/', __import__('apps.accounts.views', fromlist=['MatrizRBACToggleView']).MatrizRBACToggleView.as_view(), name='usuario_matriz_toggle'),
 ]
