@@ -43,22 +43,22 @@ PAPEIS_SISTEMA = [
     {
         'codigo': 'USUARIO',
         'grupo': 0,
-        'nome': 'Usuário Padrão',
-        'rotulo_completo': 'Usuário Padrão (Grupo 0 / USUÁRIO)',
+        'nome': 'Usuário',
+        'rotulo_completo': 'Usuário (Grupo 0 / USUÁRIO)',
         'badge': 'secondary',
     },
     {
         'codigo': 'SUPERVISOR',
         'grupo': 1,
-        'nome': 'Supervisor da Loja',
-        'rotulo_completo': 'Supervisor da Loja (Grupo 1 / SUPERVISOR)',
+        'nome': 'Supervisor',
+        'rotulo_completo': 'Supervisor (Grupo 1 / SUPERVISOR)',
         'badge': 'info',
     },
     {
         'codigo': 'ADMIN',
         'grupo': 3,
-        'nome': 'Administrador da Loja',
-        'rotulo_completo': 'Administrador da Loja (Grupo 3 / ADMIN)',
+        'nome': 'Administrador',
+        'rotulo_completo': 'Administrador (Grupo 3 / ADMIN)',
         'badge': 'primary',
     },
     {

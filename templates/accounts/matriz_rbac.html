@@ -76,10 +76,9 @@
                 <span><i class="bi bi-shield-slash text-warning me-1"></i>Governança Não Delegável a Operacionais</span>
             </div>
             <div class="d-flex gap-2 align-items-center">
-                <span class="badge bg-secondary">Grupo 0: Usuário</span>
-                <span class="badge bg-info text-dark">Grupo 1: Supervisor</span>
-                <span class="badge bg-primary">Grupo 3: Admin</span>
-                <span class="badge bg-danger">Grupo 4: Dev</span>
+                {% for p in papeis %}
+                    <span class="badge bg-{{ p.badge }} {% if p.badge == 'info' %}text-dark{% endif %}">Grupo {{ p.grupo }}: {{ p.nome }}</span>
+                {% endfor %}
             </div>
         </div>
     </div>
@@ -117,22 +116,14 @@
                         <thead class="table-light">
                             <tr>
                                 <th scope="col" style="min-width: 280px;">Funcionalidade & Recurso</th>
-                                <th scope="col" class="text-center" style="width: 170px;">
-                                    <div class="fw-bold">Usuário Padrão</div>
-                                    <span class="badge bg-secondary small">Grupo 0</span>
-                                </th>
-                                <th scope="col" class="text-center" style="width: 170px;">
-                                    <div class="fw-bold">Supervisor da Loja</div>
-                                    <span class="badge bg-info text-dark small">Grupo 1</span>
-                                </th>
-                                <th scope="col" class="text-center" style="width: 170px;">
-                                    <div class="fw-bold">Administrador da Loja</div>
-                                    <span class="badge bg-primary small">Grupo 3</span>
-                                </th>
-                                <th scope="col" class="text-center" style="width: 170px;">
-                                    <div class="fw-bold">Desenvolvedor</div>
-                                    <span class="badge bg-danger small">Grupo 4 (DEV)</span>
-                                </th>
+                                {% for p in papeis %}
+                                    <th scope="col" class="text-center" style="width: 170px;">
+                                        <div class="fw-bold">{{ p.nome }}</div>
+                                        <span class="badge bg-{{ p.badge }} {% if p.badge == 'info' %}text-dark{% endif %} small">
+                                            Grupo {{ p.grupo }}{% if p.codigo == 'DEV' %} (DEV){% endif %}
+                                        </span>
+                                    </th>
+                                {% endfor %}
                             </tr>
                         </thead>
                         <tbody>

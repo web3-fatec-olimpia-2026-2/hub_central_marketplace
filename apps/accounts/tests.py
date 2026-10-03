@@ -142,12 +142,23 @@ class MatrizRBACAccessAndNavbarTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_administrador_grupo_3_acessa_matriz_com_sucesso(self):
-        """Administrador (Grupo 3) acessa a Matriz RBAC com HTTP 200 OK."""
+        """Administrador (Grupo 3) acessa a Matriz RBAC com HTTP 200 OK e visualiza nomenclatura simplificada."""
         self.client.force_login(self.user_admin)
         response = self.client.get(reverse('accounts:matriz'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Matriz RBAC de Governança")
         self.assertContains(response, "accounts.matriz")
+
+        html = response.content.decode('utf-8')
+        # Garante a nova nomenclatura simplificada
+        self.assertIn("Usuário", html)
+        self.assertIn("Supervisor", html)
+        self.assertIn("Administrador", html)
+        self.assertIn("Desenvolvedor", html)
+        # Garante a remoção das nomenclaturas antigas com sufixo da Loja e palavra Padrão
+        self.assertNotIn("Usuário Padrão", html)
+        self.assertNotIn("Supervisor da Loja", html)
+        self.assertNotIn("Administrador da Loja", html)
 
     def test_desenvolvedor_grupo_4_acessa_matriz_com_sucesso(self):
         """Desenvolvedor (Grupo 4) acessa a Matriz RBAC com HTTP 200 OK."""

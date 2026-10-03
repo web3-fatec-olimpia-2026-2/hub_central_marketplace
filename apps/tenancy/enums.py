@@ -19,13 +19,13 @@ class PapelUsuarioEnum(models.TextChoices):
     DEV = 'DEV', 'Desenvolvedor (DEV) — Escopo Global'
 
     # Constante para o administrador da organização lojista com gestão completa no escopo do seu tenant
-    ADMIN = 'ADMIN', 'Administrador da Loja (ADMIN)'
+    ADMIN = 'ADMIN', 'Administrador (ADMIN)'
 
     # Constante para o supervisor com privilégios operacionais avançados e controle de equipe dentro da loja
-    SUPERVISOR = 'SUPERVISOR', 'Supervisor da Loja (SUPERVISOR)'
+    SUPERVISOR = 'SUPERVISOR', 'Supervisor (SUPERVISOR)'
 
     # Constante para o usuário operacional comum com permissões restritas às rotinas diárias da loja
-    USUARIO = 'USUARIO', 'Usuário Padrão da Loja (USUÁRIO)'
+    USUARIO = 'USUARIO', 'Usuário (USUÁRIO)'
 
 
 # Declaração do enum textual que mapeia os módulos funcionais comercializáveis e ativáveis por loja
