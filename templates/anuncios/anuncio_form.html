@@ -47,7 +47,7 @@
             </p>
         </div>
         <div>
-            <a href="{% if is_edicao %}{% url 'anuncio_detail' pk=object.pk %}{% else %}{% url 'anuncio_list' %}{% endif %}" class="btn btn-outline-secondary">
+            <a href="{% if is_edicao %}{% url 'anuncio_detail' public_id=object.public_id %}{% else %}{% url 'anuncio_list' %}{% endif %}" class="btn btn-outline-secondary">
                 <i class="bi bi-arrow-left me-1"></i> Voltar
             </a>
         </div>
@@ -234,7 +234,7 @@
         <!-- BARRA INFERIOR DE GRAVAÇÃO -->
         <div class="card shadow-sm border-0 mt-4">
             <div class="card-body d-flex justify-content-between align-items-center py-3">
-                <a href="{% if is_edicao %}{% url 'anuncio_detail' pk=object.pk %}{% else %}{% url 'anuncio_list' %}{% endif %}" class="btn btn-outline-secondary">
+                <a href="{% if is_edicao %}{% url 'anuncio_detail' public_id=object.public_id %}{% else %}{% url 'anuncio_list' %}{% endif %}" class="btn btn-outline-secondary">
                     <i class="bi bi-x-circle me-1"></i> Cancelar
                 </a>
                 <button type="submit" class="btn btn-hub-solid fw-bold px-4 shadow-sm">

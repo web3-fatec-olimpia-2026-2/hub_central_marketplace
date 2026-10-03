@@ -197,6 +197,8 @@ class CategoriaUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwner
     modulo_requerido = 'catalogo'
     model = Categoria
     form_class = CategoriaForm
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     template_name = 'catalogo/categoria_form.html'
     success_url = reverse_lazy('categoria_list')
 
@@ -239,6 +241,8 @@ class CategoriaDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwner
 
     modulo_requerido = 'catalogo'
     model = Categoria
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     template_name = 'catalogo/categoria_confirm_delete.html'
     success_url = reverse_lazy('categoria_list')
 
@@ -447,6 +451,8 @@ class ProdutoDetailView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
 
     modulo_requerido = 'catalogo'
     model = Produto
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     template_name = 'catalogo/produto_detail.html'
     context_object_name = 'produto'
 
@@ -495,6 +501,8 @@ class ProdutoUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
     modulo_requerido = 'catalogo'
     model = Produto
     form_class = ProdutoForm
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     template_name = 'catalogo/produto_form.html'
     success_url = reverse_lazy('produto_list')
 
@@ -582,6 +590,8 @@ class ProdutoDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogOwnersh
 
     modulo_requerido = 'catalogo'
     model = Produto
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     template_name = 'catalogo/produto_confirm_delete.html'
     success_url = reverse_lazy('produto_list')
 
@@ -617,7 +627,7 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogO
 
     # Recupera a instância do produto informado na rota
     def dispatch(self, request, *args, **kwargs):
-        self.produto = get_object_or_404(Produto, pk=self.kwargs['pk'])
+        self.produto = get_object_or_404(Produto, public_id=self.kwargs['public_id'])
         return super().dispatch(request, *args, **kwargs)
 
     # Retorna o produto para validações internas de mixin
@@ -682,7 +692,7 @@ class ProdutoBaixaEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, CatalogO
                 self.request,
                 f"Baixa de {qtd} un. registrada com sucesso! Novo estoque: {novo_saldo} un."
             )
-        return redirect('produto_detail', pk=self.produto.pk)
+        return redirect('produto_detail', public_id=self.produto.public_id)
 
     # Injeta a referência do produto no template
     def get_context_data(self, **kwargs):
@@ -709,7 +719,7 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, Catalog
     def dispatch(self, request, *args, **kwargs):
         if not pode_ajustar_estoque_geral(request.user):
             raise PermissionDenied("Acesso negado: seu perfil não pode realizar ajuste geral de estoque (RN-09).")
-        self.produto = get_object_or_404(Produto, pk=self.kwargs['pk'])
+        self.produto = get_object_or_404(Produto, public_id=self.kwargs['public_id'])
         return super().dispatch(request, *args, **kwargs)
 
     # Retorna o produto para os mixins
@@ -763,7 +773,7 @@ class ProdutoAjusteEstoqueView(LoginRequiredMixin, ModuloRequeridoMixin, Catalog
                 self.request,
                 f"Estoque do SKU '{self.produto.sku}' atualizado para {novo_saldo} un. com sucesso!"
             )
-        return redirect('produto_detail', pk=self.produto.pk)
+        return redirect('produto_detail', public_id=self.produto.public_id)
 
     # Injeta a referência do produto no template
     def get_context_data(self, **kwargs):
@@ -785,8 +795,8 @@ class AnuncioMarketplaceCreateView(LoginRequiredMixin, ModuloRequeridoMixin, Vie
     modulo_requerido = 'catalogo'
 
     # Processa o formulário de inclusão de anúncio direto
-    def post(self, request, pk, *args, **kwargs):
-        produto = get_object_or_404(Produto, pk=pk)
+    def post(self, request, public_id, *args, **kwargs):
+        produto = get_object_or_404(Produto, public_id=public_id)
         # Validação de tenant
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
@@ -802,7 +812,7 @@ class AnuncioMarketplaceCreateView(LoginRequiredMixin, ModuloRequeridoMixin, Vie
         else:
             messages.error(request, f"Erro ao vincular anúncio: {form.errors.as_text()}")
 
-        return redirect('produto_detail', pk=produto.pk)
+        return redirect('produto_detail', public_id=produto.public_id)
 
 
 # Visualização para desvinculação/exclusão de um anúncio direto
@@ -815,8 +825,8 @@ class AnuncioMarketplaceDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, Vie
     modulo_requerido = 'catalogo'
 
     # Executa a remoção do vínculo
-    def post(self, request, pk, *args, **kwargs):
-        anuncio = get_object_or_404(AnuncioMarketplace, pk=pk)
+    def post(self, request, public_id, *args, **kwargs):
+        anuncio = get_object_or_404(AnuncioMarketplace, public_id=public_id)
         produto = anuncio.produto
         # Checagem de tenant
         if not usuario_is_dev(request.user):
@@ -827,7 +837,7 @@ class AnuncioMarketplaceDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, Vie
         item_id = anuncio.item_id_externo
         anuncio.delete()
         messages.success(request, f"Vínculo do anúncio '{item_id}' removido com sucesso.")
-        return redirect('produto_detail', pk=produto.pk)
+        return redirect('produto_detail', public_id=produto.public_id)
 
 
 # Visualização que processa ações na fila de pendências (enviar ou cancelar sincronização para anúncios selecionados)
@@ -843,8 +853,8 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
     modulo_requerido = 'catalogo'
 
     # Processa o formulário do modal com base nos checkboxes marcados e na ação ('enviar' ou 'cancelar')
-    def post(self, request, pk, *args, **kwargs):
-        produto = get_object_or_404(Produto, pk=pk)
+    def post(self, request, public_id, *args, **kwargs):
+        produto = get_object_or_404(Produto, public_id=public_id)
         # Validação de tenant
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
@@ -855,13 +865,13 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
         selecionados_raw = request.POST.getlist('anuncios_selecionados')
         if not selecionados_raw:
             messages.info(request, "Nenhum anúncio foi selecionado para envio.")
-            return redirect('produto_detail', pk=produto.pk)
+            return redirect('produto_detail', public_id=produto.public_id)
 
         # Converte em lista de inteiros seguros
         selecionados_ids = [int(x) for x in selecionados_raw if str(x).isdigit()]
         if not selecionados_ids:
             messages.info(request, "Nenhum anúncio foi selecionado para envio.")
-            return redirect('produto_detail', pk=produto.pk)
+            return redirect('produto_detail', public_id=produto.public_id)
 
         # Importa serviços e modelos de anúncios
         from apps.anuncios.models import Anuncio, HistoricoSincronizacaoAnuncio
@@ -878,7 +888,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
         total_alvo = anuncios_alvo.count() + anuncios_legado.count()
         if total_alvo == 0:
             messages.info(request, "Nenhum anúncio válido foi selecionado para envio.")
-            return redirect('produto_detail', pk=produto.pk)
+            return redirect('produto_detail', public_id=produto.public_id)
 
         # Identifica a intenção do operador: 'enviar' ou 'cancelar'
         acao = request.POST.get('acao', 'enviar').strip().lower()
@@ -941,7 +951,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
                 request,
                 f"Sincronização cancelada/descartada com sucesso para {total_alvo} anúncio(s) selecionado(s)."
             )
-            return redirect('produto_detail', pk=produto.pk)
+            return redirect('produto_detail', public_id=produto.public_id)
 
         # acao == 'enviar'
         # Fluxo de envio de preço e estoque para os canais de marketplace
@@ -1046,7 +1056,7 @@ class ProdutoSincronizarPrecoView(LoginRequiredMixin, ModuloRequeridoMixin, Sync
             produto.save(update_fields=['status_sincronizacao', 'atualizado_em'])
             messages.warning(request, f"Sincronização finalizada: {sucessos} sucesso(s) e {falhas} falha(s) de {total_alvo} anúncio(s) selecionado(s).")
 
-        return redirect('produto_detail', pk=produto.pk)
+        return redirect('produto_detail', public_id=produto.public_id)
 
 
 # Visualização para sincronização em massa de múltiplos produtos selecionados na listagem
@@ -1113,13 +1123,13 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
     # Recupera o produto garantindo validação de tenant
     def get_object(self):
         user = self.request.user
-        produto_id = self.kwargs.get('pk')
+        produto_id = self.kwargs.get('public_id')
         if usuario_is_dev(user):
-            return get_object_or_404(Produto, pk=produto_id)
+            return get_object_or_404(Produto, public_id=produto_id)
         perfil = getattr(user, 'perfil', None)
         if not perfil or not perfil.loja:
             raise PermissionDenied("Usuário sem loja vinculada.")
-        return get_object_or_404(Produto, pk=produto_id, loja=perfil.loja)
+        return get_object_or_404(Produto, public_id=produto_id, loja=perfil.loja)
 
     # Renderiza o formulário de publicação
     def get(self, request, *args, **kwargs):
@@ -1208,7 +1218,7 @@ class PublicarAnuncioView(LoginRequiredMixin, ModuloRequeridoMixin, View):
                 f"Anúncio publicado com sucesso no {conta.get_canal_display()}! "
                 f"Identificador: {item_id_externo} — Preço: R$ {preco_sincronizado:.2f}"
             )
-            return redirect('produto_detail', pk=produto.pk)
+            return redirect('produto_detail', public_id=produto.public_id)
         # Se a API externa rejeitar a criação do anúncio
         else:
             messages.error(request, f"Falha na publicação do anúncio: {mensagem}")

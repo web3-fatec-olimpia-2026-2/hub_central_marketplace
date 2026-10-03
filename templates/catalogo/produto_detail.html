@@ -18,16 +18,16 @@
         </span>
     {% endif %}
     {% if pode_ajustar_estoque_geral %}
-        <a href="{% url 'produto_ajuste_estoque' pk=produto.pk %}" class="btn btn-outline-primary">
+        <a href="{% url 'produto_ajuste_estoque' public_id=produto.public_id %}" class="btn btn-outline-primary">
             <i class="bi bi-sliders"></i> Ajuste Geral de Estoque
         </a>
     {% endif %}
     {% if pode_dar_baixa_avaria %}
-        <a href="{% url 'produto_baixa_avaria' pk=produto.pk %}" class="btn btn-outline-warning">
+        <a href="{% url 'produto_baixa_avaria' public_id=produto.public_id %}" class="btn btn-outline-warning">
             <i class="bi bi-box-arrow-down"></i> Baixa por Avaria
         </a>
     {% endif %}
-    <a href="{% url 'produto_update' pk=produto.pk %}" class="btn btn-primary">
+    <a href="{% url 'produto_update' public_id=produto.public_id %}" class="btn btn-primary">
         <i class="bi bi-pencil"></i> Editar
     </a>
     <a href="{% url 'produto_list' %}" class="btn btn-outline-secondary">
@@ -108,7 +108,7 @@
                                         </span>
                                     </td>
                                     <td class="text-end">
-                                        <a href="{% url 'anuncio_detail' pk=a.pk %}" class="btn btn-outline-secondary btn-sm" title="Ver Detalhes do Anúncio">
+                                        <a href="{% url 'anuncio_detail' public_id=a.public_id %}" class="btn btn-outline-secondary btn-sm" title="Ver Detalhes do Anúncio">
                                             <i class="bi bi-eye"></i> Detalhes
                                         </a>
                                     </td>
@@ -127,7 +127,7 @@
                 <!-- FORM VINCULAR NOVO ANÚNCIO -->
                 <div class="p-3 bg-light rounded border">
                     <h6 class="fw-bold mb-2"><i class="bi bi-plus-circle me-1"></i>Vincular Novo Anúncio de Marketplace</h6>
-                    <form method="post" action="{% url 'anuncio_marketplace_create' pk=produto.pk %}" class="row g-2 align-items-end">
+                    <form method="post" action="{% url 'anuncio_marketplace_create' public_id=produto.public_id %}" class="row g-2 align-items-end">
                         {% csrf_token %}
                         <div class="col-md-5">
                             <label class="form-label small">Conta do Marketplace</label>
@@ -268,7 +268,7 @@
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
-            <form method="post" action="{% url 'produto_sincronizar_preco' pk=produto.pk %}">
+            <form method="post" action="{% url 'produto_sincronizar_preco' public_id=produto.public_id %}">
                 {% csrf_token %}
                 <div class="modal-body">
                     <p class="mb-3">

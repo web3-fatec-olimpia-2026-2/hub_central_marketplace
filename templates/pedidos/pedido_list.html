@@ -111,7 +111,7 @@
                                 {{ p.get_canal_origem_display }}
                             </span>
                         </td>
-                        <td><a href="{% url 'pedido_detail' pk=p.pk %}" class="fw-bold font-monospace text-decoration-none">#{{ p.pedido_id_externo }}</a></td>
+                        <td><a href="{% url 'pedido_detail' public_id=p.public_id %}" class="fw-bold font-monospace text-decoration-none">#{{ p.pedido_id_externo }}</a></td>
                         <td>{{ p.comprador_nome|default:"Comprador Marketplace" }}</td>
                         {% if is_dev %}<td>{{ p.loja.nome }}</td>{% endif %}
                         <td class="text-end fw-bold font-monospace">R$ {{ p.valor_total|floatformat:2 }}</td>
@@ -124,7 +124,7 @@
                             {% endif %}
                         </td>
                         <td class="text-end">
-                            <a href="{% url 'pedido_detail' pk=p.pk %}" class="btn btn-sm btn-outline-secondary" title="Ver Detalhes">
+                            <a href="{% url 'pedido_detail' public_id=p.public_id %}" class="btn btn-sm btn-outline-secondary" title="Ver Detalhes">
                                 <i class="bi bi-eye"></i>
                             </a>
                         </td>

@@ -96,7 +96,7 @@
                 {% for prod in produtos %}
                     <tr>
                         <td>
-                            <div class="fw-bold"><a href="{% url 'produto_detail' pk=prod.pk %}" class="text-decoration-none text-dark">{{ prod.nome }}</a></div>
+                            <div class="fw-bold"><a href="{% url 'produto_detail' public_id=prod.public_id %}" class="text-decoration-none text-dark">{{ prod.nome }}</a></div>
                             <code class="small text-primary font-monospace">{{ prod.sku }}</code>
                         </td>
                         <td><span class="badge bg-light text-dark border">{{ prod.categoria.nome }}</span></td>
@@ -135,17 +135,17 @@
                         </td>
                         <td class="text-end">
                             <div class="btn-group btn-group-sm">
-                                <a href="{% url 'produto_detail' pk=prod.pk %}" class="btn btn-outline-secondary" title="Ver Detalhes">
+                                <a href="{% url 'produto_detail' public_id=prod.public_id %}" class="btn btn-outline-secondary" title="Ver Detalhes">
                                     <i class="bi bi-eye"></i>
                                 </a>
-                                <a href="{% url 'produto_update' pk=prod.pk %}" class="btn btn-outline-primary" title="Editar">
+                                <a href="{% url 'produto_update' public_id=prod.public_id %}" class="btn btn-outline-primary" title="Editar">
                                     <i class="bi bi-pencil"></i>
                                 </a>
-                                <a href="{% url 'produto_baixa_avaria' pk=prod.pk %}" class="btn btn-outline-warning" title="Baixa por Avaria">
+                                <a href="{% url 'produto_baixa_avaria' public_id=prod.public_id %}" class="btn btn-outline-warning" title="Baixa por Avaria">
                                     <i class="bi bi-box-arrow-down"></i>
                                 </a>
                                 {% if pode_excluir %}
-                                    <a href="{% url 'produto_delete' pk=prod.pk %}" class="btn btn-outline-danger" title="Excluir">
+                                    <a href="{% url 'produto_delete' public_id=prod.public_id %}" class="btn btn-outline-danger" title="Excluir">
                                         <i class="bi bi-trash"></i>
                                     </a>
                                 {% endif %}

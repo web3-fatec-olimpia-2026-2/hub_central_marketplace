@@ -396,7 +396,7 @@ class AnunciosMarketplaceTestCase(TestCase):
         self.assertEqual(res_list.status_code, 200)
 
         # Tenta disparar a importação de anúncios da conta
-        res_import_forbidden = self.client.post(reverse('anuncio_importar', kwargs={'pk': self.conta_meli.pk}))
+        res_import_forbidden = self.client.post(reverse('anuncio_importar', kwargs={'public_id': self.conta_meli.public_id}))
         # Valida que o operador comum é bloqueado com status HTTP 403 Forbidden
         self.assertEqual(res_import_forbidden.status_code, 403)
 
@@ -419,7 +419,7 @@ class AnunciosMarketplaceTestCase(TestCase):
                 "total": 1
             }
             # Envia a requisição POST seguindo os redirecionamentos da resposta
-            res_import = self.client.post(reverse('anuncio_importar', kwargs={'pk': self.conta_meli.pk}), follow=True)
+            res_import = self.client.post(reverse('anuncio_importar', kwargs={'public_id': self.conta_meli.public_id}), follow=True)
             # Valida resposta HTTP 200 após o redirecionamento
             self.assertEqual(res_import.status_code, 200)
             # Valida a mensagem flash de sucesso renderizada no template
@@ -431,7 +431,7 @@ class AnunciosMarketplaceTestCase(TestCase):
         # Obtém a instância do anúncio recém-importado
         anuncio = Anuncio.objects.get(item_id_externo="MLB7771")
         # Submete requisição para vincular 2 unidades do mouse físico a este anúncio
-        res_comp = self.client.post(reverse('anuncio_composicao_add', kwargs={'pk': anuncio.pk}), {
+        res_comp = self.client.post(reverse('anuncio_composicao_add', kwargs={'public_id': anuncio.public_id}), {
             'produto': self.produto_mouse.pk,
             'quantidade': 2
         })
@@ -840,7 +840,7 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
         # Força o login com usuário administrador
         self.client.force_login(self.user_admin)
         # Obtém a rota do toggle de ignorar anúncio
-        url = reverse('anuncio_toggle_ignorar', kwargs={'pk': self.anuncio_unitario.pk})
+        url = reverse('anuncio_toggle_ignorar', kwargs={'public_id': self.anuncio_unitario.public_id})
 
         # 1. Marca como CANCELADO
         # Envia requisição para alternar o status
@@ -868,7 +868,7 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
         # Força autenticação de usuário administrador
         self.client.force_login(self.user_admin)
         # Obtém a rota da ação de sincronizar o anúncio
-        url = reverse('anuncio_sincronizar', kwargs={'pk': self.anuncio_unitario.pk})
+        url = reverse('anuncio_sincronizar', kwargs={'public_id': self.anuncio_unitario.public_id})
         # Define o estado inicial como PENDENTE
         self.anuncio_unitario.status_sincronizacao = 'PENDENTE'
         self.anuncio_unitario.save()
@@ -942,7 +942,7 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
         comp_c = AnuncioComposicao.objects.create(anuncio=anuncio_kit3, produto=prod_c, quantidade=3)
 
         # Prepara a URL para exclusão do componente intermediário B
-        url_delete = reverse('anuncio_composicao_delete', kwargs={'anuncio_id': anuncio_kit3.pk, 'pk': comp_b.pk})
+        url_delete = reverse('anuncio_composicao_delete', kwargs={'anuncio_public_id': anuncio_kit3.public_id, 'public_id': comp_b.public_id})
         # Executa a requisição de exclusão
         resp = self.client.post(url_delete)
         # Confirma redirecionamento após exclusão
@@ -1004,7 +1004,7 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
 
         # 1ª Requisição: Exclui B
         # Define a URL de exclusão para o componente B
-        url_del_b = reverse('anuncio_composicao_delete', kwargs={'anuncio_id': anuncio_kit4.pk, 'pk': comp_b.pk})
+        url_del_b = reverse('anuncio_composicao_delete', kwargs={'anuncio_public_id': anuncio_kit4.public_id, 'public_id': comp_b.public_id})
         # Executa a primeira remoção
         resp1 = self.client.post(url_del_b)
         # Confirma redirecionamento
@@ -1020,7 +1020,7 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
 
         # 2ª Requisição: Exclui C
         # Define a URL de exclusão para o componente C
-        url_del_c = reverse('anuncio_composicao_delete', kwargs={'anuncio_id': anuncio_kit4.pk, 'pk': comp_c.pk})
+        url_del_c = reverse('anuncio_composicao_delete', kwargs={'anuncio_public_id': anuncio_kit4.public_id, 'public_id': comp_c.public_id})
         # Executa a segunda remoção em requisição independente
         resp2 = self.client.post(url_del_c)
         # Confirma redirecionamento
@@ -1073,7 +1073,7 @@ class SincronizacaoEstoquePrecoTestCase(TestCase):
 
         # Dispara exclusão do comp1
         # Obtém a rota de remoção para o componente 1
-        url_del = reverse('anuncio_composicao_delete', kwargs={'anuncio_id': anuncio.pk, 'pk': comp1.pk})
+        url_del = reverse('anuncio_composicao_delete', kwargs={'anuncio_public_id': anuncio.public_id, 'public_id': comp1.public_id})
         # Executa a requisição de exclusão
         resp = self.client.post(url_del)
         # Valida redirecionamento
@@ -1308,7 +1308,7 @@ class AnuncioCriacaoManualEComposicaoTestCase(TestCase):
         comp_a = AnuncioComposicao.objects.create(anuncio=anuncio, produto=self.produto_a, quantidade=1)
 
         # Obtém a rota de edição do anúncio
-        url = reverse('anuncio_update', kwargs={'pk': anuncio.pk})
+        url = reverse('anuncio_update', kwargs={'public_id': anuncio.public_id})
 
         # Altera multiplicador do produto A de 1 para 5 (10 // 5 = 2)
         # Submete alteração aumentando a quantidade exigida por pacote de 1 para 5
@@ -1366,7 +1366,7 @@ class AnuncioCriacaoManualEComposicaoTestCase(TestCase):
         self.assertEqual(resp_create.status_code, 403)
 
         # Tenta acessar a página de edição de anúncio
-        resp_update = self.client.get(reverse('anuncio_update', kwargs={'pk': anuncio.pk}))
+        resp_update = self.client.get(reverse('anuncio_update', kwargs={'public_id': anuncio.public_id}))
         # Confirma bloqueio com status HTTP 403 Forbidden
         self.assertEqual(resp_update.status_code, 403)
 
@@ -1393,7 +1393,7 @@ class AnuncioCriacaoManualEComposicaoTestCase(TestCase):
 
         # 1. GET no AnuncioUpdateView: o dropdown deve conter apenas produtos da Loja A
         # Requisita a tela de edição do anúncio
-        url_edit = reverse('anuncio_update', kwargs={'pk': anuncio.pk})
+        url_edit = reverse('anuncio_update', kwargs={'public_id': anuncio.public_id})
         resp = self.client.get(url_edit)
         # Confirma o carregamento da tela
         self.assertEqual(resp.status_code, 200)

@@ -7,7 +7,7 @@
 {% block page_subtitle %}Produto: [{{ produto.sku }}] {{ produto.nome }} | Saldo Atual: {{ produto.estoque }} un.{% endblock %}
 
 {% block toolbar_actions %}
-    <a href="{% url 'produto_detail' pk=produto.pk %}" class="btn btn-outline-secondary">
+    <a href="{% url 'produto_detail' public_id=produto.public_id %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left"></i> Voltar ao Produto
     </a>
 {% endblock %}
@@ -42,7 +42,7 @@
                     </div>
 
                     <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
-                        <a href="{% url 'produto_detail' pk=produto.pk %}" class="btn btn-outline-secondary">Cancelar</a>
+                        <a href="{% url 'produto_detail' public_id=produto.public_id %}" class="btn btn-outline-secondary">Cancelar</a>
                         <button type="button" class="btn btn-warning" id="btnAbrirModalBaixa">
                             <i class="bi bi-check-lg"></i> Confirmar Baixa
                         </button>

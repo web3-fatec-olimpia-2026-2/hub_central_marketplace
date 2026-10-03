@@ -48,7 +48,7 @@
                                 <td>
                                     <div class="fw-bold">{{ item.titulo_anuncio|default:"Item do Marketplace" }}</div>
                                     {% if item.produto %}
-                                        <small class="text-primary font-monospace"><a href="{% url 'produto_detail' pk=item.produto.pk %}" class="text-decoration-none">SKU: {{ item.produto.sku }} ({{ item.produto.nome }})</a></small>
+                                        <small class="text-primary font-monospace"><a href="{% url 'produto_detail' public_id=item.produto.public_id %}" class="text-decoration-none">SKU: {{ item.produto.sku }} ({{ item.produto.nome }})</a></small>
                                     {% else %}
                                         <small class="text-danger font-monospace">Produto local não vinculado</small>
                                     {% endif %}

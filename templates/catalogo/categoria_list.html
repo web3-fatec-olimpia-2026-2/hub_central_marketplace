@@ -89,11 +89,11 @@
                         </td>
                         <td class="text-end">
                             <div class="btn-group btn-group-sm">
-                                <a href="{% url 'categoria_update' pk=cat.pk %}" class="btn btn-outline-primary" title="Editar">
+                                <a href="{% url 'categoria_update' public_id=cat.public_id %}" class="btn btn-outline-primary" title="Editar">
                                     <i class="bi bi-pencil"></i>
                                 </a>
                                 {% if pode_excluir %}
-                                    <a href="{% url 'categoria_delete' pk=cat.pk %}" class="btn btn-outline-danger" title="Excluir">
+                                    <a href="{% url 'categoria_delete' public_id=cat.public_id %}" class="btn btn-outline-danger" title="Excluir">
                                         <i class="bi bi-trash"></i>
                                     </a>
                                 {% endif %}

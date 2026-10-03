@@ -251,6 +251,8 @@ class ContaMarketplaceUpdateView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
     modulo_requerido = 'marketplaces'
     model = ContaMarketplace
     form_class = ContaMarketplaceForm
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     template_name = 'marketplaces/conta_form.html'
     success_url = reverse_lazy('canal_list')
 
@@ -326,6 +328,8 @@ class ContaMarketplaceDeleteView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
 
     modulo_requerido = 'marketplaces'
     model = ContaMarketplace
+    slug_field = 'public_id'
+    slug_url_kwarg = 'public_id'
     template_name = 'marketplaces/conta_confirm_delete.html'
     success_url = reverse_lazy('canal_list')
 
@@ -369,8 +373,8 @@ class ContaMarketplaceTestarView(LoginRequiredMixin, ModuloRequeridoMixin, Integ
     modulo_requerido = 'marketplaces'
 
     # Dispara o teste de conectividade via método POST
-    def post(self, request, pk, *args, **kwargs):
-        conta = get_object_or_404(ContaMarketplace, pk=pk)
+    def post(self, request, public_id, *args, **kwargs):
+        conta = get_object_or_404(ContaMarketplace, public_id=public_id)
 
         # Checagem de isolamento multi-tenant
         if not usuario_is_dev(request.user):
@@ -534,9 +538,9 @@ class WebhookEventReplayView(LoginRequiredMixin, ModuloRequeridoMixin, Integraca
     modulo_requerido = 'marketplaces'
 
     # Processa o reenvio via método POST
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, public_id, *args, **kwargs):
         # Carrega o registro do evento de webhook pelo identificador
-        event_log = get_object_or_404(WebhookEventLog, pk=pk)
+        event_log = get_object_or_404(WebhookEventLog, public_id=public_id)
 
         # Multi-tenancy check para não-DEV
         # Garante que operadores comuns só consigam reexecutar webhooks emitidos contra suas próprias contas
@@ -556,9 +560,9 @@ class WebhookEventReplayView(LoginRequiredMixin, ModuloRequeridoMixin, Integraca
 
         # Notifica o usuário na interface com base no status do reprocessamento
         if status_code == 200 and resposta.get('status') in ['ok', 'ignored']:
-            messages.success(request, f"Replay do evento #{pk} executado: {resposta.get('message', 'Processado com sucesso')}")
+            messages.success(request, f"Replay do evento #{event_log.pk} executado: {resposta.get('message', 'Processado com sucesso')}")
         else:
-            messages.error(request, f"Falha no replay do evento #{pk}: {resposta.get('message', 'Erro no processamento')}")
+            messages.error(request, f"Falha no replay do evento #{event_log.pk}: {resposta.get('message', 'Erro no processamento')}")
 
         # Redireciona de volta para a aba de webhooks na listagem de telemetria
         return redirect(reverse('log_sincronizacao_list') + '?aba=webhooks')
@@ -581,12 +585,12 @@ class MercadoLivreAutorizarView(LoginRequiredMixin, ModuloRequeridoMixin, Integr
 
     modulo_requerido = 'marketplaces'
 
-    def get(self, request, pk, *args, **kwargs):
+    def get(self, request, public_id, *args, **kwargs):
         # Importa o módulo secrets para geração de tokens criptograficamente seguros
         import secrets
 
         # Recupera a conta e valida se ela pertence ao tenant do usuário autenticado
-        conta = get_object_or_404(ContaMarketplace, pk=pk)
+        conta = get_object_or_404(ContaMarketplace, public_id=public_id)
         if not usuario_is_dev(request.user):
             perfil = getattr(request.user, 'perfil', None)
             if not perfil or not perfil.loja or conta.loja_id != perfil.loja_id:
@@ -762,8 +766,8 @@ class ContaMarketplaceDesconectarView(LoginRequiredMixin, ModuloRequeridoMixin, 
     modulo_requerido = 'marketplaces'
 
     # Dispara a desconexão via método POST
-    def post(self, request, pk, *args, **kwargs):
-        conta = get_object_or_404(ContaMarketplace, pk=pk)
+    def post(self, request, public_id, *args, **kwargs):
+        conta = get_object_or_404(ContaMarketplace, public_id=public_id)
 
         # Checagem de isolamento multi-tenant
         if not usuario_is_dev(request.user):
