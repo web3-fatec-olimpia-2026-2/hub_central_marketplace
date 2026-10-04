@@ -92,21 +92,40 @@ def _construir_menus_rbac(user) -> List[Dict[str, Any]]:
             'itens': itens_pedidos,
         })
 
-    # Grupo 4: Financeiro
+    # Grupo 4: Precificação e Finanças
     itens_fin = []
     try:
         itens_fin.append({'titulo': 'Simulador Promocional', 'url': reverse('simulador_promocional')})
+        if getattr(user, 'is_superuser', False) or getattr(user, 'perfil', None) and (user.perfil.is_dev or user.perfil.is_admin):
+            itens_fin.append({'titulo': 'Taxas das Lojas', 'url': reverse('taxas_loja_list')})
+            itens_fin.append({'titulo': 'Parâmetros dos Marketplaces', 'url': reverse('parametro_canal_list')})
     except Exception:
         pass
 
     if itens_fin:
         grupos.append({
-            'titulo': 'Financeiro',
+            'titulo': 'Precificação',
             'icone': 'bi-cash-coin',
             'itens': itens_fin,
         })
 
-    # Grupo 5: Administração e Governança
+    # Grupo 5: Logs e Telemetria
+    itens_logs = []
+    try:
+        itens_logs.append({'titulo': 'Logs de Integração', 'url': reverse('log_sincronizacao_list')})
+        if getattr(user, 'is_superuser', False) or getattr(user, 'perfil', None) and (user.perfil.is_dev or user.perfil.is_admin):
+            itens_logs.append({'titulo': 'Logs de Auditoria', 'url': reverse('log_auditoria_list')})
+    except Exception:
+        pass
+
+    if itens_logs:
+        grupos.append({
+            'titulo': 'Logs',
+            'icone': 'bi-journal-text',
+            'itens': itens_logs,
+        })
+
+    # Grupo 6: Administração e Governança
     itens_admin = []
     try:
         # Usuários e Perfis

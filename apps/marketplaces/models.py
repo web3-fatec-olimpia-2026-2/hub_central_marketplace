@@ -375,6 +375,16 @@ class LogAuditoria(models.Model):
     """
     # Fim da docstring explicativa de LogAuditoria
 
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
+
     # Loja à qual o evento pertence para garantir segregação multi-tenant
     loja = models.ForeignKey(
         Loja, on_delete=models.SET_NULL, null=True, blank=True,

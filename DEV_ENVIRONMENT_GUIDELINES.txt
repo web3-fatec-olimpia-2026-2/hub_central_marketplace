@@ -1,35 +1,109 @@
-⚠️ AVISO DE ESCOPO (revisão aplicada nesta versão)
+⚠️ AVISO DE ESCOPO (versão 3.1)
 Este documento é o registro histórico do processo de configuração original que deu origem às
 regras operacionais do projeto. As regras vinculantes e atualizadas para qualquer agente de IA
 estão em AGENT_INSTRUCTIONS_DJANGO.md — em caso de divergência entre os dois documentos, o .md
 prevalece. Este arquivo NÃO deve ser usado como fonte de instruções operacionais por agentes
 automatizados; serve apenas como referência narrativa para humanos.
 
-📝 Correções aplicadas nesta revisão:
+Versão deste documento: 3.1 (alinhada à versão 3.1 do AGENT_INSTRUCTIONS_DJANGO.md)
 
-1) O comando de identidade Git na Parte 2 (abaixo) foi alinhado à política de e-mail mascarado
-   no-reply, evitando a contradição com o checklist de segurança mais adiante neste mesmo
-   documento (que já cobrava o alias mascarado).
+Posição no padrão de projeto (3 documentos):
+  ① AGENT_INSTRUCTIONS_DJANGO.md ........ padrão global normativo
+  ② PROJECT_SPEC.md ..................... mínimo geral do projeto/produto (modelo a preencher)
+  ③ DEV_ENVIRONMENT_GUIDELINES.txt ...... este documento: registro narrativo do ambiente (não normativo)
+
+Nas referências abaixo, "Doc ①" é o AGENT_INSTRUCTIONS_DJANGO.md e "§" indica a seção dele.
+
+📝 Ajuste de estrutura da PARTE 6 (posterior à 3.1; sem alterar as regras do Doc ①):
+
+1) O Fluxo 2 (criação do zero) deixou de ser uma lista de ações descritas e remetidas a outras PARTES e
+   passou a ser um roteiro executável do início ao fim: 28 passos em 6 ETAPAS (A a F), cada um com o
+   comando completo (mkdir, cat << 'EOF', cp, touch etc.) e uma explicação curta. A ordem obrigatória
+   (usuário customizado ANTES da primeira migração) está explícita no cabeçalho do fluxo.
+2) settings.py e urls.py são ALTERADOS por script Python com validação (não são substituídos por
+   "cat > arquivo"): se o texto gerado pelo startproject não for o esperado, o script aborta sem gravar.
+3) O .env local passou a ser gerado por script (SECRET_KEY e ADMIN_URL), sem sobrescrever um .env existente.
+   ATENÇÃO: o script usa secrets.token_urlsafe(50) para a SECRET_KEY, e não get_random_secret_key(), porque
+   cerca de 2% das chaves desta começam com "$" e o django-environ interpreta esse valor como referência a
+   outra variável (erro "Set the ... environment variable"). Se o Doc ① §3.4 exigir outro método, alinhar.
+4) O caminho do modelo do PROJECT_SPEC.md (~/projetos/django/PROJECT_SPEC.md) é uma convenção do roteiro:
+   o mapa de isolamento mostra apenas os Doc ① e ③ nessa pasta; ajuste o passo 25 se o seu for outro.
+5) O Fluxo 1 (clone) não foi alterado: já era executável.
+
+📝 Revisões aplicadas na versão 3.1:
+
+1) Incorporado o "Guia de Fluxos Django: Clonagem × Criação do Zero" (PARTE 6), com os ajustes
+   abaixo, necessários para o alinhamento ao Doc ① v3.1:
+   a) Fluxo 1 (clone): passo inicial "cd ~/projetos/django" (§3.3); verificação da identidade Git
+      (§5.3); .env criado a partir do .env.example, com SECRET_KEY nova e exclusiva (§3.4);
+      "makemigrations" passou a ser apenas diagnóstico (--check --dry-run), porque um clone já
+      traz as migrações versionadas; branch de trabalho criada antes de alterar arquivos (§6.1);
+      rota do painel administrativo conforme ADMIN_URL (§11.3).
+   b) Fluxo 2 (do zero): projeto criado em ~/projetos/django/<nome_do_projeto>/ (§2.1);
+      acrescentados "git init", .gitignore, .env.example e .env (§4.6, §4.7 e §23.1); instalação de
+      django-environ e argon2-cffi junto com o Django (§22.2); apps em apps/<nome>/ (§9.2);
+      usuário customizado com chave UUID, Argon2id e baseline de settings ANTES da primeira
+      migração (§10.4 e §23.4), o que exige "makemigrations" antes do "migrate"; primeiro commit
+      revisado com git status/git diff.
+   c) Removida a menção ao PowerShell/macOS para ativar o .venv: o desenvolvimento ocorre apenas
+      no WSL 2 (§2.1). Evitado o nome "core" para o pacote de configuração (o exemplo usa
+      "meu_site"), pois "core" é o nome da app transversal do catálogo de apps (§9.4).
+2) Antigravity CLI deixou de fazer parte do bootstrap mínimo do host Windows: ferramentas de CLI
+   de terceiros são opcionais e ficam fora do escopo mínimo (§1.1). O comando foi mantido apenas
+   como exemplo opcional, comentado, na PARTE 1.
+3) PARTE 2: instalação inicial passou a incluir argon2-cffi (§22.2) e a conferência da versão do
+   Django (CSP nativo a partir da 6.0, §14.3); verificação da identidade Git (§5.3); .gitignore
+   alinhado ao §4.7 (*.log, .DS_Store, media/, staticfiles/); criação do .env.example (§4.6);
+   "git init" (§23.1); geração das chaves adicionais FIELD_ENCRYPTION_KEY e JWT_SIGNING_KEY quando
+   o projeto as utilizar (§18.4).
+4) PARTE 3: indicado o baseline de settings do §12.3 e o cuidado com DEBUG=True no .env local.
+5) PARTE 4: reescrita. Em projeto novo, a primeira migração só ocorre depois do usuário
+   customizado com UUID, do Argon2id e do baseline de settings (§10.4 e §23.4).
+6) Roteiro de clonagem: .env a partir do .env.example, verificação da identidade Git e orientação
+   sobre branch de trabalho. PARTE 5: novo Passo 5.5 (salvaguardas para agentes de IA, §7).
+7) Checklist realinhado aos §23.1 a §23.5, com checklist próprio para projeto clonado.
+8) Mapa de isolamento atualizado para a topologia v3.1 (.env.example, apps/, PROJECT_SPEC.md,
+   regras_de_negocio.md e os documentos ① e ③ em ~/projetos/django/).
+
+📝 Revisão anterior (alinhamento à versão 2.2), mantida como registro:
+
+1) O comando de identidade Git na Parte 2 foi alinhado à política de e-mail mascarado no-reply,
+   evitando a contradição com o checklist de segurança (que já cobrava o alias mascarado).
 2) Adicionado o cabeçalho "Passo 2.3" (ausente na versão original) antes da instalação do
-   Django e criação do projeto, mantendo a numeração de passos consistente com o restante
-   do documento.
-3) Os valores de SECRET_KEY nos exemplos de .env foram marcados explicitamente como
-   placeholders a substituir, com instrução para gerar uma chave exclusiva por projeto em
-   vez de reaproveitar o exemplo.
+   Django e criação do projeto, mantendo a numeração de passos consistente.
+3) Os valores de SECRET_KEY nos exemplos de .env foram marcados como placeholders a substituir,
+   com instrução para gerar uma chave exclusiva por projeto em vez de reaproveitar o exemplo.
 4) Atualizada a topologia de diretórios para acomodar a estrutura de ecossistema multi-stack
-   (~/projetos/django/<nome_do_projeto>/), alinhando o roteiro narrativo à versão 2.2 do MD.
+   (~/projetos/django/<nome_do_projeto>/).
 
 -----
 
 Estrutura de isolamento entre Windows e WSL para desenvolvimento.
 
-Para o Django conseguir ler os dados desse arquivo .env, você precisará de uma biblioteca como o django-environ.
+Para o Django conseguir ler os dados do arquivo .env, usa-se a biblioteca django-environ (padrão
+global do ecossistema, Doc ① §4.4).
+
+Qual roteiro seguir?
+
+  Máquina nova, nunca configurada ............ PARTE 1 e depois PARTE 2
+  Projeto novo, do zero ...................... PARTE 2 → PARTE 3 → PARTE 4
+                                               (máquina já configurada: comece no Passo 2.2)
+                                               (roteiro executável, de ponta a ponta: PARTE 6, Fluxo 2)
+  Projeto que já existe no GitHub/GitLab ..... "Roteiro para Clonar Projetos Django no WSL"
+                                               (roteiro executável: PARTE 6, Fluxo 1)
+  Rotina do dia a dia ........................ PARTE 5
+  Conferência final .......................... Checklist de Segurança e Validação de Ambiente
 
 -----
 
 Instalação.
 
 🌐 PARTE 1: Configuração no Host (No PowerShell do Windows)
+
+Esta parte é executada UMA ÚNICA VEZ por máquina (Doc ① §1). Repita somente ao configurar uma
+máquina nova, ao reconstruir o WSL ou ao alterar deliberadamente o padrão global de infraestrutura.
+Nunca a repita a cada novo projeto Django.
+
 Abra o PowerShell como Administrador para instalar a base do sistema e as ferramentas de interface do Windows:
 
 # 1. Instalar o WSL com Ubuntu e verificar
@@ -40,18 +114,19 @@ wsl --version
 winget install --id Git.Git -e --source winget
 git --version
 
-# 3. Instalar o Antigravity CLI no Windows
-irm https://antigravity.google/cli/install.ps1 | iex
-antigravity --version
-
-# 4. Instalar o VS Code no Windows e a extensão oficial do WSL
+# 3. Instalar o VS Code no Windows e a extensão oficial do WSL
 winget install --id Microsoft.VisualStudioCode -e --source winget
 code --version
 code --install-extension ms-vscode-remote.remote-wsl
 
+# (OPCIONAL — fora do escopo mínimo, Doc ① §1.1) Ferramentas adicionais de CLI de terceiros.
+# O padrão global não exige nenhuma. Exemplo usado no processo original (Antigravity CLI):
+# irm https://antigravity.google/cli/install.ps1 | iex
+# antigravity --version
+
 
 🐧 PARTE 2: Configuração e Desenvolvimento (No Terminal do Ubuntu/WSL)
-A partir daqui, feche o PowerShell. Abra o aplicativo Ubuntu no seu menu iniciar do Windows. 
+A partir aqui, feche o PowerShell. Abra o aplicativo Ubuntu no seu menu iniciar do Windows. 
 Todos os comandos abaixo devem ser rodados dentro do terminal Linux.
 
 Passo 2.1: Instalação das ferramentas nativas no Linux
@@ -61,23 +136,29 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install python3 python3-pip python3-venv python3-dev build-essential git -y
 
 # 2. Configurar a identidade do seu Git no Linux (Obrigatório para fazer Commits)
-# ATENÇÃO (correção aplicada): use o alias mascarado no-reply do GitHub, nunca um e-mail
-# pessoal — obtenha o seu em GitHub > Settings > Emails > Keep my email address private.
+# ATENÇÃO: use o alias mascarado no-reply do GitHub, nunca um e-mail pessoal — obtenha o seu em
+# GitHub > Settings > Emails > Keep my email address private.
 # Formato do alias: ID+seu-usuario@users.noreply.github.com
 git config --global user.name "Seu Nome de Usuário GitHub"
 git config --global user.email "SEU_ID+seu-usuario@users.noreply.github.com"
 
+# 3. Verificar a identidade ativa (Doc ① §5.3) — repita antes de commitar em máquina ou clone novo
+git config user.email
+# O endereço retornado DEVE conter users.noreply.github.com. Se vier vazio ou com e-mail pessoal,
+# pare e corrija antes de qualquer commit.
+
 Passo 2.2: Criando a estrutura do projeto Django no Linux/WSL
 Navegue até a pasta dedicada ao ecossistema Django dentro do seu diretório home:
 
-# 3. Criar a pasta do seu projeto dentro do ecossistema Django e entrar nela
+# 4. Criar a pasta do seu projeto dentro do ecossistema Django e entrar nela
+#    (nunca solta em ~/projetos/ e nunca dentro de /mnt/c/ — Doc ① §2.1)
 mkdir -p ~/projetos/django/meu_projeto_django
 cd ~/projetos/django/meu_projeto_django
 
-# 4. Criar o Ambiente Virtual (.venv) usando o Python do Linux
+# 5. Criar o Ambiente Virtual (.venv) usando o Python do Linux
 python3 -m venv .venv
 
-# 5. Ativar o ambiente virtual no Linux
+# 6. Ativar o ambiente virtual no Linux
 source .venv/bin/activate
 
 # (O seu terminal agora mostrará (.venv) no início da linha)
@@ -86,53 +167,100 @@ source .venv/bin/activate
 
 Passo 2.3: Instalação do Django e Criação do Projeto
 
-# 6. Atualizar o gerenciador de pacotes interno e instalar o Django + django-environ
+# 7. Atualizar o gerenciador de pacotes interno e instalar o conjunto-base de dependências
 pip install --upgrade pip
-pip install django django-environ
+pip install django django-environ argon2-cffi
+
+# django-environ → leitura tipada do .env (Doc ① §4.4)
+# argon2-cffi    → hasher de senhas Argon2id (Doc ① §16.1); dependência "sempre" do ecossistema (§22.2)
+# Outras dependências do padrão (cryptography, django-allauth etc.) só entram quando o projeto
+# precisar e sempre com justificativa (Doc ① §7.7 e §22.2).
 
 ---
 
-# 7. Criar o projeto Django (Isso vai gerar o settings.py automaticamente)
+# 8. Criar o projeto Django (Isso vai gerar o settings.py automaticamente)
 
 django-admin startproject meu_site .
 
 # ⚠️ NOTA: O ponto "." no final é crucial. Ele diz para o Django criar 
 # os arquivos direto na raiz atual, mantendo a estrutura limpa que planejamos.
+# ⚠️ NOTA: evite chamar o pacote de configuração de "core": esse é o nome da app transversal
+# do catálogo de apps do ecossistema (apps/core, Doc ① §9.4).
 
 python -m django --version
+
+# Confira a versão instalada: a partir do Django 6.0 a CSP é nativa; abaixo disso é preciso a
+# dependência django-csp (Doc ① §14.3 e §22.2). A versão fica fixada no requirements.txt.
 
 
 Passo 2.4: Segurança, Git e Requirements (Na raiz do projeto)
 
-# 8. Criar o arquivo .gitignore completo
+# 9. Inicializar o repositório Git do projeto (Doc ① §23.1)
+git init -b main
+
+# 10. Criar o arquivo .gitignore completo (ANTES do primeiro "git add" — Doc ① §4.7)
 cat << 'EOF' > .gitignore
 .venv/
 .env
 *.pyc
 __pycache__/
+*.log
+.DS_Store
+media/
+staticfiles/
 db.sqlite3
 EOF
+
+# (db.sqlite3 entra porque o banco local é SQLite. O restante é o conjunto mínimo global do Doc ① §4.7.)
 
 # Verificar se gravou corretamente
 cat .gitignore
 
-# Criar o arquivo .env físico com valores iniciais
-# ATENÇÃO (correção aplicada): substitua o valor de SECRET_KEY abaixo por uma chave gerada
-# aleatoriamente para ESTE projeto — nunca reaproveite o valor de exemplo. Gere com:
+# 11. Criar o .env.example (versionado): somente os NOMES das variáveis, sem valores reais
+#     Conjunto-base do ecossistema (Doc ① §4.6 e §18.4). O .env.example completo do projeto está
+#     no Anexo B do PROJECT_SPEC.md (inclui TENANCY_MODE, OAuth e webhooks).
+cat << 'EOF' > .env.example
+SECRET_KEY=
+DEBUG=False
+ALLOWED_HOSTS=
+CSRF_TRUSTED_ORIGINS=
+ADMIN_URL=
+FIELD_ENCRYPTION_KEY=
+JWT_SIGNING_KEY=
+EMAIL_HOST=
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+EOF
+
+# 12. Criar o arquivo .env físico (local, NÃO versionado) com valores iniciais
+# ATENÇÃO: substitua o valor de SECRET_KEY abaixo por uma chave gerada aleatoriamente para ESTE
+# projeto — nunca reaproveite o valor de exemplo. Gere com:
 # python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 cat << 'EOF' > .env
 SECRET_KEY=SUBSTITUA_POR_UMA_CHAVE_UNICA_GERADA_LOCALMENTE
 DEBUG=True
 EOF
 
-# 9. Gerar o arquivo requirements.txt na raiz do projeto
+# Sempre que uma nova variável for adicionada ao projeto, atualize o .env.example no mesmo commit.
+
+# Chaves adicionais — somente quando o projeto as utilizar (Doc ① §18.4 e §23.4).
+# Devem ser DISTINTAS entre si e da SECRET_KEY, geradas localmente e guardadas só no .env:
+#   FIELD_ENCRYPTION_KEY (Fernet; requer o pacote cryptography instalado no .venv):
+#     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#   JWT_SIGNING_KEY (≥ 32 bytes aleatórios; apenas se houver JWT):
+#     python -c "import secrets; print(secrets.token_urlsafe(48))"
+
+# 13. Gerar o arquivo requirements.txt na raiz do projeto
 pip freeze > requirements.txt
+
+# (Sempre que instalar um pacote novo, rode "pip freeze > requirements.txt" de novo,
+#  no mesmo commit que introduziu a dependência.)
 
 Passo 2.5: Abrindo o projeto no VS Code do Windows
 
 code .
 
-🛠️ PARTE 3: Integração do django-environ no Código
+🛠️ PARTE 3: Integração do django-environ no Código e Baseline de Settings
 Com o VS Code aberto através do WSL, 
 navegue até o arquivo gerado automaticamente meu_site/settings.py e substitua o bloco do topo pelo código abaixo:
 
@@ -157,22 +285,190 @@ DEBUG = env.bool('DEBUG', default=False)
 
 ---
 
-🌐 PARTE 4: Inicialização do Servidor
+⚠️ ATENÇÃO: apague do settings.py gerado as linhas originais "SECRET_KEY = 'django-insecure-...'",
+"DEBUG = True" e "ALLOWED_HOSTS = []" (e a definição duplicada de BASE_DIR). Se ficarem mais abaixo
+no arquivo, elas SOBRESCREVEM os valores lidos do .env.
 
-Com o ambiente virtual ativo (.venv) no terminal, execute estes dois comandos:
+Passo 3.1: Baseline de segurança do settings (Doc ① §12.3)
 
-# Executar as migrações iniciais do banco de dados padrão (SQLite)
+A versão 3.1 do padrão exige o baseline de segurança desde o início do projeto, não só no deploy.
+Acrescente abaixo do bloco anterior (os valores já são seguros por padrão; DEBUG=True só vale no local):
+
+---
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])           # nunca ['*'] fora do local
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])  # com esquema: https://dominio
+
+# Transporte (HTTPS)
+SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=not DEBUG)
+SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=0 if DEBUG else 3600)  # elevar até 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=False)
+SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=False)
+
+# Cookies, sessão e CSRF
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# Cabeçalhos (declarados explicitamente, mesmo coincidindo com defaults do Django)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'same-origin'
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
+
+# Limites de entrada (Doc ① §15.4)
+DATA_UPLOAD_MAX_MEMORY_SIZE = env.int('DATA_UPLOAD_MAX_MEMORY_SIZE', default=1_048_576)  # 1 MiB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = env.int('DATA_UPLOAD_MAX_NUMBER_FIELDS', default=500)
+---
+
+Regras que acompanham o baseline:
+ - Os middlewares gerados pelo startproject (SecurityMiddleware, SessionMiddleware, CsrfViewMiddleware,
+   AuthenticationMiddleware, XFrameOptionsMiddleware) NÃO podem ser removidos (Doc ① §12.2).
+ - Não crie linhas vazias no .env para as variáveis numéricas acima (ex.: "SECURE_HSTS_SECONDS="):
+   o valor vazio quebra a conversão de tipo. Se não for sobrescrever, simplesmente não declare.
+ - Ajustes de produção (HSTS elevado, proxy reverso, CSP etc.) não pertencem a este roteiro: os valores
+   e as exceções do projeto ficam no PROJECT_SPEC.md §10 (Doc ① §12.3 e §14).
+
+Confirme que o settings.py continua válido:
+
+python manage.py check
+
+🌐 PARTE 4: Estrutura Modular, Usuário Customizado e Inicialização do Servidor
+
+⚠️ MUDANÇA DA v3.1: em projeto NOVO, a primeira migração NÃO é mais o primeiro comando depois do
+startproject. O usuário customizado com chave UUID (AUTH_USER_MODEL) precisa existir ANTES da primeira
+migração — alterá-lo depois é custoso (Doc ① §10.4 e §23.4). A ordem correta é:
+
+   apps → usuário customizado e Argon2id → makemigrations → migrate → createsuperuser → runserver
+
+Com o ambiente virtual ativo (.venv) no terminal:
+
+Passo 4.1: Criar as apps-base dentro de apps/ (Doc ① §9.2 e §9.4)
+
+# 1. Criar o pacote apps/ e as duas apps-base do ecossistema
+mkdir -p apps/core apps/accounts
+touch apps/__init__.py
+python manage.py startapp core apps/core
+python manage.py startapp accounts apps/accounts
+
+# 2. Em apps/core/apps.py e apps/accounts/apps.py, troque o "name" gerado:
+#      name = 'apps.core'          (e)          name = 'apps.accounts'
+#    Cada app terá um README.md próprio (Doc ① §9.3): crie apps/core/README.md e apps/accounts/README.md.
+
+# apps/core/models.py — modelo-base com UUIDv4 (Doc ① §10.4)
+---
+import uuid
+from django.db import models
+
+class UUIDModel(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    class Meta:
+        abstract = True
+---
+
+# apps/accounts/models.py — usuário customizado com chave UUID
+---
+from django.contrib.auth.models import AbstractUser
+from apps.core.models import UUIDModel
+
+class User(UUIDModel, AbstractUser):
+    pass
+---
+
+# apps/accounts/admin.py — registrar o usuário no Admin
+---
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
+from .models import User
+
+admin.site.register(User, UserAdmin)
+---
+
+Passo 4.2: Ajustes finais no settings.py e no urls.py
+
+# Em meu_site/settings.py:
+---
+INSTALLED_APPS = [
+    # ... apps padrão do Django, sem remover nenhuma ...
+    'apps.core',
+    'apps.accounts',
+]
+
+AUTH_USER_MODEL = 'accounts.User'          # ANTES da primeira migração
+
+# Argon2id em primeiro lugar (Doc ① §16.1); os demais permitem migrar hashes antigos no próximo login
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
+]
+
+ADMIN_URL = env('ADMIN_URL')               # URL do Admin não padrão (Doc ① §11.3)
+---
+
+# Em meu_site/urls.py, troque path('admin/', ...) por:
+---
+from django.conf import settings
+from django.contrib import admin
+from django.urls import path
+
+urlpatterns = [
+    path(settings.ADMIN_URL, admin.site.urls),
+]
+---
+
+# Adicione ADMIN_URL ao .env local (valor NÃO padrão, terminado em "/"). Sugestão de geração:
+# python -c "import secrets; print('painel-' + secrets.token_urlsafe(8) + '/')"
+# Exemplo de linha no .env:  ADMIN_URL=painel-AbC123xY/
+# (A variável já consta no .env.example criado no Passo 2.4.)
+
+Passo 4.3: Primeira migração e inicialização
+
+# 1. Gerar a migração inicial do usuário customizado (cria apps/accounts/migrations/0001_initial.py,
+#    que DEVE ser versionada no Git junto com o código)
+python manage.py makemigrations
+
+# 2. Executar as migrações iniciais do banco de dados padrão (SQLite)
 python manage.py migrate
 
-# Ligar o servidor de desenvolvimento do Django
+# 3. Criar o administrador local (uso exclusivo de desenvolvimento; nunca reutilize senha de produção)
+python manage.py createsuperuser
+
+# 4. Ligar o servidor de desenvolvimento do Django
 python manage.py runserver
+
+# O painel administrativo responde em http://127.0.0.1:8000/<ADMIN_URL> — e não mais em /admin/.
+
+Passo 4.4: Atualizar dependências e revisar o primeiro commit
+
+# 1. Atualizar o registro de dependências (se instalou algo novo desde o Passo 2.4)
+pip freeze > requirements.txt
+
+# 2. Revisar o que será versionado. Em repositório novo o "git diff" simples não mostra arquivos
+#    ainda não rastreados; por isso revise com "git status" e, depois do "git add", com "git diff --staged".
+git status
+git add .
+git status
+git diff --staged
+
+# ⚠️ Confirme que .env, .venv/ e db.sqlite3 NÃO aparecem na lista de arquivos a commitar.
+
+# ⚠️ NOTA SOBRE O PRIMEIRO COMMIT: o primeiro commit de um repositório vazio é o que cria a "main".
+# O padrão (Doc ① §6.1) proíbe commits diretos na main e não descreve esse caso inicial. Faça o
+# commit inicial somente após o checklist da seção "Ao Iniciar um Projeto Novo" e com autorização
+# explícita do responsável humano; um agente de IA não deve executá-lo por iniciativa própria (§7.6).
+# git commit -m "chore(setup): estrutura inicial do projeto Django"
+# Depois do commit inicial, todo o trabalho segue em branches (PARTE 5).
 
 ---
 
 💡 Últimas dicas de sobrevivência para o dia a dia com esse roteiro:
 
-Próximos Projetos: Quando você for criar um segundo ou terceiro projeto no futuro, você pulará completamente a PARTE 1. 
-Bastará começar direto na PARTE 2, alterando apenas o nome da pasta no comando mkdir sob ~/projetos/django/ (Passo 3).
+Próximos Projetos: Quando você for criar um segundo ou terceiro projeto no futuro, você pulará completamente a PARTE 1
+e também o Passo 2.1 (ambos são feitos uma única vez por máquina). Bastará começar direto no Passo 2.2, alterando
+apenas o nome da pasta no comando mkdir sob ~/projetos/django/ (comando 4), e seguir pelas PARTES 3 e 4.
 
 Sempre ative o .venv: Lembre-se de que toda vez que você fechar o terminal e voltar a programar no dia seguinte, 
 o primeiro comando ao entrar na pasta do projeto deve ser obrigatoriamente:
@@ -187,7 +483,6 @@ source .venv/bin/activate
 
 💻 Seu Computador (Windows Host)
  ├── 🛠️ Git Windows (Isolado)
- ├── 🚀 Antigravity CLI Windows (Isolado)
  └── 🪟 VS Code (Apenas a interface visual / Cliente)
       │
       └── 🌁 PONTE DO WSL (Extensão conecta via rede interna)
@@ -196,14 +491,23 @@ source .venv/bin/activate
                 ├── 🐍 Python 3 Global do Linux (O motor)
                 └── 📂 ~/projetos/
                      └── 📂 django/ (Ecossistema Django)
+                          ├── 📄 AGENT_INSTRUCTIONS_DJANGO.md (① padrão global normativo)
+                          ├── 📄 DEV_ENVIRONMENT_GUIDELINES.txt (③ referência narrativa, este arquivo)
                           └── 📂 meu_projeto_django/ (Pasta do Projeto)
-                               ├── 📦 .venv/ (Guarda o Django e o django-environ do Linux)
-                               ├── 📄 .env (Guarda SECRET_KEY e DEBUG sem expor no código)
-                               ├── 📄 .gitignore (Ignora .venv e .env no Git)
+                               ├── 📦 .venv/ (Guarda Django, django-environ e argon2-cffi do Linux)
+                               ├── 📄 .env (Guarda SECRET_KEY, DEBUG e ADMIN_URL sem expor no código; NÃO versionado)
+                               ├── 📄 .env.example (Nomes das variáveis, sem valores; versionado)
+                               ├── 📄 .gitignore (Ignora .venv, .env, db.sqlite3, media/, staticfiles/ etc.)
                                ├── 📄 requirements.txt (Lista de pacotes gerada no Linux)
                                ├── 📄 manage.py (Script de controle do Django)
-                               └── 📂 meu_site/ (Pasta de configurações do seu código)
-                                    └── 📄 settings.py (Lê o .env usando o django-environ)
+                               ├── 📄 PROJECT_SPEC.md (② especificação do projeto)
+                               ├── 📄 regras_de_negocio.md (RF/RN do projeto)
+                               ├── 📂 meu_site/ (Pasta de configurações do seu código)
+                               │    ├── 📄 settings.py (Lê o .env com django-environ; baseline de segurança)
+                               │    └── 📄 urls.py (Admin em URL não padrão)
+                               └── 📂 apps/ (Apps modulares)
+                                    ├── 📂 core/ (UUIDModel e utilitários) + README.md
+                                    └── 📂 accounts/ (Usuário com UUID, RBAC, login) + README.md
 
 ...
 
@@ -228,21 +532,26 @@ git clone https://github.com/usuario/Django_projeto_XYZ.git
 # 3. Entrar na pasta recém-criada pelo Git
 cd Django_projeto_XYZ
 
+# 4. Conferir a identidade do Git (Doc ① §5.3)
+git config user.email
+# O endereço DEVE conter users.noreply.github.com. Se vier vazio ou com e-mail pessoal, pare e corrija
+# (Passo 2.1) antes de qualquer commit. Não configure um e-mail pessoal para "resolver" a ausência.
+
 
 Passo 2: Recriar o Ambiente Virtual Local
 Como a pasta .venv nunca vai para o GitHub, você precisa construir uma nova versão dela dentro desta máquina Linux:
 
-# 4. Criar o Ambiente Virtual local usando o Python do Linux
+# 5. Criar o Ambiente Virtual local usando o Python do Linux
 python3 -m venv .venv
 
-# 5. Ativar o ambiente virtual
+# 6. Ativar o ambiente virtual
 source .venv/bin/activate
 
 
 Passo 3: Instalar as Dependências do Projeto
 Em vez de instalar os pacotes manualmente um a um, você usará o arquivo requirements.txt que veio no repositório para baixar tudo nas versões exatas:
 
-# 6. Atualizar o pip e instalar todos os pacotes da lista
+# 7. Atualizar o pip e instalar todos os pacotes da lista
 pip install --upgrade pip
 pip install -r requirements.txt
 
@@ -253,47 +562,74 @@ O arquivo .env original também foi barrado pelo Git para não expor senhas.
 
 Você precisa criar um arquivo novo na raiz deste projeto clonado:
 
-# ATENÇÃO (correção aplicada): antes de preencher os valores, verifique se existe um
-# arquivo .env.example na raiz do projeto — ele lista os nomes das variáveis exigidas.
-# Gere uma SECRET_KEY nova e exclusiva para este clone (nunca reaproveite o exemplo):
-# python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+# ATENÇÃO: antes de preencher os valores, verifique se existe um arquivo .env.example na raiz do
+# projeto — ele lista os nomes das variáveis exigidas. Nunca adivinhe variáveis, nunca copie o .env
+# de outro projeto e nunca use credenciais de produção em ambiente local (Doc ① §3.4).
 
-# 7. Criar o arquivo .env físico local
-cat << 'EOF' > .env
-SECRET_KEY=SUBSTITUA_POR_UMA_CHAVE_UNICA_GERADA_LOCALMENTE
-DEBUG=True
-EOF
+# 8. Consultar os nomes das variáveis exigidas
+cat .env.example
+
+# 9. Criar o .env físico local a partir do modelo (o .env.example não contém valores reais)
+cp .env.example .env
+
+# 10. Gerar uma SECRET_KEY nova e exclusiva para este clone (nunca reaproveite o exemplo):
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+
+# Abra o .env (ex.: code .env), cole a chave gerada em SECRET_KEY e ajuste, para uso LOCAL:
+#   DEBUG=True
+# As demais variáveis (ADMIN_URL, DB_PASSWORD, chaves de API etc.) devem ser obtidas da documentação do
+# projeto ou do próprio .env.example. FIELD_ENCRYPTION_KEY e JWT_SIGNING_KEY, quando exigidas, são
+# geradas localmente e distintas entre si e da SECRET_KEY (Doc ① §18.4).
+# Se NÃO existir .env.example, não invente as variáveis: peça a lista ao responsável pelo projeto.
 
 # NOTA: Se o criador do projeto tiver deixado variáveis extras (como DB_PASSWORD),
 # você precisará adicioná-las aqui também (verifique o .env.example, se existir).
 
 
-Passo 5: Abrir no VS Code e Rodar o Servidor
+Passo 5: Migrações, Branch de Trabalho e Servidor
 
-# 8. Abrir o projeto no VS Code do Windows conectado ao WSL
+# 11. Abrir o projeto no VS Code do Windows conectado ao WSL
 code .
 
-# 9. Executar as migrações locais para o banco de dados (SQLite)
+# 12. Diagnóstico de migrações (somente verifica; NÃO cria arquivos)
+python manage.py makemigrations --check --dry-run
+# "No changes detected" é o resultado esperado em um clone. Se listar alterações pendentes, NÃO gere
+# migrações por conta própria: informe o responsável pelo projeto (Doc ① §7.6).
+
+# 13. Executar as migrações versionadas no repositório, criando o banco local (SQLite)
 python manage.py migrate
 
-# 10. Ligar o servidor de desenvolvimento
+# 14. Criar o administrador local (uso exclusivo de desenvolvimento; senha nunca reutilizada)
+python manage.py createsuperuser
+
+# 15. Verificar a branch antes de alterar qualquer arquivo
+git status
+git branch
+# Para apenas executar o projeto, nada é alterado. Se for desenvolver, crie a branch de trabalho antes de
+# editar (PARTE 5, Cenário B). Nunca desenvolva diretamente na main.
+
+# 16. Ligar o servidor de desenvolvimento
 python manage.py runserver
+# Se o projeto usa ADMIN_URL, o painel administrativo responde em /<ADMIN_URL> e não em /admin/.
 
 🔍 Resumo visual de como a clonagem funciona na prática:
 
 ☁️ GitHub (Contém apenas o código puro)
  │    ├── 📂 meu_site/ (Código Django)
+ │    ├── 📂 apps/ (Apps modulares, com migrações versionadas)
  │    ├── 📄 manage.py
+ │    ├── 📄 .env.example (Nomes das variáveis exigidas, sem valores)
  │    └── 📄 requirements.txt (Receita de quais pacotes instalar)
  │
  ⬇️ (git clone em ~/projetos/django/)
  │
 🐧 Seu Ambiente WSL 2 (Gera o que estava oculto localmente)
-      ├── 📦 .venv/ (Criado localmente pelo Passo 4 e alimentado pelo Passo 6)
-      └── 📄 .env (Criado localmente pelo Passo 7 para suas credenciais)
+      ├── 📦 .venv/ (Criado localmente pelo Passo 2 e alimentado pelo Passo 3)
+      ├── 📄 .env (Criado localmente pelo Passo 4 para suas credenciais, a partir do .env.example)
+      └── 🗄️ db.sqlite3 (Criado localmente pelo "migrate" do Passo 5)
 
 Como os projetos que você vai clonar já possuem a PARTE 3 (as linhas do django-environ no topo do settings.py), 
-assim que o passo 10 rodar, o servidor vai ler o seu .env local imediatamente!
+assim que o servidor do Passo 5 (comando 16) subir, ele vai ler o seu .env local imediatamente!
 
 ---
 
@@ -328,6 +664,8 @@ Se você já estava trabalhando em uma branch (ex: feat/modulo-produtos) e a fun
 git checkout feat/modulo-produtos
 
 # 2. (Opcional, mas recomendado) Trazer novidades que a equipe subiu na main sem sair da sua branch
+#    (Doc ① §6.3: a atualização deve preservar suas alterações locais; em caso de conflito, pare e
+#    siga o Passo 5.5 — não resolva com comandos destrutivos)
 git pull origin main
 
 # 3. Abra o editor e continue programando normalmente
@@ -371,7 +709,11 @@ git add .
 
 # ⚠️ Verificação de segurança: rode "git status" e confirme que .env e .venv NÃO constam na lista.
 
-# 4. Registrar o commit seguindo o padrão Conventional Commits:
+# 4. Conferir a identidade do Git antes de commitar (Doc ① §5.3)
+git config user.email
+# Deve conter users.noreply.github.com.
+
+# 5. Registrar o commit seguindo o padrão Conventional Commits:
 #    Estrutura: tipo(escopo-opcional): descrição no imperativo
 git commit -m "feat(produtos): implementa listagem e filtro de busca"
 
@@ -393,10 +735,11 @@ git push
 
 Passo 5.4: Conclusão da Funcionalidade, Pull Request e Limpeza
 
-Execute este passo APENAS quando a funcionalidade da branch estiver 100% pronta e testada:
+Execute este passo APENAS quando a funcionalidade da branch estiver 100% pronta e testada
+(Definition of Done do PROJECT_SPEC.md §12):
 
 1. Acesse o GitHub no navegador e abra um **Pull Request (PR)** da sua branch (`feat/modulo-produtos`) para a `main`.
-2. Revise e confirme o **Merge** do Pull Request no GitHub.
+2. Faça a revisão humana e confirme o **Merge** do Pull Request no GitHub (Doc ① §6.7 e §7.3).
 3. No terminal WSL, sincronize o ambiente local e remova a branch concluída:
 
 # 1. Retorne para a branch principal
@@ -411,51 +754,633 @@ git branch -d feat/modulo-produtos
 # 4. Sincronizar referências locais com o GitHub (remove ramos já deletados remotamente)
 git fetch --prune
 
+
 ---
 
+Passo 5.5: Trabalhando com um Agente de IA (resumo das salvaguardas — Doc ① §7)
+
+Este passo é um resumo narrativo. As regras vinculantes estão no Doc ① (AGENT_INSTRUCTIONS_DJANGO.md §7 e §26).
+
+1. Capacidade técnica não é autorização (§7.1): o agente segue as regras mesmo podendo ignorá-las.
+
+2. Protocolo de plano e confirmação, a cada nova tarefa (§7.6). O agente deve:
+   - ler o Doc ①, o PROJECT_SPEC.md, o regras_de_negocio.md e os README.md das apps afetadas;
+   - apresentar um plano detalhado (arquivos afetados, migrações, dependências novas, riscos, testes);
+   - aguardar a sua confirmação explícita — sem ela, apenas lê e analisa (não cria nem altera arquivos,
+     não instala pacotes, não gera nem aplica migrações);
+   - comunicar em português e, ao final, reportar o que foi feito, os testes e as pendências.
+   Você pode dispensar o plano prévio de uma tarefa de forma explícita, mas isso nunca afrouxa o item 3.
+
+3. Comandos que exigem confirmação explícita e NUNCA são executados por iniciativa do agente (§7.2):
+   git push --force / -f / --force-with-lease, git reset --hard, git clean -fd, git branch -D,
+   git push origin --delete <branch>, git rebase, git commit --amend.
+   Antes de qualquer um deles o agente explica o que o comando faz, a consequência e pede confirmação.
+
+4. Arquivos locais protegidos (§7.5): não excluir sem confirmação .env, db.sqlite3 e .venv/ — mesmo que
+   a exclusão pareça resolver um problema de ambiente.
+
+5. Erros e conflitos Git (§7.4): preservar o estado atual, informar o erro, apresentar opções e aguardar
+   orientação. Sem resolução automática com comandos destrutivos.
+
+6. Dependências novas (§7.7): só entram com finalidade, alternativa em biblioteca padrão e impacto de
+   segurança constando no plano aprovado; atualizam o requirements.txt no mesmo commit (chore(deps)).
+
+7. Pull Requests (§7.3): o agente não aprova nem faz merge sem revisão humana.
+
+---
+
+📘 PARTE 6: Guia de Fluxos Django — Clonagem × Criação do Zero (roteiro executável)
+
+Origem: este bloco incorpora, na versão 3.1, o documento "GUIA DE FLUXOS DJANGO: CLONAGEM VS. CRIAÇÃO DO
+ZERO". Esta PARTE é o roteiro EXECUTÁVEL do documento: cada passo traz o comando completo, na ordem em que
+deve ser rodado (no Fluxo 2, inclusive o conteúdo dos arquivos a criar). As PARTES 1 a 5 e o "Roteiro para
+Clonar Projetos Django no WSL" continuam como explicação detalhada: elas dizem o PORQUÊ; esta PARTE diz o COMO.
+
+Legenda das marcas usadas nos passos abaixo:
+  [ORIGINAL]    passo mantido como estava no guia original
+  [AJUSTE v3.1] passo do guia original alterado para ficar de acordo com o Doc ① v3.1
+  [NOVO v3.1]   passo que não existia no guia original e passou a ser exigido pelo Doc ① v3.1
+
+Todos os comandos são executados no terminal Ubuntu/WSL 2 (nunca em PowerShell, nunca em /mnt/c/).
+
+===============================================================================
+FLUXO 1: A PARTIR DE UM REPOSITÓRIO EXISTENTE (CLONE)
+===============================================================================
+Cenário: Você baixou um projeto já existente (GitHub/GitLab) e precisa preparar
+o ambiente local e colocar a aplicação para rodar.
+
+1. cd ~/projetos/django                                                  [NOVO v3.1]
+   -> Entra na pasta do ecossistema Django, no filesystem nativo do WSL. Nunca clone soltos em
+      ~/projetos/ nem em /mnt/c/ (Doc ① §2.1 e §3.3).
+
+2. git clone https://github.com/usuario/nome-do-repositorio.git         [ORIGINAL]
+   -> Baixa todos os arquivos, pastas e histórico do repositório remoto para a sua máquina.
+
+3. cd nome-do-repositorio                                                [ORIGINAL]
+   -> Entra no diretório raiz do projeto recém-clonado.
+
+4. git config user.email                                                 [NOVO v3.1]
+   -> Confere a identidade do Git (Doc ① §5.3): o endereço deve conter users.noreply.github.com. Se vier
+      vazio ou com e-mail pessoal, pare e corrija antes de qualquer commit.
+
+5. python3 -m venv .venv                                                 [ORIGINAL]
+   -> Cria o diretório de ambiente virtual isolado (.venv) para que as bibliotecas
+      do projeto não interfiram no Python global do sistema operacional.
+
+6. source .venv/bin/activate                                             [AJUSTE v3.1]
+   -> Ativa o ambiente virtual (.venv) no terminal do WSL/Ubuntu. A partir deste comando, qualquer
+      comando "pip" instalará pacotes exclusivamente dentro da .venv, e o prompt passa a exibir (.venv).
+      (Ajuste: removidas as menções a PowerShell e macOS, pois o desenvolvimento ocorre apenas no WSL 2.)
+
+7. pip install --upgrade pip                                             [ORIGINAL]
+   -> Atualiza o gerenciador de pacotes pip para garantir compatibilidade com as
+      versões mais recentes das dependências.
+
+8. pip install -r requirements.txt                                       [ORIGINAL]
+   -> Lê a lista de bibliotecas e versões especificadas no arquivo requirements.txt
+      e instala todas elas automaticamente no ambiente virtual.
+
+9. cat .env.example                                                      [NOVO v3.1]
+   -> Mostra os nomes das variáveis que o projeto exige (Doc ① §3.4). Nunca adivinhe variáveis. Se o
+      arquivo não existir, peça a lista ao responsável pelo projeto em vez de inventá-la.
+
+10. cp .env.example .env                                                 [AJUSTE v3.1]
+    -> Cria o arquivo local de variáveis de ambiente a partir do modelo versionado (sem valores reais).
+       Para uso local, DEBUG=True. Nunca copie o .env de outro projeto e nunca use credenciais de produção.
+       (Ajuste: o guia original dizia "ou crie manualmente caso não exista"; agora, sem .env.example,
+       não se inventam variáveis.)
+
+11. python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"   [NOVO v3.1]
+    -> Gera uma SECRET_KEY nova e exclusiva para este clone; cole o valor no .env (Doc ① §3.4).
+
+12. python manage.py makemigrations --check --dry-run                    [AJUSTE v3.1]
+    -> Apenas verifica se os modelos (models.py) estão em dia com as migrações existentes, sem criar
+       arquivos. "No changes detected" é o esperado. (Ajuste: o guia original rodava "makemigrations",
+       que em um clone gera migrações novas e divergentes do repositório. Em clone, as migrações já
+       vêm versionadas; se houver alterações pendentes, avise o responsável — Doc ① §23.2 e §7.6.)
+
+13. python manage.py migrate                                             [ORIGINAL]
+    -> Executa as migrações pendentes, criando ou atualizando as tabelas e índices
+       na base de dados local (ex: db.sqlite3).
+
+14. python manage.py createsuperuser                                     [ORIGINAL]
+    -> Cria um usuário com privilégios de administrador para autenticação e gestão
+       completa no painel administrativo. Uso exclusivo local: não reutilize senha de produção.
+
+15. git status && git branch                                             [NOVO v3.1]
+    -> Verifica a branch de trabalho (Doc ① §23.2). Para apenas executar o projeto, nada é alterado. Para
+       desenvolver, crie a branch antes de editar qualquer arquivo; nunca trabalhe diretamente na main.
+
+16. python manage.py runserver                                           [AJUSTE v3.1]
+    -> Inicia o servidor embutido de desenvolvimento do Django, disponibilizando a
+       aplicação para testes locais geralmente em http://127.0.0.1:8000/. O painel administrativo responde
+       em /<ADMIN_URL> quando o projeto segue o padrão (Doc ① §11.3), e não em /admin/.
+
+
+===============================================================================
+FLUXO 2: CRIAÇÃO DE UM PROJETO NOVO DO ZERO (roteiro executável)
+===============================================================================
+Cenário: Você não possui código prévio e vai iniciar uma aplicação Django
+do absoluto zero em uma pasta limpa.
+
+Como usar: execute os passos NA ORDEM, no terminal Ubuntu/WSL 2, sempre na raiz do projeto e com o
+.venv ativo (a partir do passo 3). Em cada passo, as linhas com "->" são a explicação e o bloco logo abaixo
+está colado na margem esquerda, pronto para copiar e colar. As ETAPAS A a F apenas agrupam os passos.
+Pré-requisito: PARTE 1 e Passo 2.1 já concluídos (feitos uma única vez por máquina).
+Os porquês e as regras completas estão nas PARTES 2 a 5; aqui só se executa.
+
+Por que esta ordem (não a altere): o usuário customizado com UUID (AUTH_USER_MODEL) precisa existir
+ANTES da primeira migração (Doc ① §10.4 e §23.4):
+
+   apps → usuário customizado e Argon2id → settings → makemigrations → migrate → createsuperuser → runserver
+
+
+--- ETAPA A — Pasta, ambiente virtual e Django ------------------------------
+
+1. Criar a pasta do projeto no ecossistema Django e entrar nela         [AJUSTE v3.1]
+    -> Nunca solta em ~/projetos/ nem em /mnt/c/ (Doc ① §2.1). Se quiser outro nome de projeto, troque
+       "meu_projeto" aqui; se quiser outro nome para o pacote de configuração, troque "meu_site" em todos
+       os passos (evite "core": é o nome de uma app, Doc ① §9.4).
+
+mkdir -p ~/projetos/django/meu_projeto && cd ~/projetos/django/meu_projeto
+
+2. Criar o ambiente virtual                                             [ORIGINAL]
+    -> Cria o .venv isolado dentro da pasta do projeto.
+
+python3 -m venv .venv
+
+3. Ativar o ambiente virtual                                            [ORIGINAL]
+    -> O prompt passa a exibir (.venv). Todo "pip" daqui em diante instala só dentro dele.
+
+source .venv/bin/activate
+
+4. Atualizar o pip                                                      [ORIGINAL]
+    -> Atualiza o pip dentro do .venv recém-criado.
+
+pip install --upgrade pip
+
+5. Instalar o conjunto-base de dependências                             [AJUSTE v3.1]
+    -> Django, django-environ (leitura tipada do .env) e argon2-cffi (hasher Argon2id) — Doc ① §22.2.
+       Outras dependências só entram com justificativa no plano aprovado (Doc ① §7.7).
+
+pip install django django-environ argon2-cffi
+
+6. Criar o projeto Django e conferir a versão                           [AJUSTE v3.1]
+    -> O ponto (.) final cria os arquivos na raiz atual, sem pasta aninhada (meu_projeto/meu_projeto/).
+       Confira a versão: a partir do Django 6.0 a CSP é nativa; abaixo disso exige django-csp (Doc ① §14.3).
+       ✔ Verifique: "ls" mostra manage.py e meu_site/; o prompt mostra (.venv).
+
+django-admin startproject meu_site .
+python -m django --version
+
+--- ETAPA B — Git, .gitignore e variáveis de ambiente -----------------------
+
+7. Inicializar o Git e conferir a identidade                            [NOVO v3.1]
+    -> Doc ① §23.1 e §5.3. O e-mail retornado DEVE conter users.noreply.github.com; se vier vazio ou
+       pessoal, pare e corrija (Passo 2.1) antes de qualquer commit.
+
+git init -b main
+git config user.email
+
+8. Criar o .gitignore (ANTES de qualquer "git add")                     [NOVO v3.1]
+    -> Conjunto mínimo global do Doc ① §4.7; db.sqlite3 entra porque o banco local é SQLite.
+
+cat << 'EOF' > .gitignore
+.venv/
+.env
+*.pyc
+__pycache__/
+*.log
+.DS_Store
+media/
+staticfiles/
+db.sqlite3
+EOF
+
+9. Criar o .env.example (versionado, só os NOMES das variáveis)         [NOVO v3.1]
+    -> Doc ① §4.6 e §18.4. Atualize-o no mesmo commit em que uma variável nova for adicionada.
+
+cat << 'EOF' > .env.example
+SECRET_KEY=
+DEBUG=False
+ALLOWED_HOSTS=
+CSRF_TRUSTED_ORIGINS=
+ADMIN_URL=
+FIELD_ENCRYPTION_KEY=
+JWT_SIGNING_KEY=
+EMAIL_HOST=
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+EOF
+
+10. Criar o .env local (NÃO versionado) com SECRET_KEY e ADMIN_URL gerados  [NOVO v3.1]
+    -> Gera uma SECRET_KEY exclusiva deste projeto e uma ADMIN_URL aleatória terminada em "/" (Doc ① §3.4,
+       §4.3 e §11.3). Não sobrescreve um .env existente. Usa secrets.token_urlsafe em vez de
+       get_random_secret_key() porque ~2% das chaves desta começam com "$", e o django-environ trata um
+       valor iniciado em "$" como referência a outra variável (erro "Set the ... environment variable").
+       FIELD_ENCRYPTION_KEY e JWT_SIGNING_KEY só quando o projeto as usar (PARTE 2, Passo 2.4; Doc ① §18.4).
+       ✔ Verifique: o segundo comando deve imprimir as regras que ignoram .env e .venv/.
+
+python - << 'PYEOF'
+import secrets
+from pathlib import Path
+
+p = Path('.env')
+if p.exists():
+    raise SystemExit('.env já existe: não sobrescrevo (arquivo local protegido, Doc ① §7.5)')
+p.write_text(
+    f"SECRET_KEY={secrets.token_urlsafe(50)}\n"
+    "DEBUG=True\n"
+    f"ADMIN_URL=painel-{secrets.token_urlsafe(8)}/\n"
+)
+print('.env criado (SECRET_KEY e ADMIN_URL gerados localmente)')
+PYEOF
+
+git check-ignore -v .env .venv/
+
+--- ETAPA C — Apps-base, UUIDModel e usuário customizado --------------------
+
+11. Criar o pacote apps/ e as duas apps-base                            [AJUSTE v3.1]
+    -> Todas as apps do projeto ficam em apps/ (Doc ① §9.2 e §9.4). O mkdir vem antes do startapp
+       porque o startapp só aceita um diretório de destino já existente.
+
+mkdir -p apps/core apps/accounts
+touch apps/__init__.py
+python manage.py startapp core apps/core
+python manage.py startapp accounts apps/accounts
+
+12. Corrigir o name em apps.py das duas apps                            [AJUSTE v3.1]
+    -> O startapp gera name = 'core' / 'accounts'; o namespace canônico é apps.core / apps.accounts.
+
+cat << 'EOF' > apps/core/apps.py
+from django.apps import AppConfig
+
+
+class CoreConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'apps.core'
+EOF
+
+cat << 'EOF' > apps/accounts/apps.py
+from django.apps import AppConfig
+
+
+class AccountsConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'apps.accounts'
+EOF
+
+13. Criar o UUIDModel em apps/core/models.py                            [NOVO v3.1]
+    -> Modelo abstrato com chave UUIDv4, base de todos os modelos do projeto (Doc ① §10.4).
+
+cat << 'EOF' > apps/core/models.py
+import uuid
+from django.db import models
+
+
+class UUIDModel(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    class Meta:
+        abstract = True
+EOF
+
+14. Criar o usuário customizado em apps/accounts/models.py              [NOVO v3.1]
+    -> User herda de UUIDModel (chave UUID) e de AbstractUser (campos nativos do Django).
+
+cat << 'EOF' > apps/accounts/models.py
+from django.contrib.auth.models import AbstractUser
+from apps.core.models import UUIDModel
+
+
+class User(UUIDModel, AbstractUser):
+    pass
+EOF
+
+15. Registrar o usuário no Admin em apps/accounts/admin.py              [NOVO v3.1]
+    -> Permite gerenciar os usuários (já com chave UUID) no painel administrativo.
+
+cat << 'EOF' > apps/accounts/admin.py
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
+from .models import User
+
+admin.site.register(User, UserAdmin)
+EOF
+
+16. Criar o README.md de cada app                                       [NOVO v3.1]
+    -> Obrigatório em cada app (Doc ① §9.3); preencha conforme o modelo do padrão.
+
+touch apps/core/README.md apps/accounts/README.md
+
+--- ETAPA D — settings.py e urls.py (edição por script, com validação) ------
+
+17. settings.py: django-environ + baseline de segurança                 [NOVO v3.1]
+    -> Troca SECRET_KEY, DEBUG e ALLOWED_HOSTS gerados pelo startproject pela leitura tipada do .env e
+       acrescenta o baseline de cookies, HSTS, cabeçalhos e limites de entrada (PARTE 3 e Passo 3.1;
+       Doc ① §4.4, §12.3 e §15.4). O script ALTERA o arquivo em vez de substituí-lo e, se o texto gerado
+       pelo Django não for o esperado, ABORTA sem gravar nada: nesse caso edite manualmente (PARTE 3).
+       Os middlewares gerados pelo startproject permanecem intactos (Doc ① §12.2).
+
+python - << 'PYEOF'
+import re
+from pathlib import Path
+
+p = Path('meu_site/settings.py')
+s = p.read_text()
+assert 'import environ' not in s, 'settings.py já foi alterado: pare e revise manualmente'
+
+# 1) import do django-environ
+assert s.count('from pathlib import Path') == 1
+s = s.replace('from pathlib import Path', 'import environ\nfrom pathlib import Path', 1)
+
+# 2) remove os avisos e as 3 linhas geradas pelo startproject (agora controladas pelo .env)
+s = re.sub(r'^# SECURITY WARNING:.*\n', '', s, flags=re.M)
+for pattern in (r"^SECRET_KEY = .*\n", r"^DEBUG = True\n", r"^ALLOWED_HOSTS = \[\]\n"):
+    s, n = re.subn(pattern, '', s, flags=re.M)
+    assert n == 1, f'linha esperada não encontrada ({pattern}): o startproject mudou; edite manualmente (PARTE 3)'
+
+# 3) insere o bloco django-environ + baseline logo depois de BASE_DIR
+BLOCK = """
+env = environ.Env(
+    DEBUG=(bool, False)
+)
+environ.Env.read_env(BASE_DIR / '.env')
+
+SECRET_KEY = env('SECRET_KEY')
+DEBUG = env.bool('DEBUG', default=False)
+
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])           # nunca ['*'] fora do local
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])  # com esquema: https://dominio
+
+# Transporte (HTTPS)
+SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=not DEBUG)
+SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=0 if DEBUG else 3600)  # elevar até 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=False)
+SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=False)
+
+# Cookies, sessão e CSRF
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# Cabeçalhos (declarados explicitamente, mesmo coincidindo com defaults do Django)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'same-origin'
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin'
+
+# Limites de entrada (Doc ① §15.4)
+DATA_UPLOAD_MAX_MEMORY_SIZE = env.int('DATA_UPLOAD_MAX_MEMORY_SIZE', default=1_048_576)  # 1 MiB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = env.int('DATA_UPLOAD_MAX_NUMBER_FIELDS', default=500)
+"""
+anchor = "BASE_DIR = Path(__file__).resolve().parent.parent\n"
+assert s.count(anchor) == 1
+s = s.replace(anchor, anchor + BLOCK, 1)
+
+p.write_text(s)
+print('settings.py: django-environ e baseline aplicados')
+PYEOF
+
+18. settings.py: registrar as apps                                      [AJUSTE v3.1]
+    -> Acrescenta 'apps.core' e 'apps.accounts' ao final de INSTALLED_APPS, sem remover nenhuma app padrão.
+
+python - << 'PYEOF'
+from pathlib import Path
+
+p = Path('meu_site/settings.py')
+s = p.read_text()
+old = "    'django.contrib.staticfiles',\n]"
+assert s.count(old) == 1, 'INSTALLED_APPS não está no formato esperado: edite manualmente (PARTE 4, Passo 4.2)'
+p.write_text(s.replace(old, "    'django.contrib.staticfiles',\n    'apps.core',\n    'apps.accounts',\n]"))
+print('settings.py: apps.core e apps.accounts registradas')
+PYEOF
+
+19. settings.py: AUTH_USER_MODEL, Argon2id e ADMIN_URL                  [NOVO v3.1]
+    -> Anexa ao final do arquivo. ⚠️ AUTH_USER_MODEL precisa existir ANTES da primeira migração:
+       trocá-lo depois é custoso (Doc ① §10.4, §16.1 e §23.4).
+
+cat << 'EOF' >> meu_site/settings.py
+
+# --- Padrão v3.1: usuário com UUID, Argon2id e Admin em URL não padrão ---
+AUTH_USER_MODEL = 'accounts.User'          # ANTES da primeira migração
+
+# Argon2id em primeiro lugar (Doc ① §16.1); os demais permitem migrar hashes antigos no próximo login
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
+]
+
+ADMIN_URL = env('ADMIN_URL')               # URL do Admin não padrão (Doc ① §11.3)
+EOF
+
+20. urls.py: Admin em URL não padrão                                    [NOVO v3.1]
+    -> Troca path('admin/', ...) por path(settings.ADMIN_URL, ...) (Doc ① §11.3). O painel passa a
+       responder em http://127.0.0.1:8000/<ADMIN_URL> — veja o valor com: grep ADMIN_URL .env
+
+python - << 'PYEOF'
+from pathlib import Path
+
+p = Path('meu_site/urls.py')
+s = p.read_text()
+imp = "from django.contrib import admin\n"
+old = "path('admin/', admin.site.urls)"
+assert s.count(imp) == 1 and s.count(old) == 1, 'urls.py não está no formato esperado: edite manualmente (PARTE 4, Passo 4.2)'
+s = s.replace(imp, "from django.conf import settings\n" + imp).replace(old, "path(settings.ADMIN_URL, admin.site.urls)")
+p.write_text(s)
+print('urls.py: Admin agora responde em settings.ADMIN_URL')
+PYEOF
+
+--- ETAPA E — Validar, migrar e criar o administrador -----------------------
+
+21. Validar a configuração                                              [NOVO v3.1]
+       ✔ Esperado: "System check identified no issues (0 silenced)." Se falhar, NÃO prossiga para a migração.
+
+python manage.py check
+
+22. Gerar a migração inicial do usuário customizado                     [NOVO v3.1]
+    -> Cria apps/accounts/migrations/0001_initial.py, que DEVE ser versionada. É necessário porque a app
+       accounts ainda não possui migrações — por isso, em projeto novo, o makemigrations vem antes do migrate.
+
+python manage.py makemigrations
+
+23. Aplicar as migrações                                                [AJUSTE v3.1]
+    -> Cria o banco local (db.sqlite3) com as tabelas do Django já usando o usuário customizado.
+       Só roda depois de todas as ETAPAS A a D (antes da v3.1 era o primeiro comando após o startproject).
+
+python manage.py migrate
+
+24. Criar o administrador local                                         [ORIGINAL]
+    -> Uso exclusivo de desenvolvimento; nunca reutilize senha de produção.
+
+python manage.py createsuperuser
+
+--- ETAPA F — Governança, revisão do primeiro commit e servidor -------------
+
+25. Copiar o PROJECT_SPEC.md (Doc ②) e criar o regras_de_negocio.md     [NOVO v3.1]
+    -> O PROJECT_SPEC.md é um modelo a preencher; regras_de_negocio.md concentra RF/RN. Ambos são
+       obrigatórios em cada projeto (Doc ① §24). O caminho do modelo (~/projetos/django/PROJECT_SPEC.md)
+       é uma convenção deste roteiro: ajuste-o se o seu modelo estiver em outro lugar.
+
+cp ~/projetos/django/PROJECT_SPEC.md . || echo "⚠️ Modelo do PROJECT_SPEC.md não encontrado: peça-o ao responsável (não invente o conteúdo)."
+touch regras_de_negocio.md
+
+26. Registrar as dependências                                           [ORIGINAL]
+    -> Grava nome e versão exatos dos pacotes. Repita sempre que instalar algo novo, no mesmo commit
+       (chore(deps)).
+
+pip freeze > requirements.txt
+
+27. Revisar o que será versionado                                       [NOVO v3.1]
+    -> Em repositório novo o "git diff" simples não mostra arquivos ainda não rastreados; por isso revise com
+       git status e, depois do git add, com git diff --staged (Doc ① §6.4 e §23.1).
+       ⚠️ Confirme que .env, .venv/ e db.sqlite3 NÃO aparecem na lista a commitar, e que
+       apps/accounts/migrations/0001_initial.py aparece.
+       ⚠️ PRIMEIRO COMMIT: só com autorização explícita do responsável humano; um agente de IA não o executa
+       por iniciativa própria (Doc ① §6.1 e §7.6). Depois dele, todo trabalho segue em branches (PARTE 5).
+
+git status
+git add .
+git status
+git diff --staged
+
+# Somente após a revisão acima e com autorização explícita:
+# git commit -m "chore(setup): estrutura inicial do projeto Django"
+
+28. Ligar o servidor de desenvolvimento                                 [AJUSTE v3.1]
+    -> Sobe em http://127.0.0.1:8000/ (Ctrl+C para parar). O painel administrativo responde em
+       /<ADMIN_URL> (Doc ① §11.3), e não em /admin/.
+
+python manage.py runserver
+
+
+-------------------------------------------------------------------------------
+Comparativo rápido entre os dois fluxos
+-------------------------------------------------------------------------------
+
+O que vem do repositório ........ clone: código, apps/, migrações, .env.example, requirements.txt
+                                  do zero: nada (tudo é criado nos passos acima)
+O que é criado localmente ....... clone: .venv, .env, db.sqlite3
+                                  do zero: .venv, .env, .env.example, .gitignore, db.sqlite3, repositório Git
+Migrações ....................... clone: apenas "migrate" (as migrações já vêm no repositório)
+                                  do zero: "makemigrations" e depois "migrate", sempre APÓS o usuário customizado
+SECRET_KEY ...................... em ambos: nova, exclusiva do ambiente local, só no .env
+Primeiro commit ................. clone: não se aplica; do zero: revisado e autorizado pelo responsável humano
+
+---
 
 Checklist de Segurança e Validação de Ambiente
 
-1. Ao Iniciar um Projeto Novo (Setup Inicial)
+(Versão 3.1: realinhado aos checklists do Doc ① §23.1 a §23.5. Em caso de divergência, vale o Doc ①.)
 
-Isolamento de Diretório: Confirmar se a pasta do projeto está sob o ecossistema Django no Linux (~/projetos/django/<nome_do_projeto>/) e não solta na raiz ou dentro de /mnt/c/ para manter a performance e permissões nativas.
+1. Ao Iniciar um Projeto Novo (Setup Inicial) — Doc ① §23.1
 
-Ambiente Virtual Ativo: Certificar-se de que o .venv foi criado e ativado (source .venv/bin/activate) antes de rodar qualquer pip install.
+Antes do primeiro commit:
+
+Isolamento de Diretório:
+- [ ] Projeto localizado em ~/projetos/django/<nome_do_projeto>/ e armazenado no filesystem nativo do WSL — nunca solto na raiz de ~/projetos/ e nunca dentro de /mnt/c/ — para manter a performance e as permissões nativas.
+- [ ] Repositório Git inicializado no diretório do projeto.
+
+Ambiente Virtual Ativo:
+- [ ] .venv criado na raiz do projeto e ativado (source .venv/bin/activate) antes de rodar qualquer pip install.
+- [ ] Django instalado no ambiente virtual; django-environ instalado.
 
 Proteção do .gitignore:
-
-Verificar se .env, .venv/, *.pyc, __pycache__/ e db.sqlite3 estão listados no .gitignore antes do primeiro commit.
-
-Executar git status para confirmar que nenhum arquivo confidencial ou binário está listado em verde (staged) ou vermelho (untracked).
+- [ ] .gitignore criado antes de qualquer git add, listando ao menos .venv/, .env, *.pyc, __pycache__/, *.log, .DS_Store, media/ e staticfiles/ (e db.sqlite3 se o banco local for SQLite).
+- [ ] .env e .venv protegidos pelo .gitignore.
+- [ ] git status executado para confirmar que nenhum arquivo confidencial ou binário está listado como staged ou untracked.
 
 Configuração de Variáveis de Ambiente:
+- [ ] settings.py preparado para variáveis de ambiente, com conversão tipada de booleanos: DEBUG = env.bool('DEBUG', default=False).
+- [ ] .env criado localmente, com SECRET_KEY gerada exclusivamente para este projeto e DEBUG=True.
+- [ ] .env.example criado, versionado e sem valores reais.
+- [ ] Nenhuma string hardcoded de senhas ou tokens no settings.py.
 
-Criar o arquivo .env local com chaves temporárias de desenvolvimento (SECRET_KEY aleatória e DEBUG=True).
+Identidade do Git:
+- [ ] git config user.email retorna o alias mascarado no-reply (ID+seu-usuario@users.noreply.github.com).
 
-No settings.py, garantir a conversão tipada de booleanos: DEBUG = env.bool('DEBUG', default=False).
+Dependências Congeladas:
+- [ ] Dependências registradas em requirements.txt (pip freeze > requirements.txt) para documentar as versões exatas.
 
-Nunca deixar strings hardcoded de senhas ou tokens no settings.py.
+Revisão final:
+- [ ] git status revisado.
+- [ ] git diff (ou git diff --staged) revisado.
+- [ ] Nenhum segredo está no staging.
 
-Identidade do Git: Checar com git config user.email se o e-mail ativo é o alias mascarado no-reply (ID+seu-usuario@users.noreply.github.com).
+2. Ao Clonar um Projeto Existente — Doc ① §23.2
 
-Dependências Congeladas: Gerar o requirements.txt (pip freeze > requirements.txt) para documentar as versões exatas das bibliotecas.
+Antes de executar o projeto:
 
-2. Na Continuidade do Desenvolvimento (Rotina Diária)
+- [ ] Repositório clonado em ~/projetos/django/<nome_do_projeto>/.
+- [ ] .venv recriado localmente e ativado.
+- [ ] requirements.txt instalado.
+- [ ] .env.example consultado.
+- [ ] .env recriado localmente.
+- [ ] SECRET_KEY nova gerada para o ambiente local.
+- [ ] Nenhuma credencial de produção utilizada.
+- [ ] Variáveis adicionais identificadas.
+- [ ] Migrações executadas conforme necessidade do projeto (sem gerar migrações novas por conta própria).
+- [ ] Git configurado corretamente (git config user.email com o alias no-reply).
+- [ ] Branch de trabalho verificada.
 
-Auditoria Rápida do .env e .gitignore:
+3. Na Continuidade do Desenvolvimento (Rotina Diária) — Doc ① §23.3
 
-Rodar git status antes de qualquer git add . para garantir que o .env não foi renomeado, movido ou exposto acidentalmente.
+Antes de trabalhar:
 
-Garantir que novas credenciais adicionadas durante o trabalho (como chaves de API ou acessos a banco) foram para o .env e não direto no código-fonte.
+- [ ] Ambiente virtual ativo: confirmar a tag (.venv) no início da linha do terminal antes de rodar scripts Python, migrações ou inicializar o servidor.
+- [ ] Diretório correto (~/projetos/django/<nome_do_projeto>/).
+- [ ] Branch correta (git branch): feat/..., fix/... — nunca alterando código diretamente na main.
+- [ ] git status verificado.
 
-Validação do Ambiente Virtual: Confirmar a tag (.venv) no início da linha do terminal antes de rodar scripts Python, migrações ou inicializar o servidor.
+Antes de commit:
 
-Controle de Branch:
+- [ ] git status executado antes de qualquer git add . para garantir que o .env não foi renomeado, movido ou exposto acidentalmente.
+- [ ] git diff executado: revisar as linhas alteradas para garantir que logs com dados sensíveis, senhas de teste ou prints de depuração não sejam enviados ao histórico.
+- [ ] .env e .venv não estão no staging.
+- [ ] Tokens e senhas não estão no código; novas credenciais (chaves de API, acessos a banco) foram para o .env e não direto no código-fonte.
+- [ ] Logs de depuração não serão persistidos indevidamente; dados sensíveis não foram adicionados.
+- [ ] Novas variáveis de ambiente estão no .env.example, no mesmo commit.
+- [ ] Integridade de dependências: se novos pacotes foram instalados via pip durante a sessão, o requirements.txt foi atualizado imediatamente (pip freeze > requirements.txt).
+- [ ] Commit segue Conventional Commits.
 
-Checar com git branch se você está na branch de trabalho correta (feat/..., fix/...) e nunca alterando código diretamente na main.
+Antes de merge:
 
-Inspeção de Diferenças (git diff):
+- [ ] Branch publicada e Pull Request criado.
+- [ ] Alterações revisadas e testes apropriados ao projeto executados.
+- [ ] Revisão humana realizada e merge autorizado.
 
-Revisar as linhas alteradas antes de commitar para garantir que logs com dados sensíveis, senhas de teste ou prints de depuração não sejam enviados ao histórico.
+4. Baseline de Segurança — Antes da Primeira Migração e do Primeiro Deploy — Doc ① §23.4
 
-Integridade de Dependências: Se novos pacotes forem instalados via pip durante a sessão, atualizar imediatamente o arquivo de dependências com pip freeze > requirements.txt
+- [ ] Usuário customizado (AUTH_USER_MODEL) com chave UUID criado ANTES da primeira migração.
+- [ ] PASSWORD_HASHERS com Argon2id em primeiro lugar; argon2-cffi no requirements.txt.
+- [ ] Baseline de settings (Doc ① §12.3) aplicado; ALLOWED_HOSTS e CSRF_TRUSTED_ORIGINS via .env.
+- [ ] Middlewares de segurança do Django preservados.
+- [ ] CSP em Report-Only configurada (Doc ① §14) e templates sem style=/onclick= inline.
+- [ ] Bootstrap/Icons com versão fixa e SRI.
+- [ ] FIELD_ENCRYPTION_KEY (e JWT_SIGNING_KEY, se aplicável) distintas, geradas localmente e só no .env.
+- [ ] ADMIN_URL não padrão e Admin coberto por rate limit/lockout.
+- [ ] Handlers 400/403/404/500 e templates próprios; DEBUG=False validado.
+- [ ] Landing/apresentação conforme a visibilidade pública (§11.1); login local funcionando com a ordem do formulário do §16.2.
+- [ ] Tema padrão aplicado, /tema.css servido e base.html como casca fina (§11.5).
+- [ ] Funcionalidades site.tema_editar e site.visibilidade_publica registradas na matriz (§17.5).
+- [ ] TENANCY_MODE declarado (padrão single) e resolvedor de tenant no core (§10.6).
+- [ ] python manage.py check --deploy executado com variáveis de produção simuladas.
+
+Observação: no roteiro narrativo deste documento, os itens de CSP, páginas de erro, tema, páginas públicas,
+tenancy e rate limit/lockout do Admin ainda NÃO estão implementados — eles pertencem à evolução do projeto, descrita
+no Doc ① (Partes B e C) e especificada no PROJECT_SPEC.md. O checklist acima é o critério de conclusão.
+
+5. A Cada Funcionalidade Nova — Doc ① §23.5 (resumo)
+
+- [ ] Identificadores expostos são UUIDv4 e rotas usam <uuid:id>.
+- [ ] Objeto buscado por queryset escopado (IDOR/BOLA); resposta 401/403/404 conforme o §17.2.
+- [ ] Funcionalidade registrada na matriz RBAC e no menu da NAVBAR, quando aplicável.
+- [ ] Entrada validada em formulário/serializer, DTO e banco; limites de tamanho definidos.
+- [ ] Ação que altera estado usa POST + CSRF.
+- [ ] Dados sensíveis cifrados e fora de logs; acessos relevantes auditados; endpoints sensíveis com rate limit.
+- [ ] Página de domínio sem estilo, cor fixa nem estrutura de casca (apenas blocos e componentes do tema).
+- [ ] Se houver escopo de tenant: modelos declarados no README e unicidade por escopo.
+- [ ] README da app atualizado.

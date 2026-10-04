@@ -1,0 +1,179 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}
+    {% if object.pk %}Editar Parâmetros — {{ object.get_marketplace_display }}{% else %}Novo Parâmetro de Marketplace{% endif %} — Hub Marketplaces
+{% endblock %}
+
+{% block page_title %}
+    <i class="bi bi-tags text-primary me-2"></i>
+    {% if object.pk %}Editar Parâmetros do Canal{% else %}Novo Parâmetro de Marketplace{% endif %}
+{% endblock %}
+
+{% block page_subtitle %}
+    {% if object.pk %}
+        Atualização das tarifas comerciais para <strong>{{ object.get_marketplace_display }}</strong> ({{ object.loja.nome }})
+    {% else %}
+        Definição de regras de comissão, frete subsidiado e taxas fixas por canal de venda
+    {% endif %}
+{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'parametro_canal_list' %}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i> Voltar à Lista
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm border mb-4">
+            <div class="card-header bg-body py-3">
+                <span class="fw-bold">
+                    <i class="bi bi-sliders me-2 text-primary"></i>Configuração Tarifária
+                </span>
+            </div>
+            <div class="card-body p-4">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger mb-4">
+                            {% for error in form.non_field_errors %}
+                                <p class="mb-0">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <!-- SELEÇÃO DE LOJA (SE DEV) -->
+                    {% if not form.loja.is_hidden %}
+                        <div class="mb-3">
+                            <label for="{{ form.loja.id_for_label }}" class="form-label fw-semibold">
+                                Loja (Tenant)
+                            </label>
+                            {{ form.loja }}
+                            {% if form.loja.errors %}
+                                <div class="text-danger small mt-1">{{ form.loja.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        {{ form.loja }}
+                    {% endif %}
+
+                    <div class="row g-4">
+                        <!-- CANAL DE MARKETPLACE -->
+                        <div class="col-md-12">
+                            <label for="{{ form.marketplace.id_for_label }}" class="form-label fw-semibold">
+                                Canal de Marketplace / Categoria de Anúncio
+                            </label>
+                            {{ form.marketplace }}
+                            {% if form.marketplace.errors %}
+                                <div class="text-danger small mt-1">{{ form.marketplace.errors.0 }}</div>
+                            {% endif %}
+                            {% if object.pk %}
+                                <div class="form-text text-muted">O canal é fixo após a criação inicial.</div>
+                            {% endif %}
+                        </div>
+
+                        <!-- COMISSÃO DO MARKETPLACE -->
+                        <div class="col-md-6">
+                            <label for="{{ form.comissao_padrao.id_for_label }}" class="form-label fw-semibold">
+                                Comissão Administrativa do Canal
+                            </label>
+                            <div class="input-group">
+                                {{ form.comissao_padrao }}
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text text-muted">
+                                Percentual cobrado sobre o preço bruto de venda (ex.: <code>0.1600</code> para 16,00%).
+                            </div>
+                            {% if form.comissao_padrao.errors %}
+                                <div class="text-danger small mt-1">{{ form.comissao_padrao.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <!-- PISO DE FRETE GRÁTIS -->
+                        <div class="col-md-6">
+                            <label for="{{ form.frete_gratis_piso.id_for_label }}" class="form-label fw-semibold">
+                                Piso de Frete Grátis Obrigatório
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">R$</span>
+                                {{ form.frete_gratis_piso }}
+                            </div>
+                            <div class="form-text text-muted">
+                                Limite a partir do qual o marketplace impõe frete grátis ao comprador.
+                            </div>
+                            {% if form.frete_gratis_piso.errors %}
+                                <div class="text-danger small mt-1">{{ form.frete_gratis_piso.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <!-- TAXA DE FRETE ACIMA DO PISO -->
+                        <div class="col-md-6">
+                            <label for="{{ form.taxa_frete_acima_limite.id_for_label }}" class="form-label fw-semibold">
+                                Taxa de Frete Acima do Piso
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">R$</span>
+                                {{ form.taxa_frete_acima_limite }}
+                            </div>
+                            <div class="form-text text-muted">
+                                Custo do frete subsidiado debitado do lojista para vendas \(\ge\) piso.
+                            </div>
+                            {% if form.taxa_frete_acima_limite.errors %}
+                                <div class="text-danger small mt-1">{{ form.taxa_frete_acima_limite.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+
+                        <!-- TAXA FIXA ABAIXO DO PISO -->
+                        <div class="col-md-6">
+                            <label for="{{ form.taxa_fixa_abaixo_limite.id_for_label }}" class="form-label fw-semibold">
+                                Taxa Fixa por Item (Baixo Ticket)
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">R$</span>
+                                {{ form.taxa_fixa_abaixo_limite }}
+                            </div>
+                            <div class="form-text text-muted">
+                                Taxa fixa por produto cobrada em vendas abaixo do piso de frete.
+                            </div>
+                            {% if form.taxa_fixa_abaixo_limite.errors %}
+                                <div class="text-danger small mt-1">{{ form.taxa_fixa_abaixo_limite.errors.0 }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                        <a href="{% url 'parametro_canal_list' %}" class="btn btn-outline-secondary">
+                            Cancelar
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check2-circle me-1"></i> Salvar Parâmetros
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- NOTA TÉCNICA (PIECEWISE LINEAR) -->
+        <div class="card bg-body-tertiary border shadow-sm">
+            <div class="card-body p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="p-2 rounded bg-primary-subtle text-primary fs-5">
+                        <i class="bi bi-graph-up"></i>
+                    </div>
+                    <div>
+                        <h6 class="mb-1 fw-bold">Motor de Formação de Preço (Piecewise Linear)</h6>
+                        <p class="mb-0 small text-muted">
+                            As tarifas definidas nesta tela alimentam diretamente a função seccionada de custos no motor de inteligência financeira:
+                            quando o anúncio supera o piso de frete grátis, aplica-se a taxa de frete subsidiado;
+                            caso contrário, incide a taxa fixa de baixo ticket.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

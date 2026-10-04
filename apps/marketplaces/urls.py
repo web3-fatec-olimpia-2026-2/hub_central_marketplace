@@ -48,6 +48,9 @@ urlpatterns = [
     # Rota da interface que lista as chamadas de API externas, latências de rede e eventos auditados
     path('logs/sincronizacao/', views.LogSincronizacaoListView.as_view(), name='log_sincronizacao_list'),
 
+    # Logs de Auditoria do Sistema e Governança RBAC
+    path('logs/auditoria/', views.LogAuditoriaListView.as_view(), name='log_auditoria_list'),
+
     # Endpoint administrativo restrito para reprocessar manualmente um evento de webhook que tenha falhado
     path('logs/webhooks/<uuid:public_id>/replay/', views.WebhookEventReplayView.as_view(), name='webhook_event_replay'),
 

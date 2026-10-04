@@ -1,0 +1,220 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Logs de Auditoria — Hub Marketplaces{% endblock %}
+
+{% block page_title %}
+    <i class="bi bi-shield-check text-primary me-2"></i>Logs de Auditoria & Governança
+{% endblock %}
+
+{% block page_subtitle %}
+    Rastreabilidade contínua de mutações cadastrais, governança RBAC, alterações de parâmetros e acessos (RN-04)
+{% endblock %}
+
+{% block toolbar_actions %}
+    <div class="d-flex align-items-center gap-2">
+        <a href="{% url 'log_sincronizacao_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-repeat me-1"></i> Logs de Integração
+        </a>
+        {% if is_dev or user.perfil.is_admin or user.is_superuser %}
+            <a href="{% url 'accounts:matriz' %}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-shield-lock me-1"></i> Matriz RBAC
+            </a>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block content %}
+<!-- FILTROS E BUSCA -->
+<div class="card mb-4 shadow-sm border">
+    <div class="card-body py-3">
+        <form method="get" class="row g-2 align-items-center">
+            {% if is_dev and lojas %}
+                <div class="col-md-3">
+                    <label for="filtroLoja" class="form-label small text-muted mb-1">Loja (Tenant):</label>
+                    <select name="loja" id="filtroLoja" class="form-select form-select-sm">
+                        <option value="">Todas as Lojas</option>
+                        {% for lj in lojas %}
+                            <option value="{{ lj.public_id }}" {% if lj.public_id|stringformat:"s" == loja_selecionada %}selected{% endif %}>
+                                {{ lj.nome }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+
+            <div class="{% if is_dev and lojas %}col-md-3{% else %}col-md-4{% endif %}">
+                <label for="filtroEvento" class="form-label small text-muted mb-1">Tipo de Evento:</label>
+                <select name="evento" id="filtroEvento" class="form-select form-select-sm">
+                    <option value="">Todos os Eventos</option>
+                    {% for val, label in eventos %}
+                        <option value="{{ val }}" {% if val == evento_selecionado %}selected{% endif %}>
+                            {{ label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="{% if is_dev and lojas %}col-md-4{% else %}col-md-6{% endif %}">
+                <label for="filtroBusca" class="form-label small text-muted mb-1">Busca textual:</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" id="filtroBusca" value="{{ q }}"
+                           class="form-control form-control-sm"
+                           placeholder="Buscar por detalhes, autor, usuário ou IP...">
+                </div>
+            </div>
+
+            <div class="col-md-2 d-flex gap-2 align-items-end">
+                <button type="submit" class="btn btn-primary btn-sm w-100">
+                    <i class="bi bi-funnel me-1"></i> Filtrar
+                </button>
+                {% if loja_selecionada or evento_selecionado or q %}
+                    <a href="{% url 'log_auditoria_list' %}" class="btn btn-outline-secondary btn-sm" title="Limpar Filtros">
+                        <i class="bi bi-x-lg"></i>
+                    </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- TABELA DE AUDITORIA -->
+<div class="card shadow-sm border">
+    <div class="card-header bg-body py-3 d-flex justify-content-between align-items-center">
+        <h6 class="mb-0 fw-bold">
+            <i class="bi bi-journal-text me-2 text-primary"></i>Histórico Cronológico de Auditoria
+        </h6>
+        <span class="badge bg-secondary-subtle text-secondary">
+            Total: {{ paginator.count|default:logs_auditoria|length }} registro(s)
+        </span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th style="min-width: 140px;">Data / Hora</th>
+                    <th>Evento</th>
+                    <th>Autor</th>
+                    <th>Usuário Afetado</th>
+                    <th>Loja (Tenant)</th>
+                    <th>IP Origem</th>
+                    <th>Detalhes da Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs_auditoria %}
+                    <tr>
+                        <td class="font-monospace small text-muted text-nowrap">
+                            <i class="bi bi-clock me-1"></i>{{ log.criado_em|date:"d/m/Y H:i:s" }}
+                        </td>
+                        <td>
+                            {% if 'RBAC' in log.evento or 'PERFIL' in log.evento %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                    <i class="bi bi-shield-lock me-1"></i>{{ log.get_evento_display }}
+                                </span>
+                            {% elif 'TAXAS' in log.evento or 'PARAMETROS' in log.evento %}
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                    <i class="bi bi-cash-coin me-1"></i>{{ log.get_evento_display }}
+                                </span>
+                            {% elif 'PRODUTO' in log.evento or 'CATEGORIA' in log.evento %}
+                                <span class="badge bg-info-subtle text-info border border-info-subtle">
+                                    <i class="bi bi-boxes me-1"></i>{{ log.get_evento_display }}
+                                </span>
+                            {% elif 'ESTOQUE' in log.evento or 'PRECO' in log.evento %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                                    <i class="bi bi-arrow-repeat me-1"></i>{{ log.get_evento_display }}
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary">
+                                    {{ log.get_evento_display }}
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if log.autor %}
+                                <span class="fw-semibold text-body">
+                                    <i class="bi bi-person me-1"></i>{{ log.autor.username }}
+                                </span>
+                            {% else %}
+                                <span class="badge bg-light text-secondary border">Sistema</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if log.usuario_afetado %}
+                                <span class="text-body font-monospace small">
+                                    <i class="bi bi-person-badge me-1"></i>{{ log.usuario_afetado.username }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if log.loja %}
+                                <span class="small text-body">{{ log.loja.nome }}</span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary">Global</span>
+                            {% endif %}
+                        </td>
+                        <td class="font-monospace small text-muted text-nowrap">
+                            {{ log.ip_origem|default:"—" }}
+                        </td>
+                        <td class="small text-break">
+                            {{ log.detalhes }}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <i class="bi bi-shield-x fs-2 d-block mb-2 text-secondary"></i>
+                            Nenhum registro de auditoria encontrado para os critérios selecionados.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- PAGINAÇÃO -->
+    {% if is_paginated %}
+        <div class="card-footer bg-body py-3 d-flex justify-content-between align-items-center">
+            <span class="small text-muted">
+                Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}
+            </span>
+            <nav aria-label="Navegação da auditoria">
+                <ul class="pagination pagination-sm mb-0">
+                    {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page=1{% if querystring %}&{{ querystring }}{% endif %}">
+                                <i class="bi bi-chevron-double-left"></i>
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if querystring %}&{{ querystring }}{% endif %}">
+                                Anterior
+                            </a>
+                        </li>
+                    {% endif %}
+
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_obj.number }}</span>
+                    </li>
+
+                    {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if querystring %}&{{ querystring }}{% endif %}">
+                                Próxima
+                            </a>
+                        </li>
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% if querystring %}&{{ querystring }}{% endif %}">
+                                <i class="bi bi-chevron-double-right"></i>
+                            </a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

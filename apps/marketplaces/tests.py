@@ -2349,3 +2349,94 @@ class ProxyReverseAndNgrokHttpsUrlTestCase(TestCase):
         auth_url = connector.get_authorization_url(state="test_state_123", request=req_ngrok)
 
         self.assertIn("redirect_uri=https%3A%2F%2Fmaterial-playing-outshoot.ngrok-free.dev%2Fmarketplaces%2Fmercadolivre%2Fcallback%2F", auth_url)
+
+
+class LogAuditoriaListViewTestCase(TestCase):
+    """
+    O QUE FAZ: Testa o painel de Logs de Auditoria, validação de RBAC e isolamento multi-tenant.
+    """
+    def setUp(self):
+        self.client = Client()
+
+        self.loja1 = Loja.objects.create(
+            nome="Loja Auditoria Alpha",
+            slug="loja-auditoria-alpha",
+            cnpj="77.777.777/0001-77"
+        )
+        self.loja1.garantir_modulos_padrao()
+
+        self.loja2 = Loja.objects.create(
+            nome="Loja Auditoria Beta",
+            slug="loja-auditoria-beta",
+            cnpj="88.888.888/0001-88"
+        )
+        self.loja2.garantir_modulos_padrao()
+
+        self.user_dev = User.objects.create_user(username='auditor_dev', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_dev, papel=PapelUsuarioEnum.DEV, loja=None)
+
+        self.user_admin1 = User.objects.create_user(username='auditor_admin1', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_admin1, papel=PapelUsuarioEnum.ADMIN, loja=self.loja1)
+
+        self.user_comum = User.objects.create_user(username='auditor_comum', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_comum, papel=PapelUsuarioEnum.USUARIO, loja=self.loja1)
+
+        # Logs de auditoria para ambas as lojas
+        self.log1 = LogAuditoria.objects.create(
+            loja=self.loja1,
+            autor=self.user_admin1,
+            evento=EventoAuditoriaEnum.ALTERACAO_MATRIZ_RBAC,
+            detalhes="Permissão site.tema_editar alternada para True",
+            ip_origem="192.168.1.10"
+        )
+
+        self.log2 = LogAuditoria.objects.create(
+            loja=self.loja2,
+            autor=self.user_dev,
+            evento=EventoAuditoriaEnum.EDICAO_TAXAS_LOJA,
+            detalhes="Taxas fiscais da Loja Beta ajustadas para 6%",
+            ip_origem="192.168.1.20"
+        )
+
+    def test_log_auditoria_list_permissions(self):
+        """Valida que anônimo redireciona, USUARIO recebe 403 e ADMIN/DEV recebem 200."""
+        # Não autenticado
+        res = self.client.get(reverse('log_auditoria_list'))
+        self.assertEqual(res.status_code, 302)
+
+        # USUARIO -> 403
+        self.client.login(username='auditor_comum', password='password123')
+        res = self.client.get(reverse('log_auditoria_list'))
+        self.assertEqual(res.status_code, 403)
+
+        # ADMIN -> 200
+        self.client.login(username='auditor_admin1', password='password123')
+        res = self.client.get(reverse('log_auditoria_list'))
+        self.assertEqual(res.status_code, 200)
+
+        # DEV -> 200
+        self.client.login(username='auditor_dev', password='password123')
+        res = self.client.get(reverse('log_auditoria_list'))
+        self.assertEqual(res.status_code, 200)
+
+    def test_log_auditoria_list_tenant_isolation(self):
+        """Valida que ADMIN só vê os logs da sua própria loja e DEV tem visão global."""
+        # ADMIN Loja 1 vê log1 mas NÃO log2
+        self.client.login(username='auditor_admin1', password='password123')
+        res = self.client.get(reverse('log_auditoria_list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "Permissão site.tema_editar alternada")
+        self.assertNotContains(res, "Taxas fiscais da Loja Beta")
+
+        # DEV vê ambos os logs
+        self.client.login(username='auditor_dev', password='password123')
+        res = self.client.get(reverse('log_auditoria_list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "Permissão site.tema_editar alternada")
+        self.assertContains(res, "Taxas fiscais da Loja Beta")
+
+        # DEV filtra por loja
+        res_filtrado = self.client.get(reverse('log_auditoria_list') + f'?loja={self.loja1.public_id}')
+        self.assertEqual(res_filtrado.status_code, 200)
+        self.assertContains(res_filtrado, "Permissão site.tema_editar alternada")
+        self.assertNotContains(res_filtrado, "Taxas fiscais da Loja Beta")
