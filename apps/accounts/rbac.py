@@ -23,6 +23,11 @@ FUNC_ACCOUNTS_ATRIBUIR_PERFIS = 'accounts.atribuir_perfis'
 FUNC_ACCOUNTS_ALTERAR_SENHA = 'accounts.alterar_senha'
 FUNC_SITE_TEMA_EDITAR = 'site.tema_editar'
 FUNC_SITE_VISIBILIDADE_PUBLICA = 'site.visibilidade_publica'
+FUNC_FINANCEIRO_SIMULADOR = 'financeiro.simulador_acessar'
+FUNC_FINANCEIRO_TAXAS_EDITAR = 'financeiro.taxas_editar'
+FUNC_FINANCEIRO_PARAMETROS_CANAIS = 'financeiro.parametros_canais'
+FUNC_CORE_LOGS_VER = 'core.logs_ver'
+FUNC_CORE_AUDITORIA_VER = 'core.auditoria_ver'
 
 # Mapeamento canônico dos papéis para os números de grupos canônicos (Doc ① §17.4)
 PAPEL_PARA_GRUPO = {
@@ -269,7 +274,7 @@ CATALOGO_FUNCIONALIDADES_RBAC: List[Dict[str, Any]] = [
         ]
     },
     {
-        'modulo': 'Simulador Financeiro',
+        'modulo': 'Precificação & Parâmetros Financeiros',
         'slug_modulo': 'financeiro',
         'icone': 'bi-calculator',
         'funcionalidades': [
@@ -282,8 +287,15 @@ CATALOGO_FUNCIONALIDADES_RBAC: List[Dict[str, Any]] = [
             },
             {
                 'codigo': 'financeiro.taxas_editar',
-                'nome': 'Configurar Tabelas de Comissões',
-                'descricao': 'Configurar tabelas de comissões e tarifas de marketplaces.',
+                'nome': 'Configurar Taxas das Lojas',
+                'descricao': 'Configurar alíquotas fiscais, custo de embalagem, margem mínima e custos fixos.',
+                'padrao': {'USUARIO': False, 'SUPERVISOR': False, 'ADMIN': True, 'DEV': True},
+                'delegavel': True,
+            },
+            {
+                'codigo': 'financeiro.parametros_canais',
+                'nome': 'Configurar Parâmetros dos Marketplaces',
+                'descricao': 'Configurar tabelas de comissões, piso de frete grátis e tarifas por canal.',
                 'padrao': {'USUARIO': False, 'SUPERVISOR': False, 'ADMIN': True, 'DEV': True},
                 'delegavel': True,
             },
@@ -296,9 +308,16 @@ CATALOGO_FUNCIONALIDADES_RBAC: List[Dict[str, Any]] = [
         'funcionalidades': [
             {
                 'codigo': 'core.logs_ver',
-                'nome': 'Consultar Logs & Auditoria',
-                'descricao': 'Consultar logs de auditoria e sincronização multicanal.',
+                'nome': 'Consultar Logs de Integração',
+                'descricao': 'Consultar telemetria e sincronização multicanal de estoque e preços.',
                 'padrao': {'USUARIO': False, 'SUPERVISOR': True, 'ADMIN': True, 'DEV': True},
+                'delegavel': True,
+            },
+            {
+                'codigo': 'core.auditoria_ver',
+                'nome': 'Consultar Logs de Auditoria',
+                'descricao': 'Consultar histórico de eventos, alterações cadastrais e governança RBAC.',
+                'padrao': {'USUARIO': False, 'SUPERVISOR': False, 'ADMIN': True, 'DEV': True},
                 'delegavel': True,
             },
             {

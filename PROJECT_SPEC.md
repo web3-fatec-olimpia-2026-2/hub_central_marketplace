@@ -1,7 +1,7 @@
 # PROJECT_SPEC.md — Especificação do Projeto/Produto (PRD + TRD mínimo)
 
 **Projeto:** `<nome_do_projeto>`  
-**Versão do modelo:** 2.1  
+**Versão do modelo:** 3.1 (alinhada ao `AGENT_INSTRUCTIONS_DJANGO.md` v3.1)  
 **Versão deste documento:** 0.1 (rascunho)  
 **Ambiente:** WSL 2 (Ubuntu) em `~/projetos/django/<nome_do_projeto>/`  
 **Diretriz superior:** `AGENT_INSTRUCTIONS_DJANGO.md` (Doc ①)  
@@ -391,14 +391,14 @@ Segregação específica do produto (o que cada perfil operacional **não** pode
 
 ## 7. Topologia e Estrutura de Arquivos
 
-Arquitetura **modular** (Doc ① §9): `apps/` com apps desacopladas; templates globais com **casca fina e variantes**, e estáticos na raiz.
+Arquitetura **modular** (Doc ① §9): `apps/` com apps desacopladas; templates globais com **casca fina e variantes**, e estáticos na raiz. Os Documentos ① e ③ ficam na pasta do ecossistema (`~/projetos/django/`), acima da raiz de cada projeto (Doc ① §0.4).
 
 ```text
 ~/projetos/django/<nome_do_projeto>/
 ├── .venv/                   # Ambiente virtual (ignorado no Git)
 ├── .env                     # Credenciais locais (ignorado no Git)
 ├── .env.example             # Nomes das variáveis, sem valores
-├── .gitignore               # .venv/, .env, db.sqlite3, media/, staticfiles/, caches, logs
+├── .gitignore               # .venv/, .env, *.pyc, __pycache__/, *.log, .DS_Store, media/, staticfiles/ (+ db.sqlite3 se SQLite local; Doc ① §4.7)
 ├── requirements.txt         # Dependências registradas
 ├── manage.py
 ├── PROJECT_SPEC.md          # Este documento
@@ -441,7 +441,7 @@ Arquitetura **modular** (Doc ① §9): `apps/` com apps desacopladas; templates 
         └── README.md        # Obrigatório (Doc ① §9.3)
 ```
 
-Configuração mínima em `settings.py`: `TEMPLATES[0]['DIRS'] = [BASE_DIR / 'templates']`, `STATICFILES_DIRS = [BASE_DIR / 'static']`, apps registradas como `apps.<nome>` e o context processor do tema (Anexo A.5).
+Configuração mínima em `settings.py`: `TEMPLATES[0]['DIRS'] = [BASE_DIR / 'templates']`, `STATICFILES_DIRS = [BASE_DIR / 'static']`, apps registradas como `apps.<nome>` e o context processor do tema (Anexo A.5). Também: `AUTH_USER_MODEL = 'accounts.User'` definido **antes da primeira migração** (§8.3) e `PASSWORD_HASHERS` com Argon2id em primeiro lugar (Doc ① §16.1).
 
 ---
 
@@ -464,7 +464,7 @@ Mecanismo no Doc ① §10.4. Entidades que expõem identificador (todas, por pad
 
 ### 8.3. Usuário customizado
 
-Modelo de usuário customizado, com PK UUID, criado **antes da primeira migração**: ☐ feito.
+Modelo de usuário customizado, com PK UUID, criado **antes da primeira migração** (Doc ① §10.4 e §23.4), com `AUTH_USER_MODEL` apontando para ele (padrão sugerido: `accounts.User`): ☐ feito. A ordem de bootstrap está no `DEV_ENVIRONMENT_GUIDELINES.txt` (PARTE 4 e PARTE 6, Fluxo 2).
 
 ### 8.4. Transações e invariantes críticas
 
@@ -574,6 +574,13 @@ Preencha apenas o que **diferir** do baseline; o restante é **[PADRÃO]**.
 | Rate limit: recuperação de senha | 3/hora | **[PADRÃO]** |
 | Rate limit: download sensível | 30/min por usuário | **[PADRÃO]** |
 | Rate limit: API | 60/min por usuário | **[PADRÃO]** |
+| Rate limit: cadastro / convite | 5/hora por IP | **[PADRÃO]** |
+| Rate limit: callback OAuth | 20/min por IP | **[PADRÃO]** |
+| Rate limit: webhook | 60/min por origem | **[PADRÃO]** |
+| Rate limit: páginas públicas e API anônima | 20/min por IP | **[PADRÃO]** |
+| Limites de entrada (`DATA_UPLOAD_MAX_MEMORY_SIZE` / `DATA_UPLOAD_MAX_NUMBER_FIELDS`) | 1 MiB / 500 | **[PADRÃO]** |
+| Expiração do token de acesso JWT (se houver JWT) | ≤ 15 min (sugestão, Doc ① §18.2) | **[PREENCHER]** |
+| Expiração de URL pré-assinada de documento sensível | 5 min (sugestão, Doc ① §15.6) | **[PADRÃO]** |
 | `ADMIN_URL` | Não padrão | **[PREENCHER]** |
 | Tamanho máximo de upload | Definir por projeto | **[PREENCHER]** (ver §8.7) |
 | Modo de tenancy (`TENANCY_MODE`) | `single` | **[PREENCHER]** (ver §8.8) |
@@ -592,13 +599,13 @@ Qualquer desvio de uma regra do Doc ① (ex.: `frame-ancestors 'self'` para pré
 
 ## 11. Estratégia de Testes
 
-- **Localização:** `apps/<app>/tests.py` (ou pacote `tests/`), executáveis por app.
+- **Localização:** `apps/<app>/tests.py` (ou pacote `tests/`), executáveis por app (`python manage.py test apps.<app>`, Doc ① §9.2).
 - **Escopo mínimo obrigatório:**
   - integridade de modelos e métodos de cálculo;
   - regras de negócio críticas e serviços em `services.py`;
   - **isolamento de acesso (ownership/BOLA):** usuário A não manipula recurso de B;
   - rotas, códigos HTTP e permissões de views;
-  - **testes de segurança do Doc ① §22.1** (RBAC, matriz, 404 sem rotas, cabeçalhos, cookies, GET sem efeito, rate limit, limites de entrada, webhook).
+  - **testes de segurança do Doc ① §22.1** (os 19 testes mínimos): ownership/BOLA, view protegida sem autenticação, RBAC, matriz, 404 sem rotas, cabeçalhos, cookies, GET sem efeito, rate limit, limites de entrada, webhook, `check --deploy`, tema (contraste, `/tema.css`, valores validados), ausência de estilo inline, ordem do formulário de login, visibilidade pública, tenancy e funcionalidades reservadas.
 - **Específicos do produto:**
 
 | Regra crítica | Teste |
@@ -613,7 +620,7 @@ Qualquer desvio de uma regra do Doc ① (ex.: `frame-ancestors 'self'` para pré
 
 ## 12. Definition of Done (DoD)
 
-Para considerar qualquer funcionalidade finalizada antes de abrir Pull Request:
+Para considerar qualquer funcionalidade finalizada antes de abrir Pull Request (complementa o Doc ① §23.5):
 
 - [ ] Lógica de negócio conforme `regras_de_negocio.md`; regras em `forms.py`/`services.py`, views enxutas.
 - [ ] Identificadores UUIDv4; objeto buscado por queryset escopado; resposta `401`/`403`/`404` conforme §6.5.
@@ -621,6 +628,7 @@ Para considerar qualquer funcionalidade finalizada antes de abrir Pull Request:
 - [ ] Interface herda de `templates/base.html` e preenche apenas blocos e componentes do tema (sem estilo, cor fixa nem estrutura de casca), respeita o padrão de botões (§4.4) e **não usa JS/CSS inline** (CSP).
 - [ ] Formulário de login, se criado ou alterado, segue a ordem do Doc ① §16.2.
 - [ ] Entrada validada (formulário, DTO, banco) e limites de tamanho definidos; dados sensíveis cifrados (§8.6).
+- [ ] Ação que altera estado usa POST + CSRF; endpoints sensíveis com rate limit (§10.1); acessos relevantes auditados e sem segredos em logs (Doc ① §21).
 - [ ] Testes automatizados cobrindo cenários válidos, inválidos e controle de acesso.
 - [ ] Migrações geradas e aplicadas sem conflitos.
 - [ ] Novas variáveis documentadas no `.env.example`.
@@ -643,6 +651,18 @@ ADR é **obrigatório** para: modo de tenancy diferente de `single` (§8.8); PK 
 ---
 
 ## 14. Registro de Alterações
+
+### Modelo v3.1
+
+- **Alinhamento de versão:** o modelo passa a acompanhar a numeração do `AGENT_INSTRUCTIONS_DJANGO.md` (Doc ①). A estrutura já refletia as integrações da v3.1 do Doc ① (temas, login, visibilidade pública, tenancy, renumeração dos documentos); esta versão conferiu e alinhou o restante.
+- **§7:** comentário do `.gitignore` alinhado ao Doc ① §4.7; `AUTH_USER_MODEL` e Argon2id na configuração mínima; indicação dos Documentos ① e ③ na pasta do ecossistema.
+- **§8.3:** referência à ordem de bootstrap (usuário com UUID antes da primeira migração).
+- **§10.1:** escopos mínimos de rate limit completos (cadastro/convite, callback OAuth, webhook, páginas públicas e API anônima), limites de entrada, expiração de JWT e de URL pré-assinada.
+- **§11:** lista dos 19 testes mínimos do Doc ① §22.1 e comando de execução por app.
+- **§12:** DoD com POST + CSRF, rate limit e auditoria (Doc ① §23.5).
+- **Anexo A.3:** nomes de rota do login/logout com namespace (`accounts:login`, `accounts:logout`), coerentes com a §4.6 e o Doc ① §9.2.
+- **Anexo B:** variáveis opcionais de sobrescrita do baseline (comentadas).
+- **Anexo C:** itens de conferência de versão, `.gitignore` e `AUTH_USER_MODEL`.
 
 ### Modelo v2.1
 
@@ -764,7 +784,7 @@ Implementação de referência do Doc ① §11.5. **Só a variante de casca `top
                                 <li><a class="dropdown-item" href="#"><i class="bi bi-gear me-2"></i>Configurações</a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li>
-                                    <form method="post" action="{% url 'logout' %}" class="d-inline">
+                                    <form method="post" action="{% url 'accounts:logout' %}" class="d-inline">
                                         {% csrf_token %}
                                         <button type="submit" class="dropdown-item text-danger">
                                             <i class="bi bi-box-arrow-right me-2"></i>Sair
@@ -775,7 +795,7 @@ Implementação de referência do Doc ① §11.5. **Só a variante de casca `top
                         </li>
                     {% else %}
                         <li class="nav-item">
-                            <a class="btn btn-sm btn-login fw-semibold" href="{% url 'login' %}">
+                            <a class="btn btn-sm btn-login fw-semibold" href="{% url 'accounts:login' %}">
                                 <i class="bi bi-box-arrow-in-right"></i> Login
                             </a>
                         </li>
@@ -823,7 +843,7 @@ Implementação de referência do Doc ① §11.5. **Só a variante de casca `top
 </html>
 ```
 
-> Os nomes de URL `login`/`logout` devem corresponder aos do app `accounts`. Scripts inline, quando inevitáveis, usam `nonce="{{ csp_nonce }}"` (Doc ① §14). O formulário de login (variantes de `layouts/login/`) segue a ordem do Doc ① §16.2.
+> Os nomes de URL `accounts:login` e `accounts:logout` pressupõem `app_name = 'accounts'` (Doc ① §9.2, item 6); ajuste-os se o projeto usar outro namespace. Scripts inline, quando inevitáveis, usam `nonce="{{ csp_nonce }}"` (Doc ① §14). O formulário de login (variantes de `layouts/login/`) segue a ordem do Doc ① §16.2.
 
 ### A.4. `static/css/base.css`
 
@@ -965,6 +985,15 @@ GOOGLE_CLIENT_SECRET=
 # Webhooks (§9.4)
 WEBHOOK_SECRET_NOME=
 
+# Opcionais: sobrescrevem o baseline do Doc ① §12.3. Descomente só para alterar e NÃO deixe vazias
+# (valor vazio quebra a conversão numérica/booleana). Valores finais do projeto: §10.1.
+# SECURE_SSL_REDIRECT=
+# SECURE_HSTS_SECONDS=
+# SECURE_HSTS_INCLUDE_SUBDOMAINS=
+# SECURE_HSTS_PRELOAD=
+# DATA_UPLOAD_MAX_MEMORY_SIZE=
+# DATA_UPLOAD_MAX_NUMBER_FIELDS=
+
 # Específicas do projeto (§9.5)
 ```
 
@@ -986,3 +1015,6 @@ WEBHOOK_SECRET_NOME=
 - [ ] `templates/layouts/` e `templates/componentes/` conforme o Doc ① §11.5; todas as variantes de casca em uso implementam o contrato de blocos.
 - [ ] SRI preenchido em `layouts/_assets.html` e no script do Bootstrap.
 - [ ] README criado para cada app.
+- [ ] **Versão do modelo** (cabeçalho) igual à versão do Doc ① em vigor (3.1).
+- [ ] `.gitignore` conforme o Doc ① §4.7 (e `db.sqlite3` se SQLite local).
+- [ ] `AUTH_USER_MODEL` com UUID definido antes da primeira migração (§8.3).

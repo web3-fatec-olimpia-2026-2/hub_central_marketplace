@@ -1,6 +1,7 @@
 # Os códigos foram gerados com auxilio de I.A.
 
 # Importa a classe Decimal para cálculos monetários e percentuais exatos, prevenindo imprecisões de ponto flutuante
+import uuid
 from decimal import Decimal
 
 # Importa o módulo central de modelos ORM do framework Django
@@ -34,6 +35,16 @@ class ConfiguracaoTaxasLoja(models.Model):
     MULTI-TENANCY: Relação OneToOneField estrita com Loja.
     """
     # Fim do bloco de docstring explicativo do modelo
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Relacionamento 1:1 obrigatório com a Loja com exclusão em cascata (cada loja possui apenas uma configuração fiscal ativa)
     loja = models.OneToOneField(
@@ -94,6 +105,16 @@ class ParametroCanalMarketplace(models.Model):
     MULTI-TENANCY: FK para Loja e unicidade composta ('loja', 'marketplace').
     """
     # Fim do bloco de docstring dos parâmetros de canais
+
+    # Identificador público universal para exposição externa e rotas (mitigação de IDOR/BOLA)
+    public_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name="Identificador Público (UUID)",
+        help_text="Identificador único universal para exposição pública e rotas (mitigação de IDOR/BOLA)."
+    )
 
     # Chave estrangeira que vincula a parametrização à Loja dona das regras comerciais
     loja = models.ForeignKey(

@@ -221,3 +221,167 @@ class SimuladorPromocionalTestCase(TestCase):
         # Confirma que a resposta traz as estruturas detalhadas de ambos os cenários
         self.assertIn('cenario_original', data)
         self.assertIn('cenario_promocional', data)
+
+
+class TaxasEParametrosViewsTestCase(TestCase):
+    """
+    O QUE FAZ: Testa o controle de acesso RBAC, isolamento multi-tenant e rotas com UUIDv4
+              para a gestão de taxas das lojas e parâmetros dos marketplaces.
+    """
+    def setUp(self):
+        self.client = Client()
+
+        self.loja1 = Loja.objects.create(
+            nome="Loja Alpha",
+            slug="loja-alpha",
+            cnpj="11.111.111/0001-11"
+        )
+        self.loja1.garantir_modulos_padrao()
+
+        self.loja2 = Loja.objects.create(
+            nome="Loja Beta",
+            slug="loja-beta",
+            cnpj="22.222.222/0001-22"
+        )
+        self.loja2.garantir_modulos_padrao()
+
+        self.config_loja1 = ConfiguracaoTaxasLoja.objects.create(
+            loja=self.loja1,
+            aliquota_imposto=Decimal('0.0400'),
+            custo_embalagem_padrao=Decimal('2.50'),
+            margem_minima_seguranca=Decimal('0.1500'),
+            custos_fixos_mensais=Decimal('3000.00')
+        )
+
+        self.config_loja2 = ConfiguracaoTaxasLoja.objects.create(
+            loja=self.loja2,
+            aliquota_imposto=Decimal('0.0600'),
+            custo_embalagem_padrao=Decimal('3.00'),
+            margem_minima_seguranca=Decimal('0.2000'),
+            custos_fixos_mensais=Decimal('5000.00')
+        )
+
+        self.param_loja1 = ParametroCanalMarketplace.objects.create(
+            loja=self.loja1,
+            marketplace='mercadolivre_classico',
+            comissao_padrao=Decimal('0.1200'),
+            frete_gratis_piso=Decimal('79.00'),
+            taxa_frete_acima_limite=Decimal('18.00'),
+            taxa_fixa_abaixo_limite=Decimal('6.00')
+        )
+
+        self.param_loja2 = ParametroCanalMarketplace.objects.create(
+            loja=self.loja2,
+            marketplace='shopee',
+            comissao_padrao=Decimal('0.1400'),
+            frete_gratis_piso=Decimal('50.00'),
+            taxa_frete_acima_limite=Decimal('15.00'),
+            taxa_fixa_abaixo_limite=Decimal('4.00')
+        )
+
+        # Usuários
+        self.user_dev = User.objects.create_user(username='dev_tester', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_dev, papel=PapelUsuarioEnum.DEV, loja=None)
+
+        self.user_admin1 = User.objects.create_user(username='admin_alpha', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_admin1, papel=PapelUsuarioEnum.ADMIN, loja=self.loja1)
+
+        self.user_comum = User.objects.create_user(username='user_comum', password='password123')
+        PerfilUsuario.objects.create(usuario=self.user_comum, papel=PapelUsuarioEnum.USUARIO, loja=self.loja1)
+
+    def test_taxas_loja_list_access_permissions(self):
+        """Valida que DEV e ADMIN acessam a listagem de taxas e USUARIO é bloqueado."""
+        # Não autenticado -> redireciona login
+        res = self.client.get(reverse('taxas_loja_list'))
+        self.assertEqual(res.status_code, 302)
+
+        # USUARIO -> 403 Forbidden
+        self.client.login(username='user_comum', password='password123')
+        res = self.client.get(reverse('taxas_loja_list'))
+        self.assertEqual(res.status_code, 403)
+
+        # ADMIN -> 200 OK
+        self.client.login(username='admin_alpha', password='password123')
+        res = self.client.get(reverse('taxas_loja_list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "Loja Alpha")
+
+        # DEV -> 200 OK
+        self.client.login(username='dev_tester', password='password123')
+        res = self.client.get(reverse('taxas_loja_list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "Loja Alpha")
+        self.assertContains(res, "Loja Beta")
+
+    def test_taxas_loja_update_and_tenant_security(self):
+        """Valida edição de taxas com UUIDv4 e bloqueio de adulteração cross-tenant."""
+        url_loja1 = reverse('taxas_loja_update', kwargs={'public_id': self.config_loja1.public_id})
+        url_loja2 = reverse('taxas_loja_update', kwargs={'public_id': self.config_loja2.public_id})
+
+        # ADMIN da Loja 1 tenta acessar taxas da Loja 2 -> 403 Forbidden
+        self.client.login(username='admin_alpha', password='password123')
+        res = self.client.get(url_loja2)
+        self.assertEqual(res.status_code, 403)
+
+        # ADMIN da Loja 1 edita taxas da sua própria loja com sucesso
+        res = self.client.post(url_loja1, {
+            'aliquota_imposto': '0.0550',
+            'custo_embalagem_padrao': '3.50',
+            'margem_minima_seguranca': '0.1800',
+            'custos_fixos_mensais': '4500.00'
+        })
+        self.assertEqual(res.status_code, 302)
+
+        self.config_loja1.refresh_from_db()
+        self.assertEqual(self.config_loja1.aliquota_imposto, Decimal('0.0550'))
+        self.assertEqual(self.config_loja1.custo_embalagem_padrao, Decimal('3.50'))
+
+        # DEV pode editar qualquer loja
+        self.client.login(username='dev_tester', password='password123')
+        res_dev = self.client.post(url_loja2, {
+            'aliquota_imposto': '0.0700',
+            'custo_embalagem_padrao': '4.00',
+            'margem_minima_seguranca': '0.2200',
+            'custos_fixos_mensais': '6000.00'
+        })
+        self.assertEqual(res_dev.status_code, 302)
+
+        self.config_loja2.refresh_from_db()
+        self.assertEqual(self.config_loja2.aliquota_imposto, Decimal('0.0700'))
+
+    def test_parametro_canal_crud_and_tenant_security(self):
+        """Valida listagem e edição de parâmetros de canais por UUIDv4."""
+        # USUARIO é bloqueado
+        self.client.login(username='user_comum', password='password123')
+        res = self.client.get(reverse('parametro_canal_list'))
+        self.assertEqual(res.status_code, 403)
+
+        # ADMIN da Loja 1 acessa listagem e vê apenas sua loja
+        self.client.login(username='admin_alpha', password='password123')
+        res = self.client.get(reverse('parametro_canal_list'))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.context['parametros']), 1)
+        self.assertEqual(res.context['parametros'][0].marketplace, 'mercadolivre_classico')
+        self.assertContains(res, "Loja Alpha")
+        self.assertNotContains(res, "Loja Beta")
+
+        # ADMIN da Loja 1 tenta editar parâmetro da Loja 2 -> 403 Forbidden
+        url_edit_loja2 = reverse('parametro_canal_update', kwargs={'public_id': self.param_loja2.public_id})
+        res = self.client.get(url_edit_loja2)
+        self.assertEqual(res.status_code, 403)
+
+        # ADMIN da Loja 1 edita parâmetro de sua loja com sucesso
+        url_edit_loja1 = reverse('parametro_canal_update', kwargs={'public_id': self.param_loja1.public_id})
+        res = self.client.post(url_edit_loja1, {
+            'marketplace': 'mercadolivre_classico',
+            'comissao_padrao': '0.1300',
+            'frete_gratis_piso': '85.00',
+            'taxa_frete_acima_limite': '19.50',
+            'taxa_fixa_abaixo_limite': '6.50'
+        })
+        self.assertEqual(res.status_code, 302)
+
+        self.param_loja1.refresh_from_db()
+        self.assertEqual(self.param_loja1.comissao_padrao, Decimal('0.1300'))
+        self.assertEqual(self.param_loja1.frete_gratis_piso, Decimal('85.00'))
+

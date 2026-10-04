@@ -133,9 +133,25 @@ class EventoAuditoriaEnum(models.TextChoices):
     # Evento que audita a remoção de categorias de produtos do sistema
     EXCLUSAO_CATEGORIA = 'EXCLUSAO_CATEGORIA', 'Exclusão de Categoria'
 
-    # Governança e Matriz RBAC
+    # Governança, Identidade e Matriz RBAC
     # Evento que registra alterações nos switches da matriz de permissões RBAC
     ALTERACAO_MATRIZ_RBAC = 'ALTERACAO_MATRIZ_RBAC', 'Alteração da Matriz RBAC'
+
+    # Evento que registra alterações de perfil hierárquico ou loja de operadores
+    ALTERACAO_PERFIL = 'ALTERACAO_PERFIL', 'Alteração de Perfil de Usuário'
+
+    # Evento que registra falhas ou tentativas inválidas de autenticação
+    FALHA_LOGIN = 'FALHA_LOGIN', 'Falha de Autenticação / Login'
+
+    # Parametrização Financeira e Taxas
+    # Evento que audita alterações nas alíquotas fiscais e custos fixos da loja
+    EDICAO_TAXAS_LOJA = 'EDICAO_TAXAS_LOJA', 'Edição de Taxas da Loja'
+
+    # Evento que registra cadastro de novas regras tarifárias de canal
+    CRIACAO_PARAMETROS_CANAL = 'CRIACAO_PARAMETROS_CANAL', 'Cadastro de Parâmetros de Canal'
+
+    # Evento que audita atualizações de tarifas e pisos de frete grátis por canal
+    EDICAO_PARAMETROS_CANAL = 'EDICAO_PARAMETROS_CANAL', 'Edição de Parâmetros de Canal'
 
 
 # Declaração da enumeração textual para controle do fluxo de processamento e garantia de idempotência de Webhooks

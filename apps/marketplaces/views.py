@@ -48,7 +48,12 @@ from apps.tenancy.models import Loja
 # Importa mixins de permissão e funções utilitárias do sistema de autorização RBAC
 from apps.tenancy.permissions import (
     ModuloRequeridoMixin, IntegracaoConfigPermissionMixin, usuario_is_dev,
-    pode_configurar_integracao
+    usuario_is_admin, pode_configurar_integracao
+)
+from apps.accounts.rbac import (
+    tem_funcionalidade,
+    FUNC_CORE_AUDITORIA_VER,
+    FUNC_CORE_LOGS_VER
 )
 
 # Importa os modelos de dados do módulo de marketplaces
@@ -969,3 +974,83 @@ class WebhookIngestionView(View):
 
     def patch(self, request, *args, **kwargs):
         return HttpResponseNotAllowed(['POST'])
+
+
+# ==============================================================================
+# AUDITORIA GERAL DO SISTEMA (HISTÓRICO DE MUTAÇÕES, RBAC E EVENTOS CRÍTICOS)
+# ==============================================================================
+
+class LogAuditoriaListView(LoginRequiredMixin, ListView):
+    """
+    O QUE FAZ: Painel de auditoria de eventos, mutações de permissões e governança RBAC.
+    POR QUE FAZ: Rastreabilidade e conformidade com RN-04 (Fonte única da verdade e auditoria).
+    PERMISSÕES RBAC: DEV e ADMIN (ou usuários com permissão core.auditoria_ver / core.logs_ver). Bloqueia USUARIO operacional.
+    MULTI-TENANCY: DEV tem visão global; ADMIN visualiza os eventos da sua própria loja.
+    """
+    model = LogAuditoria
+    template_name = 'marketplaces/log_auditoria_list.html'
+    context_object_name = 'logs_auditoria'
+    paginate_by = 25
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect('login')
+        user = request.user
+        if not (usuario_is_dev(user) or
+                usuario_is_admin(user) or
+                tem_funcionalidade(user, FUNC_CORE_AUDITORIA_VER) or
+                tem_funcionalidade(user, FUNC_CORE_LOGS_VER)):
+            raise PermissionDenied("Acesso negado: seu perfil não possui autorização para consultar logs de auditoria.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = LogAuditoria.objects.select_related('loja', 'autor', 'usuario_afetado').all()
+
+        if usuario_is_dev(user):
+            loja_uuid = self.request.GET.get('loja', '').strip()
+            if loja_uuid:
+                qs = qs.filter(loja__public_id=loja_uuid)
+        else:
+            perfil = getattr(user, 'perfil', None)
+            if perfil and perfil.loja:
+                qs = qs.filter(loja=perfil.loja)
+            else:
+                return LogAuditoria.objects.none()
+
+        evento = self.request.GET.get('evento', '').strip()
+        if evento:
+            qs = qs.filter(evento=evento)
+
+        termo = self.request.GET.get('q', '').strip()
+        if termo:
+            qs = qs.filter(
+                Q(detalhes__icontains=termo) |
+                Q(autor__username__icontains=termo) |
+                Q(usuario_afetado__username__icontains=termo) |
+                Q(ip_origem__icontains=termo)
+            )
+
+        return qs.order_by('-criado_em')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        is_dev = usuario_is_dev(user)
+        context['is_dev'] = is_dev
+        context['eventos'] = EventoAuditoriaEnum.choices
+        context['evento_selecionado'] = self.request.GET.get('evento', '')
+        context['q'] = self.request.GET.get('q', '')
+
+        # Parâmetros de URL para paginação mantendo filtros aplicados
+        params = self.request.GET.copy()
+        if 'page' in params:
+            del params['page']
+        context['querystring'] = params.urlencode()
+
+        if is_dev:
+            context['lojas'] = Loja.objects.filter(ativo=True).order_by('nome')
+            context['loja_selecionada'] = self.request.GET.get('loja', '')
+
+        return context
+

@@ -77,18 +77,31 @@
                         {% endif %}
 
                         {% if modulos_ativos.financeiro or is_dev %}
-                            <li class="nav-item">
-                                <a class="nav-link {% if 'simulador' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'simulador_promocional' %}">
-                                    <i class="bi bi-calculator me-1"></i> Simulador
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle {% if 'simulador' in request.resolver_match.url_name or 'taxas' in request.resolver_match.url_name or 'parametro' in request.resolver_match.url_name %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-cash-coin me-1"></i> Precificação
                                 </a>
+                                <ul class="dropdown-menu shadow">
+                                    <li><a class="dropdown-item" href="{% url 'simulador_promocional' %}"><i class="bi bi-graph-up-arrow me-2"></i> Simulador Promocional</a></li>
+                                    {% if is_dev or user.perfil.is_admin or user.is_superuser %}
+                                        <li><a class="dropdown-item" href="{% url 'taxas_loja_list' %}"><i class="bi bi-shop-window me-2"></i> Taxas das Lojas</a></li>
+                                        <li><a class="dropdown-item" href="{% url 'parametro_canal_list' %}"><i class="bi bi-tags me-2"></i> Parâmetros dos Marketplaces</a></li>
+                                    {% endif %}
+                                </ul>
                             </li>
                         {% endif %}
 
                         {% if modulos_ativos.marketplaces or is_dev %}
-                            <li class="nav-item">
-                                <a class="nav-link {% if 'log' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'log_sincronizacao_list' %}">
-                                    <i class="bi bi-clock-history me-1"></i> Logs
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle {% if 'log' in request.resolver_match.url_name %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-journal-text me-1"></i> Logs
                                 </a>
+                                <ul class="dropdown-menu shadow">
+                                    <li><a class="dropdown-item" href="{% url 'log_sincronizacao_list' %}"><i class="bi bi-arrow-repeat me-2"></i> Logs de Integração</a></li>
+                                    {% if is_dev or user.perfil.is_admin or user.is_superuser %}
+                                        <li><a class="dropdown-item" href="{% url 'log_auditoria_list' %}"><i class="bi bi-shield-check me-2"></i> Logs de Auditoria</a></li>
+                                    {% endif %}
+                                </ul>
                             </li>
                         {% endif %}
 

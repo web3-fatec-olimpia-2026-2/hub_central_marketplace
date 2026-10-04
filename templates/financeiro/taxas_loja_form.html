@@ -1,0 +1,154 @@
+<!-- Os códigos foram gerados com auxilio de I.A. -->
+{% extends "base.html" %}
+
+{% block title %}Editar Taxas — {{ object.loja.nome }} — Hub Marketplaces{% endblock %}
+
+{% block page_title %}
+    <i class="bi bi-sliders text-primary me-2"></i>Editar Taxas da Loja
+{% endblock %}
+
+{% block page_subtitle %}
+    Configuração de parâmetros tributários, custos fixos e margem mínima para <strong>{{ object.loja.nome }}</strong>
+{% endblock %}
+
+{% block toolbar_actions %}
+    <a href="{% url 'taxas_loja_list' %}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i> Voltar à Lista
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm border mb-4">
+            <div class="card-header bg-body py-3 d-flex justify-content-between align-items-center">
+                <span class="fw-bold">
+                    <i class="bi bi-shop me-2 text-primary"></i>{{ object.loja.nome }}
+                </span>
+                <span class="badge bg-primary-subtle text-primary font-monospace">
+                    {{ object.loja.cnpj }}
+                </span>
+            </div>
+            <div class="card-body p-4">
+                <form method="post" novalidate>
+                    {% csrf_token %}
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger mb-4">
+                            {% for error in form.non_field_errors %}
+                                <p class="mb-0">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="row g-4">
+                        <!-- ALÍQUOTA DE IMPOSTO -->
+                        <div class="col-md-6">
+                            <label for="{{ form.aliquota_imposto.id_for_label }}" class="form-label fw-semibold">
+                                Alíquota de Imposto (Simples / ICMS)
+                            </label>
+                            <div class="input-group">
+                                {{ form.aliquota_imposto }}
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text text-muted">
+                                Valor decimal (ex.: <code>0.0400</code> para 4,00%, <code>0.0850</code> para 8,50%).
+                            </div>
+                            {% if form.aliquota_imposto.errors %}
+                                <div class="text-danger small mt-1">
+                                    {{ form.aliquota_imposto.errors.0 }}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- CUSTO DE EMBALAGEM PADRÃO -->
+                        <div class="col-md-6">
+                            <label for="{{ form.custo_embalagem_padrao.id_for_label }}" class="form-label fw-semibold">
+                                Custo Padrão de Embalagem
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">R$</span>
+                                {{ form.custo_embalagem_padrao }}
+                            </div>
+                            <div class="form-text text-muted">
+                                Custo padrão de expedição/caixa quando o produto não tiver custo próprio.
+                            </div>
+                            {% if form.custo_embalagem_padrao.errors %}
+                                <div class="text-danger small mt-1">
+                                    {{ form.custo_embalagem_padrao.errors.0 }}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- MARGEM LÍQUIDA MÍNIMA DE SEGURANÇA -->
+                        <div class="col-md-6">
+                            <label for="{{ form.margem_minima_seguranca.id_for_label }}" class="form-label fw-semibold">
+                                Margem Mínima de Segurança
+                            </label>
+                            <div class="input-group">
+                                {{ form.margem_minima_seguranca }}
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text text-muted">
+                                Piso mínimo exigido para aprovar promoções (ex.: <code>0.1500</code> para 15,00%).
+                            </div>
+                            {% if form.margem_minima_seguranca.errors %}
+                                <div class="text-danger small mt-1">
+                                    {{ form.margem_minima_seguranca.errors.0 }}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- CUSTOS FIXOS MENSAIS -->
+                        <div class="col-md-6">
+                            <label for="{{ form.custos_fixos_mensais.id_for_label }}" class="form-label fw-semibold">
+                                Custos Fixos Mensais Totais
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">R$</span>
+                                {{ form.custos_fixos_mensais }}
+                            </div>
+                            <div class="form-text text-muted">
+                                Total mensal de despesas fixas da operação (aluguel, equipe, software).
+                            </div>
+                            {% if form.custos_fixos_mensais.errors %}
+                                <div class="text-danger small mt-1">
+                                    {{ form.custos_fixos_mensais.errors.0 }}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                        <a href="{% url 'taxas_loja_list' %}" class="btn btn-outline-secondary">
+                            Cancelar
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check2-circle me-1"></i> Salvar Parâmetros Fiscais
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- CARD INFORMATIVO DE AUDITORIA E INTELIGÊNCIA -->
+        <div class="card bg-body-tertiary border shadow-sm">
+            <div class="card-body p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="p-2 rounded bg-info-subtle text-info fs-5">
+                        <i class="bi bi-info-circle"></i>
+                    </div>
+                    <div>
+                        <h6 class="mb-1 fw-bold">Impacto no Simulador Promocional</h6>
+                        <p class="mb-0 small text-muted">
+                            As alterações efetuadas refletem imediatamente nos cálculos de formação de preço de venda,
+                            ponto de equilíbrio (<em>breakeven</em>) e volume de compensação (\(Q_{meta}\)) do motor financeiro.
+                            Toda alteração é auditada e associada à sua conta de operador.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
