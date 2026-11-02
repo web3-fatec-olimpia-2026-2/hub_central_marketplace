@@ -33,6 +33,6 @@ dj-database-url>=3.1.2
 ruff>=0.5.0
 
 # Suíte de Testes Automatizados (US-33 / US-34)
-pytest>=8.0.0
+pytest>=9.2.0
 pytest-django>=4.8.0
 pytest-cov>=7.1.0
