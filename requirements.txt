@@ -30,7 +30,7 @@ psycopg2-binary>=2.9.0
 dj-database-url>=3.1.2
 
 # Qualidade de Código & Linter (US-32)
-ruff>=0.5.0
+ruff>=0.17.3
 
 # Suíte de Testes Automatizados (US-33 / US-34)
 pytest>=8.0.0
