@@ -8,7 +8,7 @@ django-environ==0.14.0
 django-extensions==4.1
 idna==3.19
 MarkupSafe==3.0.3
-pycparser==3.0
+pycparser==3.12
 pyOpenSSL==26.4.0
 requests==2.34.2
 sqlparse==0.6.0
