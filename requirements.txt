@@ -6,7 +6,7 @@ cryptography==50.0.2
 Django==6.1.2
 django-environ==0.14.0
 django-extensions==4.1
-idna==3.19
+idna==3.20
 MarkupSafe==3.0.3
 pycparser==3.0
 pyOpenSSL==26.4.0
