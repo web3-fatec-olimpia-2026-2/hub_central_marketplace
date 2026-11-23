@@ -24,7 +24,7 @@ drf-spectacular>=0.30.0
 pymongo>=4.6.0
 
 # Deploy em Nuvem & Produção (US-31)
-gunicorn>=26.2.0
+gunicorn>=27.0.1
 whitenoise>=6.12.0
 psycopg2-binary>=2.9.0
 dj-database-url>=3.1.2
